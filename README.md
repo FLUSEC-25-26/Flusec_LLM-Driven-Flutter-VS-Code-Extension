@@ -1,4 +1,4 @@
-# 🧠 FluSec – LLM-Driven Flutter Security Extension for VS Code
+# FluSec – LLM-Driven Flutter Security Extension for VS Code
 
 **FluSec** is a VS Code extension that performs **static security analysis** on Flutter/Dart projects.
 It detects multiple classes of security vulnerabilities and provides **educational, privacy-preserving feedback** powered by a local LLM (via Ollama or compatible runtimes).
