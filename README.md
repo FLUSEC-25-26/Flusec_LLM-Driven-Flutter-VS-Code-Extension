@@ -1,9 +1,3 @@
-Perfect ✅ — here’s a clean, **professional `README.md`** you can use for your overall *FluSec* VS Code extension (covers the full integrated project, not just your component).
-
-It’s written clearly so both your group and supervisors understand the purpose, structure, and setup.
-
----
-
 # 🧠 FluSec – LLM-Driven Flutter Security Extension for VS Code
 
 **FluSec** is a VS Code extension that performs **static security analysis** on Flutter/Dart projects.
@@ -178,4 +172,3 @@ In VS Code, press **F5** → opens new “Extension Development Host”.
 
 
 
-Would you like me to generate this as a downloadable **`README.md` file** (so you can directly push it to your GitHub repo)?
