@@ -169,6 +169,3 @@ In VS Code, press **F5** → opens new “Extension Development Host”.
 | Insecure Network Communication | HTTP/SSL security scanning               |
 | Insecure Data Storage          | Sensitive data handling analysis         |
 | Insufficient Input Validation  | Input sanitization & validation analysis |
-
-
-
