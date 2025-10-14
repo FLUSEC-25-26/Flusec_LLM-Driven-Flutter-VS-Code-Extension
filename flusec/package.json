@@ -14,11 +14,19 @@
   "contributes": {
     "commands": [
       {
-        "command": "flusec.helloWorld",
-        "title": "Hello World"
+        "command": "flusec.scanFile",
+        "title": "Flusec: Scan current file for secrets"
+      },
+      {
+        "command": "flusec.manageRules",
+        "title": "Flusec: Manage Rules"
+      },
+      { "command": "flusec.openFindings", 
+        "title": "Flusec: Open Findings Dashboard"
       }
     ]
   },
+  "files": ["dist", "web"],
   "scripts": {
     "vscode:prepublish": "npm run package",
     "compile": "npm run check-types && npm run lint && node esbuild.js",
@@ -45,5 +53,9 @@
     "typescript": "^5.9.3",
     "@vscode/test-cli": "^0.0.11",
     "@vscode/test-electron": "^2.5.2"
+  },
+
+  "dependencies": {
+    "node-fetch": "^2.7.0"
   }
 }
