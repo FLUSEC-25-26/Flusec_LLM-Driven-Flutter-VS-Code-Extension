@@ -3,7 +3,7 @@ import { execFile } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
 import { getLLMFeedback } from "../src/llm.js";
-import { openRuleManager } from "./ui/ruleManager";
+import { openRuleManager } from "./ui/ruleManager/hardcoded_secrets/ruleManager.js";
 
 // -------------------------------
 // LLM hover feedback support
