@@ -3247,9 +3247,10 @@ function refreshDiagnosticsFromFindings(fp) {
     const line = Math.max(0, (f.line ?? 1) - 1);
     const col = Math.max(0, (f.column ?? 1) - 1);
     const endCol = col + Math.max(1, f.snippet?.length ?? 80);
+    const cx = typeof f.complexity === "number" ? ` (Cx: ${f.complexity})` : "";
     const diag = new vscode2.Diagnostic(
       new vscode2.Range(line, col, line, endCol),
-      `[${f.ruleId}] ${f.message || ""}`,
+      `[${f.ruleId}] ${f.message || ""}${cx}`,
       severityToVS(f.severity || "warning")
     );
     diag.source = "flusec";
@@ -3288,7 +3289,10 @@ function upsertFindingsForDoc(findingsFilePath, doc, newFindings) {
       endColumn: lineText.length,
       ruleId: f.ruleId,
       message: f.message,
-      severity: f.severity || "warning"
+      severity: f.severity || "warning",
+      // NEW:
+      functionName: f.functionName,
+      complexity: f.complexity
     });
   }
   fs2.writeFileSync(findingsFilePath, JSON.stringify(all, null, 2), "utf8");
@@ -3388,13 +3392,19 @@ async function runAnalyzer(doc, context) {
       const lineIdx = Math.max(0, f.line - 1);
       const text = doc.lineAt(lineIdx).text;
       const range = new vscode2.Range(lineIdx, 0, lineIdx, text.length);
-      const diag = new vscode2.Diagnostic(range, f.message, severityToVS(f.severity || "warning"));
+      const cx = typeof f.complexity === "number" ? ` (Complexity: ${f.complexity})` : "";
+      const message = `${f.message}${cx}`;
+      const diag = new vscode2.Diagnostic(
+        range,
+        message,
+        severityToVS(f.severity || "warning")
+      );
       diag.source = "flusec";
       diag.code = f.ruleId;
       diags.push(diag);
       const key = makeKey(doc.uri, range);
       if (!feedbackCache.has(key)) {
-        enqueueLLMRequest(key, f.message);
+        enqueueLLMRequest(key, message);
       }
     }
     diagCollection.set(doc.uri, diags);
