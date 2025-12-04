@@ -22,12 +22,12 @@ void main(List<String> args) {
 
   // ✅ Dynamically locate rules.json — works in both extension & user project
   final currentDir = Directory.current.path;
-  final localRules = File(path.join(currentDir, 'data', 'rules.json'));
+  final localRules = File(path.join(currentDir, 'data', 'hardcoded_secrets_rules.json'));
   final extensionRules = File(path.join(
     path.dirname(Platform.script.toFilePath()),
     '..',
     'data',
-    'rules.json',
+    'hardcoded_secrets_rules.json',
   ));
 
   // ✅ Reload fresh every analyzer run
@@ -81,7 +81,7 @@ void main(List<String> args) {
         'ruleId': i.ruleId,
         'ruleName': _ruleNameFromMessage(i.message) ?? i.ruleId,
         'severity': i.severity,
-        'nodeKind': _nodeKindFromMessage(i.message) ?? '',
+        'nodeKind': _nodeKindFromMessage(i.message) ?? '', 
         'context': _contextFromMessage(i.message) ?? '',
         'message': i.message,
         'snippet': snippet,
