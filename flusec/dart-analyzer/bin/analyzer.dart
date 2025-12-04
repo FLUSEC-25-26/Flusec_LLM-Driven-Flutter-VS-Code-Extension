@@ -58,16 +58,20 @@ void main(List<String> args) {
   unit.accept(visitor);
 
   // === Minimal stdout payload (keeps your current behavior) ===
-  final out = visitor.issues
+    final out = visitor.issues
       .map((i) => {
             'ruleId': i.ruleId,
             'severity': i.severity,
             'message': i.message,
             'line': i.line,
             'column': i.column,
+            // NEW:
+            'functionName': i.functionName,
+            'complexity': i.complexity,
           })
       .toList();
   stdout.writeln(jsonEncode(out));
+
 
   // === Rich findings for VS Code dashboard/diagnostics ===
   try {
@@ -81,12 +85,17 @@ void main(List<String> args) {
         'ruleId': i.ruleId,
         'ruleName': _ruleNameFromMessage(i.message) ?? i.ruleId,
         'severity': i.severity,
-        'nodeKind': _nodeKindFromMessage(i.message) ?? '', 
+        'nodeKind': _nodeKindFromMessage(i.message) ?? '',
         'context': _contextFromMessage(i.message) ?? '',
         'message': i.message,
         'snippet': snippet,
-        'fingerprint': _fingerprint(filePath, i.line, i.column, i.ruleId, snippet),
+        // NEW:
+        'functionName': i.functionName,
+        'complexity': i.complexity,
+        'fingerprint':
+            _fingerprint(filePath, i.line, i.column, i.ruleId, snippet),
       });
+
     }
 
     // ✅ Always write to ".out/findings.json" in the current project folder
