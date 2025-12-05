@@ -26,6 +26,11 @@
       }
     ]
   },
+
+  "files": [
+    "dist",
+    "web"
+  ],
   
   "scripts": {
     "vscode:prepublish": "npm run package",
