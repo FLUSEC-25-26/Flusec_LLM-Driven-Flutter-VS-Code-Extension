@@ -99,11 +99,14 @@ function refreshDiagnosticsFromFindings(fp: string) {
     const col = Math.max(0, (f.column ?? 1) - 1);
     const endCol = col + Math.max(1, (f.snippet?.length ?? 80));
 
+    const cx =
+      typeof f.complexity === "number" ? ` (Cx: ${f.complexity})` : "";
     const diag = new vscode.Diagnostic(
       new vscode.Range(line, col, line, endCol),
-      `[${f.ruleId}] ${f.message || ""}`,
+      `[${f.ruleId}] ${f.message || ""}${cx}`,
       severityToVS(f.severity || "warning")
     );
+
     diag.source = "flusec";
     diag.code = f.ruleId;
 
@@ -121,8 +124,16 @@ function refreshDiagnosticsFromFindings(fp: string) {
 function upsertFindingsForDoc(
   findingsFilePath: string,
   doc: vscode.TextDocument,
-  newFindings: Array<{ ruleId: string; severity: string; message: string; line: number; column: number }>
-) {
+  newFindings: Array<{
+    ruleId: string;
+    severity: string;
+    message: string;
+    line: number;
+    column: number;
+    functionName?: string;
+    complexity?: number;
+  }>
+){
   ensureDirForFile(findingsFilePath);
   let all: any[] = [];
   if (fs.existsSync(findingsFilePath)) {
@@ -137,7 +148,7 @@ function upsertFindingsForDoc(
   const filePath = doc.fileName;
   all = all.filter((x) => x?.file !== filePath);
 
-  for (const f of newFindings) {
+    for (const f of newFindings) {
     const lineIdx = Math.max(0, f.line - 1);
     const lineText = doc.lineAt(lineIdx).text;
     all.push({
@@ -148,8 +159,12 @@ function upsertFindingsForDoc(
       ruleId: f.ruleId,
       message: f.message,
       severity: f.severity || "warning",
+      // NEW:
+      functionName: (f as any).functionName,
+      complexity: (f as any).complexity,
     });
   }
+
 
   fs.writeFileSync(findingsFilePath, JSON.stringify(all, null, 2), "utf8");
   refreshDiagnosticsFromFindings(findingsFilePath);
@@ -263,15 +278,29 @@ async function runAnalyzer(doc: vscode.TextDocument, context: vscode.ExtensionCo
       const lineIdx = Math.max(0, f.line - 1);
       const text = doc.lineAt(lineIdx).text;
       const range = new vscode.Range(lineIdx, 0, lineIdx, text.length);
-      const diag = new vscode.Diagnostic(range, f.message, severityToVS(f.severity || "warning"));
+
+      const cx =
+        typeof f.complexity === "number"
+          ? ` (Complexity: ${f.complexity})`
+          : "";
+      const message = `${f.message}${cx}`;
+
+      const diag = new vscode.Diagnostic(
+        range,
+        message,
+        severityToVS(f.severity || "warning")
+      );
       diag.source = "flusec";
       diag.code = f.ruleId;
       diags.push(diag);
 
-      // 🧠 Prefetch feedback immediately after scan
+      // 🧠 Prefetch feedback immediately after scan (now with complexity in prompt)
       const key = makeKey(doc.uri, range);
-      if (!feedbackCache.has(key)) {enqueueLLMRequest(key, f.message);}
+      if (!feedbackCache.has(key)) {
+        enqueueLLMRequest(key, message);
+      }
     }
+
 
     diagCollection.set(doc.uri, diags);
     upsertFindingsForDoc(findingsFile, doc, findings);
