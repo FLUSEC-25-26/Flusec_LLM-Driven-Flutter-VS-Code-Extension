@@ -48,8 +48,21 @@ class Issue {
   final int line;
   final int column;
 
-  Issue(this.ruleId, this.message, this.severity, this.line, this.column);
+  // NEW: where and how complex the secret’s context is
+  final String? functionName; // enclosing function/method name, if any
+  final int? complexity;      // cyclomatic complexity of that executable
+
+  Issue(
+    this.ruleId,
+    this.message,
+    this.severity,
+    this.line,
+    this.column, {
+    this.functionName,
+    this.complexity,
+  });
 }
+
 
 class RulesEngine {
   final List<DynamicRule> _dynamic = [];
@@ -283,6 +296,76 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
     return false;
   }
 
+    /// Find the enclosing function / method / constructor (if any)
+  AstNode? _enclosingExecutable(AstNode node) {
+    AstNode? current = node;
+    while (current != null) {
+      if (current is FunctionDeclaration ||
+          current is MethodDeclaration ||
+          current is ConstructorDeclaration ||
+          current is FunctionExpression) {
+        return current;
+      }
+      current = current.parent;
+    }
+    return null;
+  }
+
+  /// Human-readable name for the executable
+  String _executableName(AstNode exec) {
+    if (exec is FunctionDeclaration) {
+      return exec.name.lexeme;
+    }
+    if (exec is MethodDeclaration) {
+      return exec.name.lexeme;
+    }
+    if (exec is ConstructorDeclaration) {
+      final typeName = exec.returnType?.toSource() ?? '';
+      final ctorName = exec.name?.lexeme ?? '';
+      return ctorName.isEmpty ? typeName : '$typeName.$ctorName';
+    }
+    // anonymous functions / lambdas
+    return '<anonymous>';
+  }
+
+  /// Simple cyclomatic complexity:
+  /// counts branches (if/for/while/switch/?:) and && / ||.
+  int _computeCyclomaticComplexity(AstNode exec) {
+    int complexity = 1; // default path
+
+    void walk(AstNode n) {
+      if (n is IfStatement ||
+          n is ForStatement ||
+          n is WhileStatement ||
+          n is DoStatement ||
+          n is SwitchCase ||
+          n is ConditionalExpression) {
+        complexity++;
+      }
+
+      if (n is CatchClause) {
+        complexity++;
+      }
+
+      if (n is BinaryExpression) {
+        final op = n.operator.lexeme;
+        if (op == '&&' || op == '||') {
+          complexity++;
+        }
+      }
+
+      for (final child in n.childEntities) {
+        if (child is AstNode) {
+          walk(child);
+        }
+      }
+    }
+
+    walk(exec);
+    return complexity;
+  }
+
+
   void _maybeReport(AstNode node, String? value, String contextName) {
     if (value == null || value.isEmpty) return;
     if (_isInsideInsecureStorageCall(node)) return;
@@ -294,9 +377,27 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
     final loc = _nodeLocation(node);
     final key = '$filePath:${loc.$1}:${loc.$2}:${hit.ruleId}';
     if (_seen.add(key)) {
-      issues.add(Issue(hit.ruleId, hit.message, hit.severity, loc.$1, loc.$2));
+      // NEW: try to find enclosing executable and compute complexity
+      String? fnName;
+      int? complexity;
+      final exec = _enclosingExecutable(node);
+      if (exec != null) {
+        fnName = _executableName(exec);
+        complexity = _computeCyclomaticComplexity(exec);
+      }
+
+      issues.add(Issue(
+        hit.ruleId,
+        hit.message,
+        hit.severity,
+        loc.$1,
+        loc.$2,
+        functionName: fnName,
+        complexity: complexity,
+      ));
     }
   }
+
 
   (int, int) _nodeLocation(AstNode node) {
     final unit = node.root as CompilationUnit;

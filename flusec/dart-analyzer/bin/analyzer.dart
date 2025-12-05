@@ -22,12 +22,12 @@ void main(List<String> args) {
 
   // ✅ Dynamically locate rules.json — works in both extension & user project
   final currentDir = Directory.current.path;
-  final localRules = File(path.join(currentDir, 'data', 'rules.json'));
+  final localRules = File(path.join(currentDir, 'data', 'hardcoded_secrets_rules.json'));
   final extensionRules = File(path.join(
     path.dirname(Platform.script.toFilePath()),
     '..',
     'data',
-    'rules.json',
+    'hardcoded_secrets_rules.json',
   ));
 
   // ✅ Reload fresh every analyzer run
@@ -58,16 +58,20 @@ void main(List<String> args) {
   unit.accept(visitor);
 
   // === Minimal stdout payload (keeps your current behavior) ===
-  final out = visitor.issues
+    final out = visitor.issues
       .map((i) => {
             'ruleId': i.ruleId,
             'severity': i.severity,
             'message': i.message,
             'line': i.line,
             'column': i.column,
+            // NEW:
+            'functionName': i.functionName,
+            'complexity': i.complexity,
           })
       .toList();
   stdout.writeln(jsonEncode(out));
+
 
   // === Rich findings for VS Code dashboard/diagnostics ===
   try {
@@ -85,8 +89,13 @@ void main(List<String> args) {
         'context': _contextFromMessage(i.message) ?? '',
         'message': i.message,
         'snippet': snippet,
-        'fingerprint': _fingerprint(filePath, i.line, i.column, i.ruleId, snippet),
+        // NEW:
+        'functionName': i.functionName,
+        'complexity': i.complexity,
+        'fingerprint':
+            _fingerprint(filePath, i.line, i.column, i.ruleId, snippet),
       });
+
     }
 
     // ✅ Always write to ".out/findings.json" in the current project folder
