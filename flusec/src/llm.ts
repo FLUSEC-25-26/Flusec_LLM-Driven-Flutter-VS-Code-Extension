@@ -34,7 +34,7 @@ Return JSON only (no markdown, no extra text):
   "why": "2-3 sentences explaining why this is a problem",
   "risk": "1 sentence describing impact",
   "fix": ["3 short steps to fix it"],
-  "example": "very short Dart example (optional)"
+  "example": "very short Dart example"
 }
 
 Issue: ${issueMessage}
