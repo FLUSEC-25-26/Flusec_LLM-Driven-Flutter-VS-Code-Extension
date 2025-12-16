@@ -3362,6 +3362,8 @@ function deactivate() {
   diagCollection.dispose();
 }
 async function runAnalyzer(doc, context) {
+  llmQueue.length = 0;
+  processingQueue = false;
   const folder = findWorkspaceFolderForDoc(doc);
   if (!folder) {
     vscode2.window.showErrorMessage("No workspace folder found for this document.");
@@ -3408,10 +3410,6 @@ async function runAnalyzer(doc, context) {
       diag.source = "flusec";
       diag.code = f.ruleId;
       diags.push(diag);
-      const key = makeKey(doc.uri, range);
-      if (!feedbackCache.has(key)) {
-        enqueueLLMRequest(key, message);
-      }
     }
     diagCollection.set(doc.uri, diags);
     upsertFindingsForDoc(findingsFile, doc, findings);

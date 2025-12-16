@@ -22,7 +22,7 @@ function enqueueLLMRequest(key: string, message: string) {
       const feedback = await getLLMFeedback(message);
       feedbackCache.set(key, feedback);
 
-      // ⚡ Double-trigger hover refresh to reduce delay
+      //  Double-trigger hover refresh to reduce delay
       vscode.commands.executeCommand("editor.action.showHover");
       setTimeout(() => vscode.commands.executeCommand("editor.action.showHover"), 500);
 
@@ -253,6 +253,11 @@ export function deactivate() {
 // Analyzer
 // ----------------------------------------
 async function runAnalyzer(doc: vscode.TextDocument, context: vscode.ExtensionContext) {
+
+  // clear old LLM queue & state before new scan
+  llmQueue.length = 0;
+  processingQueue = false;
+
   const folder = findWorkspaceFolderForDoc(doc);
   if (!folder) {
     vscode.window.showErrorMessage("No workspace folder found for this document.");
@@ -306,10 +311,10 @@ async function runAnalyzer(doc: vscode.TextDocument, context: vscode.ExtensionCo
       diags.push(diag);
 
       // 🧠 Prefetch feedback immediately after scan (now with complexity in prompt)
-      const key = makeKey(doc.uri, range);
-      if (!feedbackCache.has(key)) {
-        enqueueLLMRequest(key, message);
-      }
+   //   const key = makeKey(doc.uri, range);
+   //   if (!feedbackCache.has(key)) {
+   //     enqueueLLMRequest(key, message);
+   //   }
     }
 
 
