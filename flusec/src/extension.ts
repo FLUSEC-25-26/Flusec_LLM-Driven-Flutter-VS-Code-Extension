@@ -217,18 +217,29 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("flusec.openFindings", () => openDashboard(context))
   );
 
-  vscode.workspace.onDidSaveTextDocument(async (doc) => {
-    if (doc.languageId === "dart") {await runAnalyzer(doc, context);}
-  });
+   //  AUTO scan on SAVE
+  context.subscriptions.push(
+    vscode.workspace.onDidSaveTextDocument(async (doc) => {
+      if (doc.languageId === "dart") {
+        await runAnalyzer(doc, context);
+      }
+    })
+  );
 
-  // Real-time typing trigger
+  //  AUTO scan while TYPING
   let typingTimeout: NodeJS.Timeout | undefined;
-  vscode.workspace.onDidChangeTextDocument(async (event) => {
-    const doc = event.document;
-    if (doc.languageId !== "dart") {return;}
-    clearTimeout(typingTimeout);
-    typingTimeout = setTimeout(() => runAnalyzer(doc, context), 1500);
-  });
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeTextDocument((event) => {
+      const doc = event.document;
+      if (doc.languageId !== "dart") return;
+
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        runAnalyzer(doc, context);
+      }, 1500);
+    })
+  );
 
   registerHoverProvider(context);
 }
