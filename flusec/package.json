@@ -30,6 +30,7 @@
         "command": "flusec.openFindings",
         "title": "Flusec: Open Findings Dashboard"
       }
+     
     ]
   },
   "files": [
