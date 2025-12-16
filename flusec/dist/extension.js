@@ -3335,20 +3335,26 @@ function activate(context) {
   context.subscriptions.push(
     vscode2.commands.registerCommand("flusec.openFindings", () => openDashboard(context))
   );
-  vscode2.workspace.onDidSaveTextDocument(async (doc) => {
-    if (doc.languageId === "dart") {
-      await runAnalyzer(doc, context);
-    }
-  });
+  context.subscriptions.push(
+    vscode2.workspace.onDidSaveTextDocument(async (doc) => {
+      if (doc.languageId === "dart") {
+        await runAnalyzer(doc, context);
+      }
+    })
+  );
   let typingTimeout;
-  vscode2.workspace.onDidChangeTextDocument(async (event) => {
-    const doc = event.document;
-    if (doc.languageId !== "dart") {
-      return;
-    }
-    clearTimeout(typingTimeout);
-    typingTimeout = setTimeout(() => runAnalyzer(doc, context), 1500);
-  });
+  context.subscriptions.push(
+    vscode2.workspace.onDidChangeTextDocument((event) => {
+      const doc = event.document;
+      if (doc.languageId !== "dart") {
+        return;
+      }
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        runAnalyzer(doc, context);
+      }, 1500);
+    })
+  );
   registerHoverProvider(context);
 }
 function deactivate() {
