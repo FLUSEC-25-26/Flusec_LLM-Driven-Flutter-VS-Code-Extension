@@ -1,9 +1,7 @@
 const fetch = require("node-fetch");
 
-// Type matching Ollama server response
 type OllamaServerResponse = {
   response?: string;
-  done?: boolean;
 };
 
 export async function getLLMFeedback(issueMessage: string): Promise<string> {
@@ -12,30 +10,18 @@ export async function getLLMFeedback(issueMessage: string): Promise<string> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "llama3.2:latest", // ✅ faster; change back if needed
+        model: "llama3.2:latest",
         stream: false,
-
-        // ✅ keep model warm so next hover is faster
-        keep_alive: "10m",
-
-        // ✅ short, structured prompt to reduce output time
+        keep_alive: "30m",
         prompt: `
-    You are a secure coding assistant for Flutter/Dart.
-    Return JSON only (no markdown).
-
-    {
-      "why": "1 sentence why it is risky",
-      "fix": ["1-3 short steps"],
-      "example": "1 short example (optional)"
-    }
-
-    Issue: ${issueMessage}
-            `.trim(),
-
-        // ✅ Ollama token + speed controls (correct way)
+Return JSON only:
+{"why":"1 sentence","fix":["step1","step2"],"example":""}
+Issue: ${issueMessage}
+        `.trim(),
         options: {
-          num_predict: 120, // max tokens to generate
-          temperature: 0.1, // less rambling
+          num_ctx: 2048,
+          num_predict: 80,
+          temperature: 0.0,
           top_p: 0.9,
           repeat_penalty: 1.1,
         },
@@ -44,19 +30,13 @@ export async function getLLMFeedback(issueMessage: string): Promise<string> {
 
     if (!res.ok) {
       console.error("Ollama response not OK:", res.status, res.statusText);
-      {return "Could not get LLM feedback.";}
+      return "Could not get LLM feedback.";
     }
 
     const data: OllamaServerResponse = await res.json();
-    console.log("LLM raw response:", data);
-
-    const raw = (data.response || "").trim();
-    if (!raw) {return "No feedback returned by LLM.";}
-
-    // Optional: if model returns extra text, just return raw
-    {return raw;}
+    return (data.response || "").trim() || "No feedback returned by LLM.";
   } catch (err) {
     console.error("Error fetching LLM feedback:", err);
-    {return "Error getting LLM feedback.";}
+    return "Error getting LLM feedback.";
   }
 }
