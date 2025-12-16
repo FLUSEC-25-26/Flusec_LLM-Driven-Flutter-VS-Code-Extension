@@ -67,6 +67,42 @@ function ensureDirForFile(filePath: string) {
   if (!fs.existsSync(dir)) {fs.mkdirSync(dir, { recursive: true });}
 }
 
+function formatFeedbackForHover(raw: string): vscode.MarkdownString {
+  const md = new vscode.MarkdownString();
+  md.isTrusted = false;
+
+  try {
+    const obj = JSON.parse(raw);
+
+    md.appendMarkdown(`### 💡 Educational feedback\n\n`);
+
+    if (obj.why) {
+      md.appendMarkdown(`**Why**: ${obj.why}\n\n`);
+    }
+
+    if (Array.isArray(obj.fix) && obj.fix.length > 0) {
+      md.appendMarkdown(`**Fix**:\n`);
+      for (const step of obj.fix.slice(0, 3)) {
+        md.appendMarkdown(`- ${String(step).replace(/^\d+\.\s*/, "")}\n`);
+      }
+      md.appendMarkdown(`\n`);
+    }
+
+    if (obj.example && String(obj.example).trim()) {
+      md.appendMarkdown(`**Example**:\n\n`);
+      md.appendCodeblock(String(obj.example), "dart");
+    }
+
+    return md;
+  } catch {
+    // fallback if JSON parsing fails
+    md.appendMarkdown(`### 💡 Educational feedback\n\n`);
+    md.appendMarkdown(raw);
+    return md;
+  }
+}
+
+
 // ----------------------------------------
 // Diagnostics
 // ----------------------------------------
@@ -182,8 +218,11 @@ function registerHoverProvider(context: vscode.ExtensionContext) {
           const key = makeKey(document.uri, diag.range);
 
           if (feedbackCache.has(key)) {
-            return new vscode.Hover(`💡 Educational feedback:\n\n${feedbackCache.get(key)}`);
-          }
+            return new vscode.Hover(
+               formatFeedbackForHover(feedbackCache.get(key)!)
+           );
+         }
+
 
           enqueueLLMRequest(key, diag.message);
           return new vscode.Hover("💡 Loading feedback from LLM...");

@@ -3253,6 +3253,44 @@ function ensureDirForFile(filePath) {
     fs2.mkdirSync(dir, { recursive: true });
   }
 }
+function formatFeedbackForHover(raw) {
+  const md = new vscode2.MarkdownString();
+  md.isTrusted = false;
+  try {
+    const obj = JSON.parse(raw);
+    md.appendMarkdown(`### \u{1F4A1} Educational feedback
+
+`);
+    if (obj.why) {
+      md.appendMarkdown(`**Why**: ${obj.why}
+
+`);
+    }
+    if (Array.isArray(obj.fix) && obj.fix.length > 0) {
+      md.appendMarkdown(`**Fix**:
+`);
+      for (const step of obj.fix.slice(0, 3)) {
+        md.appendMarkdown(`- ${String(step).replace(/^\d+\.\s*/, "")}
+`);
+      }
+      md.appendMarkdown(`
+`);
+    }
+    if (obj.example && String(obj.example).trim()) {
+      md.appendMarkdown(`**Example**:
+
+`);
+      md.appendCodeblock(String(obj.example), "dart");
+    }
+    return md;
+  } catch {
+    md.appendMarkdown(`### \u{1F4A1} Educational feedback
+
+`);
+    md.appendMarkdown(raw);
+    return md;
+  }
+}
 var diagCollection = vscode2.languages.createDiagnosticCollection("flusec");
 function severityToVS(sev) {
   return sev?.toLowerCase() === "error" ? vscode2.DiagnosticSeverity.Error : vscode2.DiagnosticSeverity.Warning;
@@ -3337,9 +3375,9 @@ function registerHoverProvider(context) {
         if (diag.range.contains(position)) {
           const key = makeKey(document.uri, diag.range);
           if (feedbackCache.has(key)) {
-            return new vscode2.Hover(`\u{1F4A1} Educational feedback:
-
-${feedbackCache.get(key)}`);
+            return new vscode2.Hover(
+              formatFeedbackForHover(feedbackCache.get(key))
+            );
           }
           enqueueLLMRequest(key, diag.message);
           return new vscode2.Hover("\u{1F4A1} Loading feedback from LLM...");
