@@ -3133,11 +3133,14 @@ async function runAnalyzerExe(context, folder, dartFilePath) {
     throw new Error(`Analyzer not found at: ${exe}`);
   }
   return await new Promise((resolve, reject) => {
+    console.log("DEBUG analyzer exe =", exe);
+    console.log("DEBUG exe exists =", fs2.existsSync(exe));
+    console.log("DEBUG cwd =", cwd);
+    console.log("DEBUG dart file =", dartFilePath);
     (0, import_child_process.execFile)(
       exe,
       [dartFilePath],
       {
-        shell: true,
         cwd
         // ✅ critical fix for ".out" writing location
       },
