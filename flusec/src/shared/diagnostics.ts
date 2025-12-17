@@ -25,7 +25,7 @@ export function applyDiagnostics(findings: Finding[]) {
 
   for (const f of findings) {
     const file = String(f.file || "");
-    if (!file) continue;
+    if (!file) {continue;}
 
     const line = Math.max(0, (f.line ?? 1) - 1);
     const col = Math.max(0, (f.column ?? 1) - 1);

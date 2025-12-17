@@ -45,7 +45,7 @@ export function openDashboard(
 
   // React to dashboard interactions
   panel.webview.onDidReceiveMessage(async (msg) => {
-    if (!msg || typeof msg.command !== "string") return;
+    if (!msg || typeof msg.command !== "string") {return;}
 
     if (msg.command === "reveal") {
       const file = String(msg.file || "");

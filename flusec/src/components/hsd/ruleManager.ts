@@ -61,7 +61,7 @@ export function openHsdRuleManager(context: vscode.ExtensionContext) {
   loadRulesIntoWebview();
 
   panel.webview.onDidReceiveMessage(async (msg) => {
-    if (!msg || typeof msg.command !== "string") return;
+    if (!msg || typeof msg.command !== "string") {return;}
 
     // Save all rules (or delete action)
     if (msg.command === "saveRules") {
@@ -97,16 +97,16 @@ export function openHsdRuleManager(context: vscode.ExtensionContext) {
         "Delete",
         "Cancel"
       );
-      if (choice !== "Delete") return;
+      if (choice !== "Delete") {return;}
 
       try {
         const rules = readRules();
 
         let delIndex = -1;
-        if (id) delIndex = rules.findIndex((r) => r && r.id === id);
+        if (id) {delIndex = rules.findIndex((r) => r && r.id === id);}
 
         if ((delIndex < 0 || delIndex >= rules.length) && typeof index === "number") {
-          if (index >= 0 && index < rules.length) delIndex = index;
+          if (index >= 0 && index < rules.length) {delIndex = index;}
         }
 
         if (delIndex >= 0 && delIndex < rules.length) {

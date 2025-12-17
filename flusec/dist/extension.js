@@ -762,14 +762,14 @@ var require_url_state_machine = __commonJS({
       return url.replace(/\u0009|\u000A|\u000D/g, "");
     }
     function shortenPath(url) {
-      const path3 = url.path;
-      if (path3.length === 0) {
+      const path5 = url.path;
+      if (path5.length === 0) {
         return;
       }
-      if (url.scheme === "file" && path3.length === 1 && isNormalizedWindowsDriveLetter(path3[0])) {
+      if (url.scheme === "file" && path5.length === 1 && isNormalizedWindowsDriveLetter(path5[0])) {
         return;
       }
-      path3.pop();
+      path5.pop();
     }
     function includesCredentials(url) {
       return url.username !== "" || url.password !== "";
@@ -3045,10 +3045,127 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
+
+// src/components/hsd/index.ts
+var vscode6 = __toESM(require("vscode"));
+var fs5 = __toESM(require("fs"));
+
+// src/shared/workspace.ts
+var vscode = __toESM(require("vscode"));
+function findWorkspaceFolderForDoc(doc) {
+  return vscode.workspace.getWorkspaceFolder(doc.uri) ?? vscode.workspace.workspaceFolders?.[0];
+}
+
+// src/shared/diagnostics.ts
 var vscode2 = __toESM(require("vscode"));
-var import_child_process = require("child_process");
+var diagCollection = vscode2.languages.createDiagnosticCollection("flusec");
+function severityToVS(sev) {
+  return sev?.toLowerCase() === "error" ? vscode2.DiagnosticSeverity.Error : vscode2.DiagnosticSeverity.Warning;
+}
+function applyDiagnostics(findings) {
+  const map = /* @__PURE__ */ new Map();
+  for (const f of findings) {
+    const file = String(f.file || "");
+    if (!file) {
+      continue;
+    }
+    const line = Math.max(0, (f.line ?? 1) - 1);
+    const col = Math.max(0, (f.column ?? 1) - 1);
+    const endCol = col + 1;
+    const cx = typeof f.complexity === "number" ? ` (Cx: ${f.complexity})` : "";
+    const msg = `[${f.ruleId}] ${f.message || ""}${cx}`;
+    const d = new vscode2.Diagnostic(
+      new vscode2.Range(line, col, line, endCol),
+      msg,
+      severityToVS(f.severity || "warning")
+    );
+    d.source = "flusec";
+    d.code = f.ruleId;
+    const list = map.get(file) ?? [];
+    list.push(d);
+    map.set(file, list);
+  }
+  diagCollection.clear();
+  for (const [fsPath, diags] of map) {
+    diagCollection.set(vscode2.Uri.file(fsPath), diags);
+  }
+}
+function disposeDiagnostics() {
+  diagCollection.clear();
+  diagCollection.dispose();
+}
+
+// src/shared/fsUtil.ts
+var fs = __toESM(require("fs"));
+var path = __toESM(require("path"));
+function ensureDirForFile(filePath) {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
+
+// src/shared/paths.ts
 var path2 = __toESM(require("path"));
+function analyzerExePath(context) {
+  return path2.join(context.extensionUri.fsPath, "dart-analyzer", "bin", "analyzer.exe");
+}
+function analyzerCwdForWorkspace(folder) {
+  return path2.join(folder.uri.fsPath, "dart-analyzer");
+}
+function findingsPathForComponent(folder, componentId) {
+  return path2.join(folder.uri.fsPath, "dart-analyzer", ".out", componentId, "findings.json");
+}
+function rulesJsonPathForComponent(context, componentRulesFileName) {
+  return path2.join(context.extensionUri.fsPath, "dart-analyzer", "data", componentRulesFileName);
+}
+function componentRuleManagerHtmlPath(context, relHtmlPathFromExtensionRoot) {
+  return path2.join(context.extensionUri.fsPath, relHtmlPathFromExtensionRoot);
+}
+
+// src/shared/analyzerRunner.ts
+var import_child_process = require("child_process");
 var fs2 = __toESM(require("fs"));
+async function runAnalyzerExe(context, folder, dartFilePath) {
+  const exe = analyzerExePath(context);
+  const cwd = analyzerCwdForWorkspace(folder);
+  if (!fs2.existsSync(exe)) {
+    throw new Error(`Analyzer not found at: ${exe}`);
+  }
+  return await new Promise((resolve, reject) => {
+    (0, import_child_process.execFile)(
+      exe,
+      [dartFilePath],
+      {
+        shell: true,
+        cwd
+        // ✅ critical fix for ".out" writing location
+      },
+      (err, stdout, stderr) => {
+        if (stderr) {
+          console.error("[Analyzer stderr]", stderr);
+        }
+        if (err) {
+          reject(err);
+          return;
+        }
+        try {
+          const parsed = JSON.parse(stdout);
+          if (!Array.isArray(parsed)) {
+            resolve([]);
+            return;
+          }
+          resolve(parsed);
+        } catch (e) {
+          reject(new Error("Failed to parse analyzer stdout JSON: " + String(e)));
+        }
+      }
+    );
+  });
+}
+
+// src/hover/llmQueue.ts
+var vscode3 = __toESM(require("vscode"));
 
 // src/llm.ts
 var fetch = require_lib2();
@@ -3058,167 +3175,51 @@ async function getLLMFeedback(issueMessage) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "llama3.2:latest",
-        stream: false,
-        // Keep model warm so repeated hovers are fast
-        keep_alive: "30m",
-        // Balanced prompt: more educational, still constrained
-        prompt: `
-You are a secure coding assistant for Flutter/Dart.
-Explain clearly and briefly.
-
-Return JSON only (no markdown, no extra text):
-{
-  "why": "2-3 sentences explaining why this is a problem",
-  "risk": "1 sentence describing impact",
-  "fix": ["3 short steps to fix it"],
-  "example": "very short Dart example"
-}
-
-Issue: ${issueMessage}
-        `.trim(),
-        // Ollama generation controls (balanced)
-        options: {
-          num_ctx: 2048,
-          // keep context small for speed
-          num_predict: 160,
-          // enough for educational content, still fast
-          temperature: 0.15,
-          // slight creativity, but not rambling
-          top_p: 0.9,
-          repeat_penalty: 1.1
-        }
+        model: "llama3.2",
+        prompt: `Provide an educational feedback for the following Dart code issue: "${issueMessage}". Keep it short and clear.`,
+        max_tokens: 150,
+        temperature: 0.7,
+        stream: false
       })
     });
     if (!res.ok) {
-      console.error("Ollama response not OK:", res.status, res.statusText);
-      {
-        return "Could not get LLM feedback.";
-      }
+      console.error("Ollama response not OK:", res.statusText);
+      return "Could not get LLM feedback.";
     }
     const data = await res.json();
-    const raw = (data.response || "").trim();
-    if (!raw) {
-      return "No feedback returned by LLM.";
-    }
-    return raw;
+    const feedback = data.response?.trim() || data.results?.[0]?.content?.trim() || data.output?.trim() || "No feedback returned by LLM.";
+    return feedback;
   } catch (err) {
     console.error("Error fetching LLM feedback:", err);
-    {
-      return "Error getting LLM feedback.";
-    }
+    return "Error getting LLM feedback.";
   }
 }
 
-// src/ui/ruleManager/hardcoded_secrets/ruleManager.ts
-var vscode = __toESM(require("vscode"));
-var fs = __toESM(require("fs"));
-var path = __toESM(require("path"));
-function openRuleManager(context) {
-  const panel = vscode.window.createWebviewPanel(
-    "ruleManager",
-    "Flusec Rule Manager",
-    vscode.ViewColumn.One,
-    { enableScripts: true, retainContextWhenHidden: true }
-  );
-  const extensionRoot = context.extensionUri.fsPath;
-  const rulesPath = path.join(extensionRoot, "dart-analyzer", "data", "rules.json");
-  const htmlFile = path.join(extensionRoot, "src", "ui", "ruleManager.html");
-  panel.webview.html = fs.readFileSync(htmlFile, "utf8");
-  function readRules() {
-    try {
-      const txt = fs.readFileSync(rulesPath, "utf8");
-      const json = JSON.parse(txt);
-      return Array.isArray(json) ? json : [];
-    } catch {
-      return [];
-    }
-  }
-  function writeRules(rules) {
-    fs.mkdirSync(path.dirname(rulesPath), { recursive: true });
-    const tmp = rulesPath + ".tmp";
-    fs.writeFileSync(tmp, JSON.stringify(rules, null, 2), "utf8");
-    fs.renameSync(tmp, rulesPath);
-  }
-  function loadRulesIntoWebview() {
-    const data = readRules();
-    panel.webview.postMessage({ command: "loadRules", rules: data });
-  }
-  loadRulesIntoWebview();
-  panel.webview.onDidReceiveMessage(async (msg) => {
-    if (msg.command === "saveRules") {
-      try {
-        fs.writeFileSync(rulesPath, JSON.stringify(msg.rules, null, 2), "utf8");
-        const action = typeof msg.action === "string" ? msg.action : "save";
-        const deletedId = typeof msg.deletedId === "string" && msg.deletedId.trim().length > 0 ? msg.deletedId.trim() : "";
-        console.log("[RuleManager] saveRules action =", action, "deletedId =", deletedId);
-        const toast = action === "delete" ? `\u{1F5D1}\uFE0F Rule deleted successfully${deletedId ? `: ${deletedId}` : ""}.` : "\u2705 Rules saved successfully!";
-        vscode.window.showInformationMessage(toast);
-        const data = JSON.parse(fs.readFileSync(rulesPath, "utf8"));
-        panel.webview.postMessage({ command: "loadRules", rules: data });
-      } catch (e) {
-        vscode.window.showErrorMessage("Failed to save rules: " + e);
-      }
-    } else if (msg.command === "confirmDelete") {
-      const { id, index } = msg;
-      const choice = await vscode.window.showWarningMessage(
-        `Delete rule${id ? ` "${id}"` : ""}?`,
-        { modal: true },
-        "Delete",
-        "Cancel"
-      );
-      if (choice !== "Delete") {
-        return;
-      }
-      try {
-        const rules = readRules();
-        let delIndex = -1;
-        if (id) {
-          delIndex = rules.findIndex((r) => r && r.id === id);
-        }
-        if ((delIndex < 0 || delIndex >= rules.length) && typeof index === "number") {
-          if (index >= 0 && index < rules.length) {
-            delIndex = index;
-          }
-        }
-        if (delIndex >= 0 && delIndex < rules.length) {
-          const removed = rules.splice(delIndex, 1);
-          writeRules(rules);
-          vscode.window.showInformationMessage(
-            `\u{1F5D1}\uFE0F Deleted rule${removed[0]?.id ? ` "${removed[0].id}"` : ""}.`
-          );
-          loadRulesIntoWebview();
-        } else {
-          vscode.window.showErrorMessage(
-            `Could not find rule to delete (id: ${id ?? "n/a"}, index: ${index ?? "n/a"}).`
-          );
-        }
-      } catch (e) {
-        vscode.window.showErrorMessage("Failed to delete rule: " + (e?.message || e));
-      }
-    } else if (msg.command === "refresh") {
-      loadRulesIntoWebview();
-    } else if (msg.command === "debugPath") {
-      vscode.window.showInformationMessage(`Rules path: ${rulesPath}`);
-    }
-  });
-}
-
-// src/extension.ts
+// src/hover/llmQueue.ts
 var feedbackCache = /* @__PURE__ */ new Map();
 var llmQueue = [];
 var processingQueue = false;
 function makeKey(uri, range) {
   return `${uri.toString()}:${range.start.line}:${range.start.character}`;
 }
+function getCachedFeedback(key) {
+  return feedbackCache.get(key);
+}
+function clearCacheForDocument(docUri) {
+  for (const key of Array.from(feedbackCache.keys())) {
+    if (key.startsWith(docUri.toString())) {
+      feedbackCache.delete(key);
+    }
+  }
+}
 function enqueueLLMRequest(key, message) {
   llmQueue.push(async () => {
     try {
       const feedback = await getLLMFeedback(message);
       feedbackCache.set(key, feedback);
-      vscode2.commands.executeCommand("editor.action.showHover");
-      setTimeout(() => vscode2.commands.executeCommand("editor.action.showHover"), 500);
-      vscode2.window.setStatusBarMessage("\u2705 LLM feedback ready", 2e3);
+      vscode3.commands.executeCommand("editor.action.showHover");
+      setTimeout(() => vscode3.commands.executeCommand("editor.action.showHover"), 500);
+      vscode3.window.setStatusBarMessage("\u2705 LLM feedback ready", 2e3);
     } catch (err) {
       console.error("Error fetching LLM feedback:", err);
       feedbackCache.set(key, "\u26A0\uFE0F Error fetching LLM feedback.");
@@ -3241,20 +3242,274 @@ async function processQueue() {
   }
   processingQueue = false;
 }
-function findWorkspaceFolderForDoc(doc) {
-  return vscode2.workspace.getWorkspaceFolder(doc.uri) ?? vscode2.workspace.workspaceFolders?.[0];
+
+// src/shared/dashboard.ts
+var vscode4 = __toESM(require("vscode"));
+var fs3 = __toESM(require("fs"));
+var path3 = __toESM(require("path"));
+function openDashboard(context, findingsFilePath) {
+  const panel = vscode4.window.createWebviewPanel(
+    "flusecDashboard",
+    "Flusec Findings",
+    vscode4.ViewColumn.Beside,
+    { enableScripts: true, retainContextWhenHidden: true }
+  );
+  const htmlPath = path3.join(context.extensionUri.fsPath, "web", "dashboard.html");
+  panel.webview.html = fs3.existsSync(htmlPath) ? fs3.readFileSync(htmlPath, "utf8") : "<html><body>Dashboard not found</body></html>";
+  const load = () => {
+    try {
+      const raw = fs3.existsSync(findingsFilePath) ? JSON.parse(fs3.readFileSync(findingsFilePath, "utf8")) : [];
+      panel.webview.postMessage({ command: "loadFindings", data: raw });
+    } catch {
+      panel.webview.postMessage({ command: "loadFindings", data: [] });
+    }
+  };
+  load();
+  panel.webview.onDidReceiveMessage(async (msg) => {
+    if (!msg || typeof msg.command !== "string") {
+      return;
+    }
+    if (msg.command === "reveal") {
+      const file = String(msg.file || "");
+      const line = Math.max(1, Number(msg.line || 1));
+      const column = Math.max(1, Number(msg.column || 1));
+      try {
+        const uri = vscode4.Uri.file(file);
+        const doc = await vscode4.workspace.openTextDocument(uri);
+        const editor = await vscode4.window.showTextDocument(doc, { preview: false });
+        const pos = new vscode4.Position(line - 1, column - 1);
+        editor.selection = new vscode4.Selection(pos, pos);
+        editor.revealRange(new vscode4.Range(pos, pos), vscode4.TextEditorRevealType.InCenter);
+      } catch (e) {
+        vscode4.window.showErrorMessage("Failed to reveal file: " + String(e));
+      }
+    }
+    if (msg.command === "refresh") {
+      load();
+    }
+  });
 }
-function findingsPathForFolder(folder) {
-  return path2.join(folder.uri.fsPath, "dart-analyzer", ".out", "findings.json");
-}
-function ensureDirForFile(filePath) {
-  const dir = path2.dirname(filePath);
-  if (!fs2.existsSync(dir)) {
-    fs2.mkdirSync(dir, { recursive: true });
+
+// src/components/hsd/ruleManager.ts
+var vscode5 = __toESM(require("vscode"));
+var fs4 = __toESM(require("fs"));
+var path4 = __toESM(require("path"));
+
+// src/components/hsd/settings.ts
+var HSD_COMPONENT_ID = "hsd";
+var HSD_RULES_FILE = "hardcoded_secrets_rules.json";
+var CMD_SCAN_FILE = "flusec.scanFile";
+var CMD_MANAGE_RULES = "flusec.manageRules";
+var CMD_OPEN_FINDINGS = "flusec.openFindings";
+
+// src/components/hsd/ruleManager.ts
+function openHsdRuleManager(context) {
+  const panel = vscode5.window.createWebviewPanel(
+    "hsdRuleManager",
+    "HSD Rule Manager (Hardcoded Secrets)",
+    vscode5.ViewColumn.One,
+    { enableScripts: true, retainContextWhenHidden: true }
+  );
+  const rulesPath = rulesJsonPathForComponent(context, HSD_RULES_FILE);
+  const htmlFile = componentRuleManagerHtmlPath(
+    context,
+    path4.join("src", "components", "hsd", "ui", "ruleManager.html")
+  );
+  panel.webview.html = fs4.readFileSync(htmlFile, "utf8");
+  function readRules() {
+    try {
+      const txt = fs4.readFileSync(rulesPath, "utf8");
+      const json = JSON.parse(txt);
+      return Array.isArray(json) ? json : [];
+    } catch {
+      return [];
+    }
   }
+  function writeRules(rules) {
+    fs4.mkdirSync(path4.dirname(rulesPath), { recursive: true });
+    const tmp = rulesPath + ".tmp";
+    fs4.writeFileSync(tmp, JSON.stringify(rules, null, 2), "utf8");
+    fs4.renameSync(tmp, rulesPath);
+  }
+  function loadRulesIntoWebview() {
+    const data = readRules();
+    panel.webview.postMessage({ command: "loadRules", rules: data });
+  }
+  loadRulesIntoWebview();
+  panel.webview.onDidReceiveMessage(async (msg) => {
+    if (!msg || typeof msg.command !== "string") {
+      return;
+    }
+    if (msg.command === "saveRules") {
+      try {
+        writeRules(msg.rules);
+        const action = typeof msg.action === "string" ? msg.action : "save";
+        const deletedId = typeof msg.deletedId === "string" && msg.deletedId.trim().length > 0 ? msg.deletedId.trim() : "";
+        const toast = action === "delete" ? `\u{1F5D1}\uFE0F Rule deleted successfully${deletedId ? `: ${deletedId}` : ""}.` : "\u2705 Rules saved successfully!";
+        vscode5.window.showInformationMessage(toast);
+        loadRulesIntoWebview();
+      } catch (e) {
+        vscode5.window.showErrorMessage("Failed to save rules: " + e);
+      }
+      return;
+    }
+    if (msg.command === "confirmDelete") {
+      const { id, index } = msg;
+      const choice = await vscode5.window.showWarningMessage(
+        `Delete rule${id ? ` "${id}"` : ""}?`,
+        { modal: true },
+        "Delete",
+        "Cancel"
+      );
+      if (choice !== "Delete") {
+        return;
+      }
+      try {
+        const rules = readRules();
+        let delIndex = -1;
+        if (id) {
+          delIndex = rules.findIndex((r) => r && r.id === id);
+        }
+        if ((delIndex < 0 || delIndex >= rules.length) && typeof index === "number") {
+          if (index >= 0 && index < rules.length) {
+            delIndex = index;
+          }
+        }
+        if (delIndex >= 0 && delIndex < rules.length) {
+          const removed = rules.splice(delIndex, 1);
+          writeRules(rules);
+          vscode5.window.showInformationMessage(
+            `\u{1F5D1}\uFE0F Deleted rule${removed[0]?.id ? ` "${removed[0].id}"` : ""}.`
+          );
+          loadRulesIntoWebview();
+        } else {
+          vscode5.window.showErrorMessage(
+            `Could not find rule to delete (id: ${id ?? "n/a"}, index: ${index ?? "n/a"}).`
+          );
+        }
+      } catch (e) {
+        vscode5.window.showErrorMessage("Failed to delete rule: " + (e?.message || e));
+      }
+      return;
+    }
+    if (msg.command === "refresh") {
+      loadRulesIntoWebview();
+      return;
+    }
+    if (msg.command === "debugPath") {
+      vscode5.window.showInformationMessage(`Rules path: ${rulesPath}`);
+      return;
+    }
+  });
 }
+
+// src/components/hsd/index.ts
+function upsertFindingsForDoc(findingsFilePath, doc, componentId, newFindings) {
+  ensureDirForFile(findingsFilePath);
+  let all = [];
+  if (fs5.existsSync(findingsFilePath)) {
+    try {
+      const parsed = JSON.parse(fs5.readFileSync(findingsFilePath, "utf8"));
+      all = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      all = [];
+    }
+  }
+  const filePath = doc.fileName;
+  all = all.filter((x) => x?.file !== filePath);
+  for (const f of newFindings) {
+    all.push({
+      ...f,
+      file: filePath,
+      component: componentId
+    });
+  }
+  fs5.writeFileSync(findingsFilePath, JSON.stringify(all, null, 2), "utf8");
+}
+async function runHsdAnalyzerForDoc(doc, context) {
+  const folder = findWorkspaceFolderForDoc(doc);
+  if (!folder) {
+    vscode6.window.showErrorMessage("No workspace folder found for this document.");
+    return;
+  }
+  const findingsFile = findingsPathForComponent(folder, HSD_COMPONENT_ID);
+  let findings = [];
+  try {
+    findings = await runAnalyzerExe(context, folder, doc.fileName);
+  } catch (e) {
+    console.error("Analyzer execution error:", e);
+    return;
+  }
+  clearCacheForDocument(doc.uri);
+  applyDiagnostics(
+    findings.map((f) => ({
+      ...f,
+      file: doc.fileName,
+      // enforce correct file
+      component: HSD_COMPONENT_ID
+    }))
+  );
+  upsertFindingsForDoc(findingsFile, doc, HSD_COMPONENT_ID, findings);
+}
+function registerHsdComponent(context) {
+  context.subscriptions.push(
+    vscode6.commands.registerCommand(CMD_SCAN_FILE, async () => {
+      const editor = vscode6.window.activeTextEditor;
+      if (editor && editor.document.languageId === "dart") {
+        await runHsdAnalyzerForDoc(editor.document, context);
+      }
+    })
+  );
+  context.subscriptions.push(
+    vscode6.commands.registerCommand(CMD_MANAGE_RULES, async () => {
+      openHsdRuleManager(context);
+    })
+  );
+  context.subscriptions.push(
+    vscode6.commands.registerCommand(CMD_OPEN_FINDINGS, async () => {
+      const editor = vscode6.window.activeTextEditor;
+      if (!editor) {
+        vscode6.window.showErrorMessage("Open a Dart file first to locate workspace.");
+        return;
+      }
+      const folder = findWorkspaceFolderForDoc(editor.document);
+      if (!folder) {
+        vscode6.window.showErrorMessage("No workspace folder found.");
+        return;
+      }
+      const findingsFile = findingsPathForComponent(folder, HSD_COMPONENT_ID);
+      openDashboard(context, findingsFile);
+    })
+  );
+  context.subscriptions.push(
+    vscode6.workspace.onDidSaveTextDocument(async (doc) => {
+      if (doc.languageId === "dart") {
+        await runHsdAnalyzerForDoc(doc, context);
+      }
+    })
+  );
+  let typingTimeout;
+  context.subscriptions.push(
+    vscode6.workspace.onDidChangeTextDocument((event) => {
+      const doc = event.document;
+      if (doc.languageId !== "dart") {
+        return;
+      }
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        runHsdAnalyzerForDoc(doc, context);
+      }, 1500);
+    })
+  );
+}
+
+// src/hover/hoverProvider.ts
+var vscode8 = __toESM(require("vscode"));
+
+// src/hover/format.ts
+var vscode7 = __toESM(require("vscode"));
 function formatFeedbackForHover(raw) {
-  const md = new vscode2.MarkdownString();
+  const md = new vscode7.MarkdownString();
   md.isTrusted = false;
   try {
     const obj = JSON.parse(raw);
@@ -3291,96 +3546,21 @@ function formatFeedbackForHover(raw) {
     return md;
   }
 }
-var diagCollection = vscode2.languages.createDiagnosticCollection("flusec");
-function severityToVS(sev) {
-  return sev?.toLowerCase() === "error" ? vscode2.DiagnosticSeverity.Error : vscode2.DiagnosticSeverity.Warning;
-}
-function refreshDiagnosticsFromFindings(fp) {
-  if (!fs2.existsSync(fp)) {
-    diagCollection.clear();
-    return;
-  }
-  let raw = [];
-  try {
-    raw = JSON.parse(fs2.readFileSync(fp, "utf8"));
-  } catch (e) {
-    console.error("Failed to parse findings.json:", e);
-    return;
-  }
-  const map = /* @__PURE__ */ new Map();
-  for (const f of raw) {
-    const file = String(f.file || "");
-    if (!file) {
-      continue;
-    }
-    const line = Math.max(0, (f.line ?? 1) - 1);
-    const col = Math.max(0, (f.column ?? 1) - 1);
-    const endCol = col + Math.max(1, f.snippet?.length ?? 80);
-    const cx = typeof f.complexity === "number" ? ` (Cx: ${f.complexity})` : "";
-    const diag = new vscode2.Diagnostic(
-      new vscode2.Range(line, col, line, endCol),
-      `[${f.ruleId}] ${f.message || ""}${cx}`,
-      severityToVS(f.severity || "warning")
-    );
-    diag.source = "flusec";
-    diag.code = f.ruleId;
-    const list = map.get(file) ?? [];
-    list.push(diag);
-    map.set(file, list);
-  }
-  diagCollection.clear();
-  for (const [fsPath, diags] of map) {
-    diagCollection.set(vscode2.Uri.file(fsPath), diags);
-  }
-}
-function upsertFindingsForDoc(findingsFilePath, doc, newFindings) {
-  ensureDirForFile(findingsFilePath);
-  let all = [];
-  if (fs2.existsSync(findingsFilePath)) {
-    try {
-      all = JSON.parse(fs2.readFileSync(findingsFilePath, "utf8"));
-      if (!Array.isArray(all)) {
-        all = [];
-      }
-    } catch {
-      all = [];
-    }
-  }
-  const filePath = doc.fileName;
-  all = all.filter((x) => x?.file !== filePath);
-  for (const f of newFindings) {
-    const lineIdx = Math.max(0, f.line - 1);
-    const lineText = doc.lineAt(lineIdx).text;
-    all.push({
-      file: filePath,
-      line: f.line,
-      column: f.column,
-      endColumn: lineText.length,
-      ruleId: f.ruleId,
-      message: f.message,
-      severity: f.severity || "warning",
-      // NEW:
-      functionName: f.functionName,
-      complexity: f.complexity
-    });
-  }
-  fs2.writeFileSync(findingsFilePath, JSON.stringify(all, null, 2), "utf8");
-  refreshDiagnosticsFromFindings(findingsFilePath);
-}
+
+// src/hover/hoverProvider.ts
 function registerHoverProvider(context) {
-  const provider = vscode2.languages.registerHoverProvider("dart", {
+  const provider = vscode8.languages.registerHoverProvider("dart", {
     provideHover: async (document, position) => {
-      const diags = vscode2.languages.getDiagnostics(document.uri);
+      const diags = vscode8.languages.getDiagnostics(document.uri);
       for (const diag of diags) {
         if (diag.range.contains(position)) {
           const key = makeKey(document.uri, diag.range);
-          if (feedbackCache.has(key)) {
-            return new vscode2.Hover(
-              formatFeedbackForHover(feedbackCache.get(key))
-            );
+          const cached = getCachedFeedback(key);
+          if (cached) {
+            return new vscode8.Hover(formatFeedbackForHover(cached));
           }
           enqueueLLMRequest(key, diag.message);
-          return new vscode2.Hover("\u{1F4A1} Loading feedback from LLM...");
+          return new vscode8.Hover("\u{1F4A1} Loading feedback from LLM...");
         }
       }
       return void 0;
@@ -3388,111 +3568,14 @@ function registerHoverProvider(context) {
   });
   context.subscriptions.push(provider);
 }
+
+// src/extension.ts
 function activate(context) {
-  context.subscriptions.push(diagCollection);
-  context.subscriptions.push(
-    vscode2.commands.registerCommand("flusec.scanFile", async () => {
-      const editor = vscode2.window.activeTextEditor;
-      if (editor) {
-        await runAnalyzer(editor.document, context);
-      }
-    })
-  );
-  context.subscriptions.push(
-    vscode2.commands.registerCommand("flusec.manageRules", () => openRuleManager(context))
-  );
-  context.subscriptions.push(
-    vscode2.commands.registerCommand("flusec.openFindings", () => openDashboard(context))
-  );
-  context.subscriptions.push(
-    vscode2.workspace.onDidSaveTextDocument(async (doc) => {
-      if (doc.languageId === "dart") {
-        await runAnalyzer(doc, context);
-      }
-    })
-  );
-  let typingTimeout;
-  context.subscriptions.push(
-    vscode2.workspace.onDidChangeTextDocument((event) => {
-      const doc = event.document;
-      if (doc.languageId !== "dart") {
-        return;
-      }
-      clearTimeout(typingTimeout);
-      typingTimeout = setTimeout(() => {
-        runAnalyzer(doc, context);
-      }, 1500);
-    })
-  );
+  registerHsdComponent(context);
   registerHoverProvider(context);
 }
 function deactivate() {
-  diagCollection.clear();
-  diagCollection.dispose();
-}
-async function runAnalyzer(doc, context) {
-  llmQueue.length = 0;
-  processingQueue = false;
-  const folder = findWorkspaceFolderForDoc(doc);
-  if (!folder) {
-    vscode2.window.showErrorMessage("No workspace folder found for this document.");
-    return;
-  }
-  const findingsFile = findingsPathForFolder(folder);
-  const analyzerPath = path2.join(__dirname, "..", "dart-analyzer", "bin", "analyzer.exe");
-  if (!fs2.existsSync(analyzerPath)) {
-    vscode2.window.showErrorMessage(`Analyzer not found at path: ${analyzerPath}`);
-    return;
-  }
-  (0, import_child_process.execFile)(analyzerPath, [doc.fileName], { shell: true }, (err, stdout, stderr) => {
-    if (err) {
-      console.error("Analyzer execution error:", err);
-      return;
-    }
-    if (stderr) {
-      console.error("Analyzer stderr:", stderr);
-    }
-    let findings = [];
-    try {
-      findings = JSON.parse(stdout);
-    } catch (e) {
-      console.error("Failed to parse analyzer output:", e);
-      return;
-    }
-    for (const key of Array.from(feedbackCache.keys())) {
-      if (key.startsWith(doc.uri.toString())) {
-        feedbackCache.delete(key);
-      }
-    }
-    const diags = [];
-    for (const f of findings) {
-      const lineIdx = Math.max(0, f.line - 1);
-      const text = doc.lineAt(lineIdx).text;
-      const range = new vscode2.Range(lineIdx, 0, lineIdx, text.length);
-      const cx = typeof f.complexity === "number" ? ` (Complexity: ${f.complexity})` : "";
-      const message = `${f.message}${cx}`;
-      const diag = new vscode2.Diagnostic(
-        range,
-        message,
-        severityToVS(f.severity || "warning")
-      );
-      diag.source = "flusec";
-      diag.code = f.ruleId;
-      diags.push(diag);
-    }
-    diagCollection.set(doc.uri, diags);
-    upsertFindingsForDoc(findingsFile, doc, findings);
-  });
-}
-function openDashboard(context) {
-  const panel = vscode2.window.createWebviewPanel(
-    "flusecDashboard",
-    "Flusec Findings",
-    vscode2.ViewColumn.Beside,
-    { enableScripts: true, retainContextWhenHidden: true }
-  );
-  const htmlPath = path2.join(context.extensionUri.fsPath, "web", "dashboard.html");
-  panel.webview.html = fs2.existsSync(htmlPath) ? fs2.readFileSync(htmlPath, "utf8") : "<html><body>Dashboard not found</body></html>";
+  disposeDiagnostics();
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {

@@ -155,7 +155,7 @@ export function registerHsdComponent(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((event) => {
       const doc = event.document;
-      if (doc.languageId !== "dart") return;
+      if (doc.languageId !== "dart") {return;}
 
       clearTimeout(typingTimeout);
       typingTimeout = setTimeout(() => {

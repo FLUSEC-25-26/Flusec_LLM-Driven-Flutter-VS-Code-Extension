@@ -23,7 +23,7 @@ export function getCachedFeedback(key: string): string | undefined {
 
 export function clearCacheForDocument(docUri: vscode.Uri) {
   for (const key of Array.from(feedbackCache.keys())) {
-    if (key.startsWith(docUri.toString())) feedbackCache.delete(key);
+    if (key.startsWith(docUri.toString())) {feedbackCache.delete(key);}
   }
 }
 
@@ -44,16 +44,16 @@ export function enqueueLLMRequest(key: string, message: string) {
     }
   });
 
-  if (!processingQueue) processQueue();
+  if (!processingQueue) {processQueue();}
 }
 
 async function processQueue() {
-  if (processingQueue) return;
+  if (processingQueue) {return;}
   processingQueue = true;
 
   while (llmQueue.length > 0) {
     const job = llmQueue.shift();
-    if (job) await job();
+    if (job) {await job();}
   }
 
   processingQueue = false;
