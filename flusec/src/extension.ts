@@ -373,9 +373,62 @@ function openDashboard(context: vscode.ExtensionContext) {
     vscode.ViewColumn.Beside,
     { enableScripts: true, retainContextWhenHidden: true }
   );
+
+  // Load HTML
   const htmlPath = path.join(context.extensionUri.fsPath, "web", "dashboard.html");
   panel.webview.html = fs.existsSync(htmlPath)
     ? fs.readFileSync(htmlPath, "utf8")
     : "<html><body>Dashboard not found</body></html>";
+
+  // Decide which workspace to read findings from
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (!folder) {
+    panel.webview.postMessage({ command: "loadFindings", data: [] });
+    return;
+  }
+
+  // IMPORTANT: this matches your working findings path
+  const findingsPath = findingsPathForFolder(folder);
+
+  const sendFindings = () => {
+    let data: any[] = [];
+    if (fs.existsSync(findingsPath)) {
+      try {
+        data = JSON.parse(fs.readFileSync(findingsPath, "utf8"));
+        if (!Array.isArray(data)) {data = [];}
+      } catch {
+        data = [];
+      }
+    }
+    panel.webview.postMessage({ command: "loadFindings", data });
+  };
+
+  // Send once when opened
+  sendFindings();
+
+  // Optional: refresh when the dashboard becomes visible again
+  panel.onDidChangeViewState(() => {
+    if (panel.visible) {sendFindings();}
+  });
+
+  // Handle messages from the webview (reveal link)
+  panel.webview.onDidReceiveMessage(async (msg) => {
+    if (msg?.command === "reveal") {
+      const file = String(msg.file || "");
+      const line = Math.max(0, (msg.line ?? 1) - 1);
+      const col = Math.max(0, (msg.column ?? 1) - 1);
+
+      try {
+        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
+        const editor = await vscode.window.showTextDocument(doc, { preview: false });
+        const pos = new vscode.Position(line, col);
+        editor.selection = new vscode.Selection(pos, pos);
+        editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
+      } catch (e) {
+        vscode.window.showErrorMessage("Failed to open file from dashboard: " + String(e));
+      }
+    }
+  });
 }
+
 

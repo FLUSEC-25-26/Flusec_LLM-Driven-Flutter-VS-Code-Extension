@@ -3493,6 +3493,48 @@ function openDashboard(context) {
   );
   const htmlPath = path2.join(context.extensionUri.fsPath, "web", "dashboard.html");
   panel.webview.html = fs2.existsSync(htmlPath) ? fs2.readFileSync(htmlPath, "utf8") : "<html><body>Dashboard not found</body></html>";
+  const folder = vscode2.workspace.workspaceFolders?.[0];
+  if (!folder) {
+    panel.webview.postMessage({ command: "loadFindings", data: [] });
+    return;
+  }
+  const findingsPath = findingsPathForFolder(folder);
+  const sendFindings = () => {
+    let data = [];
+    if (fs2.existsSync(findingsPath)) {
+      try {
+        data = JSON.parse(fs2.readFileSync(findingsPath, "utf8"));
+        if (!Array.isArray(data)) {
+          data = [];
+        }
+      } catch {
+        data = [];
+      }
+    }
+    panel.webview.postMessage({ command: "loadFindings", data });
+  };
+  sendFindings();
+  panel.onDidChangeViewState(() => {
+    if (panel.visible) {
+      sendFindings();
+    }
+  });
+  panel.webview.onDidReceiveMessage(async (msg) => {
+    if (msg?.command === "reveal") {
+      const file = String(msg.file || "");
+      const line = Math.max(0, (msg.line ?? 1) - 1);
+      const col = Math.max(0, (msg.column ?? 1) - 1);
+      try {
+        const doc = await vscode2.workspace.openTextDocument(vscode2.Uri.file(file));
+        const editor = await vscode2.window.showTextDocument(doc, { preview: false });
+        const pos = new vscode2.Position(line, col);
+        editor.selection = new vscode2.Selection(pos, pos);
+        editor.revealRange(new vscode2.Range(pos, pos), vscode2.TextEditorRevealType.InCenter);
+      } catch (e) {
+        vscode2.window.showErrorMessage("Failed to open file from dashboard: " + String(e));
+      }
+    }
+  });
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
