@@ -81,6 +81,10 @@ class OutputWriter {
       outDir.createSync(recursive: true);
 
       final outFile = File(path.join(outDir.path, 'findings.json'));
+      // 🔍 DEBUG — add THESE TWO LINES
+      stderr.writeln('DEBUG analyzer cwd = ${Directory.current.path}');
+      stderr.writeln('DEBUG writing to = ${outFile.absolute.path}');
+
       outFile.writeAsStringSync(
         const JsonEncoder.withIndent('  ').convert(findings),
       );
