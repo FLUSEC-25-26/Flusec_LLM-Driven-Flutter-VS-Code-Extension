@@ -20,7 +20,7 @@ void main(List<String> args) {
     return;
   }
 
-  // ✅ Dynamically locate rules.json — works in both extension & user project
+  //  Dynamically locate rules.json — works in both extension & user project
   final currentDir = Directory.current.path;
   final localRules = File(path.join(currentDir, 'data', 'hardcoded_secrets_rules.json'));
   final extensionRules = File(path.join(
@@ -30,7 +30,7 @@ void main(List<String> args) {
     'hardcoded_secrets_rules.json',
   ));
 
-  // ✅ Reload fresh every analyzer run
+  //  Reload fresh every analyzer run
   List<Map<String, dynamic>> rawRules = const [];
   final rulesPath = localRules.existsSync() ? localRules : extensionRules;
 
@@ -98,7 +98,7 @@ void main(List<String> args) {
 
     }
 
-    // ✅ Always write to ".out/findings.json" in the current project folder
+    //  Always write to ".out/findings.json" in the current project folder
     final outDir = Directory('.out');
     outDir.createSync(recursive: true);
     final outFile = File(path.join(outDir.path, 'findings.json'));
