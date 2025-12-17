@@ -431,4 +431,3 @@ function openDashboard(context: vscode.ExtensionContext) {
   });
 }
 
-
