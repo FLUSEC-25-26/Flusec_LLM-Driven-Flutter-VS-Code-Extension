@@ -34,7 +34,7 @@ export async function runAnalyzerExe(
       exe,
       [dartFilePath],
       {
-        shell: true,
+        
         cwd, // ✅ critical fix for ".out" writing location
       },
       (err, stdout, stderr) => {
