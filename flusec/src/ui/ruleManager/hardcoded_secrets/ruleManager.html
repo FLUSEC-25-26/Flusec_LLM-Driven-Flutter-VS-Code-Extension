@@ -170,6 +170,7 @@
               <div class="action-cell">
                 <button onclick="editRule(${i})">✏️ Edit</button>
                 <button onclick="deleteInWebview(${i})">🗑️ Delete</button>
+
               </div>
             </td>`;
           tbody.appendChild(row);
@@ -214,21 +215,26 @@
       }
 
       function deleteInWebview(i) {
-        if (!Number.isInteger(i) || i < 0 || i >= rules.length) {
-          console.error("Bad index for delete:", i, "rules length:", rules.length);
-          return;
-        }
+  if (!Number.isInteger(i) || i < 0 || i >= rules.length) {
+    console.error("Bad index for delete:", i, "rules length:", rules.length);
+    return;
+  }
 
-        const removed = rules.splice(i, 1);
-        renderTable();
+  const removed = rules.splice(i, 1);
+  renderTable();
 
-        // ✅ Send ONE save with action=delete
-        vscode.postMessage({
-          command: "saveRules",
-          rules,
-          action: "delete",
-          deletedId: removed?.[0]?.id || ""
-        });
+  // ✅ Send ONE save with action=delete
+  vscode.postMessage({
+    command: "saveRules",
+    rules,
+    action: "delete",
+    deletedId: removed?.[0]?.id || ""
+  });
+}
+
+      function requestDelete(i) {
+        const rule = rules[i];
+        vscode.postMessage({ command: "confirmDelete", index: i, id: rule?.id });
       }
 
       document.getElementById("addRule").onclick = () => {
@@ -254,6 +260,8 @@
         } else {
           rules.push(newRule);
         }
+        // Optional immediate persist:
+        // vscode.postMessage({ command: "saveRules", rules });
         clearForm();
         renderTable();
       };
@@ -265,6 +273,7 @@
       // Expose functions for inline onclick
       window.editRule = editRule;
       window.deleteInWebview = deleteInWebview;
+      //window.requestDelete = requestDelete;
     </script>
   </body>
 </html>
