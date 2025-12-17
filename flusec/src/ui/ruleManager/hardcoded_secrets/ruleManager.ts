@@ -15,8 +15,8 @@ export function openRuleManager(context: vscode.ExtensionContext) {
   );
 
   const extensionRoot = context.extensionUri.fsPath;
-  const rulesPath = path.join(extensionRoot, "dart-analyzer", "data", "rules.json");
-  const htmlFile = path.join(extensionRoot, "src", "ui", "ruleManager.html");
+  const rulesPath = path.join(extensionRoot, "dart-analyzer", "data", "hardcoded_secrets_rules.json");
+  const htmlFile = path.join(extensionRoot, "src", "ui", "ruleManager", "hardcoded_secrets", "ruleManager.html");
   panel.webview.html = fs.readFileSync(htmlFile, "utf8");
 
   function readRules(): any[] {
