@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline';"
+    />
+    <title>Flusec Findings</title>
+    <style>
+      body {
+        font-family: Segoe UI, sans-serif;
+        background: #1e1e1e;
+        color: #ddd;
+        padding: 12px;
+      }
+      h2 {
+        margin: 0 0 8px;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .card {
+        background: #252526;
+        border: 1px solid #444;
+        padding: 12px;
+        border-radius: 8px;
+        flex: 1;
+        min-width: 260px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+      }
+      th,
+      td {
+        border: 1px solid #444;
+        padding: 6px 8px;
+        text-align: left;
+      }
+      th {
+        background: #2d2d2d;
+      }
+      .btn {
+        background: #007acc;
+        border: none;
+        color: #fff;
+        padding: 6px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      canvas {
+        width: 100%;
+        height: 160px;
+      }
+      a {
+        color: #4fc1ff;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Flusec Findings</h2>
+
+    <div class="row">
+      <div class="card"><div id="counters">Loading…</div></div>
+      <div class="card">
+        <strong>Top Rules</strong>
+        <canvas id="chartRules"></canvas>
+      </div>
+      <div class="card">
+        <strong>Top Files</strong>
+        <canvas id="chartFiles"></canvas>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 12px">
+      <div
+        style="
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        "
+      >
+        <strong>Findings</strong>
+        <div><button class="btn" id="exportJson">Export JSON</button></div>
+      </div>
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th>Severity</th>
+            <th>Rule</th>
+            <th>Message</th>
+            <th>File</th>
+            <th>Line</th>
+            <th>Complexity</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <script>
+      const vscode = acquireVsCodeApi();
+      let findings = [];
+
+      window.addEventListener("message", (e) => {
+        const { command, data } = e.data || {};
+        if (command === "loadFindings") {
+          findings = Array.isArray(data) ? data : [];
+          render();
+        }
+      });
+
+      function render() {
+        const total = findings.length;
+        const err = findings.filter((f) => f.severity === "error").length;
+        const warn = findings.filter((f) => f.severity !== "error").length;
+        document.getElementById(
+          "counters"
+        ).innerHTML = `<strong>Total:</strong> ${total} |
+     <span style="color:#f44747">Errors:</span> ${err} |
+     <span style="color:#e5e510">Warnings:</span> ${warn}`;
+
+        const tbody = document.querySelector("#tbl tbody");
+        tbody.innerHTML = "";
+        findings.forEach((f) => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+  <td>${f.severity}</td>
+  <td>${escape(f.ruleName || f.ruleId)}</td>
+  <td>${escape(f.message || "")}</td>
+  <td>
+    <a href="#"
+       onclick="reveal('${f.file}', ${f.line || 1}, ${
+            f.column || 1
+          });return false;">
+       ${escape(shorten(f.file || ""))}
+    </a>
+  </td>
+  <td>${f.line || ""}</td>
+  <td>${typeof f.complexity === "number" ? f.complexity : ""}</td>`;
+
+          tbody.appendChild(tr);
+        });
+
+        drawBar(
+          "chartRules",
+          topCounts(findings, (x) => x.ruleName || x.ruleId, 8)
+        );
+        drawBar(
+          "chartFiles",
+          topCounts(
+            findings,
+            (x) => x.file,
+            8,
+            (lab) => shorten(lab, 40)
+          )
+        );
+      }
+
+      function topCounts(arr, keyFn, topN = 8, mapLbl = (x) => x) {
+        const m = new Map();
+        for (const a of arr) {
+          const k = keyFn(a) || "unknown";
+          m.set(k, (m.get(k) || 0) + 1);
+        }
+        const rows = Array.from(m.entries())
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, topN);
+        return {
+          labels: rows.map((r) => mapLbl(r[0])),
+          values: rows.map((r) => r[1]),
+        };
+      }
+
+      function drawBar(id, data) {
+        const cvs = document.getElementById(id);
+        const ctx = cvs.getContext("2d");
+        const W = (cvs.width = cvs.clientWidth);
+        const H = (cvs.height = 160);
+        ctx.clearRect(0, 0, W, H);
+        const pad = 24,
+          max = Math.max(1, ...data.values);
+        const n = data.values.length || 1;
+        const bw = ((W - pad * 2) / n) * 0.8;
+        const gap = ((W - pad * 2) / n) * 0.2;
+        ctx.fillStyle = "#ccc";
+        ctx.font = "12px Segoe UI";
+
+        data.values.forEach((v, i) => {
+          const x = pad + i * (bw + gap);
+          const h = Math.round((H - 2 * pad) * (v / max));
+          const y = H - pad - h;
+          ctx.fillStyle = "#4fc1ff";
+          ctx.fillRect(x, y, bw, h);
+          ctx.fillStyle = "#ddd";
+          const lbl = data.labels[i] || "";
+          ctx.save();
+          ctx.translate(x + bw / 2, H - 6);
+          ctx.rotate(-Math.PI / 6);
+          ctx.fillText(lbl, -ctx.measureText(lbl).width / 2, 0);
+          ctx.restore();
+        });
+      }
+
+      function escape(s) {
+        return String(s)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;");
+      }
+      function shorten(s, n = 60) {
+        if (!s) return "";
+        return s.length > n ? "…" + s.slice(-n) : s;
+      }
+      function reveal(file, line, column) {
+        vscode.postMessage({ command: "reveal", file, line, column });
+      }
+
+      document.getElementById("exportJson").onclick = () => {
+        const blob = new Blob([JSON.stringify(findings, null, 2)], {
+          type: "application/json",
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "flusec-findings.json";
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+    </script>
+  </body>
+</html>
