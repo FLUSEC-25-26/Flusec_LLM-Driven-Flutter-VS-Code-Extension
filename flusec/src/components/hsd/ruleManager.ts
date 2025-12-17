@@ -1,22 +1,38 @@
+// src/components/hsd/ruleManager.ts
+//
+// HSD-only Rule Manager.
+// It opens a webview (ruleManager.html) and edits ONE file:
+//   <extensionRoot>/dart-analyzer/data/hardcoded_secrets_rules.json
+//
+// ✅ Only your HSD component needs this.
+// Other components will implement their own manager later, with their own rules files.
+
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
+import {
+  componentRuleManagerHtmlPath,
+  rulesJsonPathForComponent,
+} from "../../shared/paths";
+import { HSD_RULES_FILE } from "./settings";
 
-/**
- * Opens the Rule Manager UI as a VS Code Webview.
- * Loads and saves dart-analyzer/data/rules.json.
- */
-export function openRuleManager(context: vscode.ExtensionContext) {
+export function openHsdRuleManager(context: vscode.ExtensionContext) {
   const panel = vscode.window.createWebviewPanel(
-    "ruleManager",
-    "Flusec Rule Manager",
+    "hsdRuleManager",
+    "HSD Rule Manager (Hardcoded Secrets)",
     vscode.ViewColumn.One,
     { enableScripts: true, retainContextWhenHidden: true }
   );
 
-  const extensionRoot = context.extensionUri.fsPath;
-  const rulesPath = path.join(extensionRoot, "dart-analyzer", "data", "hardcoded_secrets_rules.json");
-  const htmlFile = path.join(extensionRoot, "src", "ui", "ruleManager.html");
+  // ✅ Rules JSON path for HSD
+  const rulesPath = rulesJsonPathForComponent(context, HSD_RULES_FILE);
+
+  // ✅ HTML path (HSD-only UI)
+  const htmlFile = componentRuleManagerHtmlPath(
+    context,
+    path.join("src", "components", "hsd", "ui", "ruleManager.html")
+  );
+
   panel.webview.html = fs.readFileSync(htmlFile, "utf8");
 
   function readRules(): any[] {
@@ -45,35 +61,35 @@ export function openRuleManager(context: vscode.ExtensionContext) {
   loadRulesIntoWebview();
 
   panel.webview.onDidReceiveMessage(async (msg) => {
-   if (msg.command === "saveRules") {
-  try {
-    fs.writeFileSync(rulesPath, JSON.stringify(msg.rules, null, 2), "utf8");
+    if (!msg || typeof msg.command !== "string") return;
 
-    const action = typeof msg.action === "string" ? msg.action : "save";
-    const deletedId =
-      typeof msg.deletedId === "string" && msg.deletedId.trim().length > 0
-        ? msg.deletedId.trim()
-        : "";
+    // Save all rules (or delete action)
+    if (msg.command === "saveRules") {
+      try {
+        writeRules(msg.rules);
 
-    console.log("[RuleManager] saveRules action =", action, "deletedId =", deletedId);
+        const action = typeof msg.action === "string" ? msg.action : "save";
+        const deletedId =
+          typeof msg.deletedId === "string" && msg.deletedId.trim().length > 0
+            ? msg.deletedId.trim()
+            : "";
 
-    const toast =
-      action === "delete"
-        ? `🗑️ Rule deleted successfully${deletedId ? `: ${deletedId}` : ""}.`
-        : "✅ Rules saved successfully!";
+        const toast =
+          action === "delete"
+            ? `🗑️ Rule deleted successfully${deletedId ? `: ${deletedId}` : ""}.`
+            : "✅ Rules saved successfully!";
 
-    vscode.window.showInformationMessage(toast);
+        vscode.window.showInformationMessage(toast);
 
-    const data = JSON.parse(fs.readFileSync(rulesPath, "utf8"));
-    panel.webview.postMessage({ command: "loadRules", rules: data });
-  } catch (e) {
-    vscode.window.showErrorMessage("Failed to save rules: " + e);
-  }
-}
+        loadRulesIntoWebview();
+      } catch (e) {
+        vscode.window.showErrorMessage("Failed to save rules: " + e);
+      }
+      return;
+    }
 
-
-
-    else if (msg.command === "confirmDelete") {
+    // Optional confirm delete flow (you currently use direct deleteInWebview)
+    if (msg.command === "confirmDelete") {
       const { id, index } = msg as { id?: string; index?: number };
       const choice = await vscode.window.showWarningMessage(
         `Delete rule${id ? ` "${id}"` : ""}?`,
@@ -81,18 +97,16 @@ export function openRuleManager(context: vscode.ExtensionContext) {
         "Delete",
         "Cancel"
       );
-      if (choice !== "Delete"){ return;}
+      if (choice !== "Delete") return;
 
       try {
         const rules = readRules();
 
-        // Try to locate by ID first (preferred)
         let delIndex = -1;
-        if (id){ delIndex = rules.findIndex((r) => r && r.id === id);}
+        if (id) delIndex = rules.findIndex((r) => r && r.id === id);
 
-        // Fallback to provided index if ID missing or not found
         if ((delIndex < 0 || delIndex >= rules.length) && typeof index === "number") {
-          if (index >= 0 && index < rules.length){ delIndex = index;}
+          if (index >= 0 && index < rules.length) delIndex = index;
         }
 
         if (delIndex >= 0 && delIndex < rules.length) {
@@ -110,14 +124,17 @@ export function openRuleManager(context: vscode.ExtensionContext) {
       } catch (e: any) {
         vscode.window.showErrorMessage("Failed to delete rule: " + (e?.message || e));
       }
+      return;
     }
 
-    else if (msg.command === "refresh") {
+    if (msg.command === "refresh") {
       loadRulesIntoWebview();
+      return;
     }
 
-    else if (msg.command === "debugPath") {
+    if (msg.command === "debugPath") {
       vscode.window.showInformationMessage(`Rules path: ${rulesPath}`);
+      return;
     }
   });
 }
