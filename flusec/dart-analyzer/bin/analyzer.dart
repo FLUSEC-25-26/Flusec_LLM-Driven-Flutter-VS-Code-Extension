@@ -98,10 +98,13 @@ void main(List<String> args) {
   // Minimal stdout payload for VS Code extension
   OutputWriter.printStdout(allIssues);
 
+/*
   // Rich findings.json for dashboard/diagnostics
   OutputWriter.writeFindingsJson(
     filePath: filePath,
     content: content,
     issues: allIssues,
   );
+  */
 }
+
