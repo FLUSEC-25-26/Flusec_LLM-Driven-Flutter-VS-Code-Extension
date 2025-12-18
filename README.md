@@ -166,6 +166,6 @@ In VS Code, press **F5** → opens new “Extension Development Host”.
 | Module                         | Responsibility                           |
 | ------------------------------ | ---------------------------------------- |
 | Hardcoded Secrets              | Detection & LLM remediation logic        |
-| Insecure Network Communication | HTTP/SSL security scanning               |
+| Insecure Network Communication | HTTP/SSL and crypto security scanning               |
 | Insecure Data Storage          | Sensitive data handling analysis         |
 | Insufficient Input Validation  | Input sanitization & validation analysis |
