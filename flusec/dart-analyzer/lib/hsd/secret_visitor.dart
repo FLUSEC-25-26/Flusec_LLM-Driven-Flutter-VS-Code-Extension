@@ -118,6 +118,7 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
       }
 
       issues.add(Issue(
+        filePath,  
         hit.ruleId,
         hit.message,
         hit.severity,
