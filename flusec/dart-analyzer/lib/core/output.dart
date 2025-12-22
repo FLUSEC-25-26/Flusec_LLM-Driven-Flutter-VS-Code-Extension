@@ -22,6 +22,7 @@ class OutputWriter {
   static void printStdout(List<Issue> issues) {
     final out = issues
         .map((i) => {
+              'file': i.filePath,
               'ruleId': i.ruleId,
               'severity': i.severity,
               'message': i.message,
