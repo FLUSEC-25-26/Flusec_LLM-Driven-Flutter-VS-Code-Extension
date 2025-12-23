@@ -11,6 +11,7 @@
 // They may set functionName/complexity as null (or compute their own later).
 
 class Issue {
+  final String filePath;
   final String ruleId;
   final String message;
   final String severity;
@@ -23,6 +24,7 @@ class Issue {
   final int? complexity; // cyclomatic complexity of that executable
 
   Issue(
+    this.filePath, 
     this.ruleId,
     this.message,
     this.severity,
