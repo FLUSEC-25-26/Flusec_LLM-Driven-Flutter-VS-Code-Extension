@@ -1,0 +1,92 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>FLUSEC – Network Dashboard</title>
+  <link rel="stylesheet" href="{{styleHref}}">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="titles">
+      <h1>FLUSEC – Network Dashboard</h1>
+      <p>Secure network communication advisor for Flutter/Dart</p>
+    </div>
+    <div class="actions">
+      <button id="btnRescan" class="btn primary">Re‑scan Active File</button>
+      <button id="btnRefresh" class="btn">Refresh Findings</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="summary">
+      <h2>Summary</h2>
+      <div class="cards">
+        <div class="card">
+          <div class="card-title">Total Findings</div>
+          <div class="card-value" id="issues-count">0</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Workspace</div>
+          <div class="card-value">Active</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="filters">
+      <input id="filterInput" type="text" class="input" placeholder="Search message / file / rule" />
+    </section>
+
+    <!-- ✅ Warnings chart -->
+    <section class="charts">
+      <h2>Warnings per Rule</h2>
+      <div class="card">
+        <canvas id="chart-findings-by-rule" aria-label="Bar chart of warnings per rule"></canvas>
+        <p class="small-note">
+          Only <code>warning</code> severity is included. The chart updates with filter, rescan, and refresh.
+        </p>
+      </div>
+    </section>
+
+    <!-- ✅ Network dependency analysis -->
+    <section class="charts">
+      <h2>Network Dependency Analysis</h2>
+
+      <!-- Health Index KPI -->
+      <div class="card">
+        <h3>Health Index</h3>
+        <div class="kpi" aria-label="Network Dependency Health">
+          <span>🩺 Health</span>
+          <span class="value" id="kpi-health-index">—</span>
+        </div>
+        <p class="small-note">
+          0–100 score computed from outgoing & incoming coupling (lower risk ⇒ higher health).
+        </p>
+      </div>
+
+      <div class="card">
+        <h3>Coupling Degree (Outgoing) — per Module</h3>
+        <canvas id="chart-cd-out" aria-label="Outgoing coupling per module"></canvas>
+      </div>
+
+      <div class="card">
+        <h3>Afferent Coupling (Incoming) — per Service</h3>
+        <canvas id="chart-cd-in" aria-label="Incoming coupling per service"></canvas>
+      </div>
+    </section>
+
+    <section class="issues">
+      <h2>Findings</h2>
+      <ul id="issues-list" class="issues-list"></ul>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <small>FLUSEC © 2025 • Insecure Network Communication Detection</small>
+  </footer>
+
+  <!-- Load local Chart.js (UMD/minified). The nonce is provided by extension.ts -->
+  <script nonce="{{nonce}}" src="{{chartHref}}"></script>
+</body>
+</html>
