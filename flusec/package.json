@@ -23,6 +23,16 @@
       },
       { "command": "flusec.openFindings", 
         "title": "Flusec: Open Findings Dashboard"
+      },
+      {
+        "command": "flusec.helloWorld",
+        "title": "Hello World",
+        "category": "FLUSEC"
+      },
+      {
+        "command": "flusec.openDashboard",
+        "title": "Net Dashboard",
+        "category": "FLUSEC"
       }
     ]
   },
@@ -56,6 +66,7 @@
   },
 
   "dependencies": {
+    "chart.js": "^4.5.1",
     "node-fetch": "^2.7.0"
   }
 }
