@@ -17,6 +17,7 @@ import 'package:analyzer/dart/analysis/utilities.dart';
 import '../lib/core/output.dart';
 import '../lib/core/paths.dart';
 import '../lib/hsd/index.dart';
+import '../lib/ids/index.dart';  // Import insecure storage module
 
 void main(List<String> args) {
   // ---------------------------
@@ -74,22 +75,20 @@ void main(List<String> args) {
   final visitor = SecretVisitor(engine, content, filePath);
   unit.accept(visitor);
 
-  // If you later add other components, you will do:
-  //
-  // final netIssues = NetworkVisitor(...).run(unit);
-  // final storageIssues = StorageVisitor(...).run(unit);
-  // final validationIssues = ValidationVisitor(...).run(unit);
-  //
-  // final allIssues = [
-  //   ...visitor.issues,
-  //   ...netIssues,
-  //   ...storageIssues,
-  //   ...validationIssues,
-  // ];
-  //
-  // And output using allIssues.
+  // ---------------------------
+  // 5) Run IDS module (Insecure Data Storage)
+  // ---------------------------
+  final storageEngine = InsecureStorageRulesEngine();
+  final storageVisitor = StorageVisitor(storageEngine, content, filePath);
+  unit.accept(storageVisitor);
 
-  final allIssues = visitor.issues;
+  // ---------------------------
+  // 6) Merge all issues from all components
+  // ---------------------------
+  final allIssues = [
+    ...visitor.issues,
+    ...storageVisitor.issues,
+  ];
 
   // ---------------------------
   // 5) Output (same behavior as before)
