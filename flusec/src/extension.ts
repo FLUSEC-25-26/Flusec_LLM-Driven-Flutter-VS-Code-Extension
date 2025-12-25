@@ -189,12 +189,12 @@ function runAnalyzerForPath(context: vscode.ExtensionContext, fsPath: string) {
 /** Resolve analyzer command (exe or dart script). */
 function resolveAnalyzerCommand(context: vscode.ExtensionContext): { cmd: string; args: string[] } | null {
   const candidates = [
-    context.asAbsolutePath('bin/dart_analyzer.exe'),
-    context.asAbsolutePath('bin/dart_analyzer'),
-    context.asAbsolutePath('bin/dart_analyzer.dart'),
-    context.asAbsolutePath('dart-analyzer/bin/dart_analyzer.exe'),
-    context.asAbsolutePath('dart-analyzer/bin/dart_analyzer'),
-    context.asAbsolutePath('dart-analyzer/bin/dart_analyzer.dart'),
+    context.asAbsolutePath('bin/analyzer.exe'),
+    context.asAbsolutePath('bin/analyzer'),
+    context.asAbsolutePath('bin/analyzer.dart'),
+    context.asAbsolutePath('dart-analyzer/bin/analyzer.exe'),
+    context.asAbsolutePath('dart-analyzer/bin/analyzer'),
+    context.asAbsolutePath('dart-analyzer/bin/analyzer.dart'),
   ];
   for (const c of candidates) {
     if (fs.existsSync(c)) {
@@ -373,12 +373,12 @@ function smokeTestDiagnostics(doc: vscode.TextDocument) {
 /** Debug: log analyzer locations */
 function logAnalyzerLocations(context: vscode.ExtensionContext) {
   const candidates = [
-    'bin/dart_analyzer.exe',
-    'bin/dart_analyzer',
-    'bin/dart_analyzer.dart',
-    'dart-analyzer/bin/dart_analyzer.exe',
-    'dart-analyzer/bin/dart_analyzer',
-    'dart-analyzer/bin/dart_analyzer.dart'
+    'bin/analyzer.exe',
+    'bin/analyzer',
+    'bin/analyzer.dart',
+    'dart-analyzer/bin/analyzer.exe',
+    'dart-analyzer/bin/analyzer',
+    'dart-analyzer/bin/analyzer.dart'
   ];
   out.appendLine('---- FLUSEC analyzer location check ----');
   for (const rel of candidates) {
