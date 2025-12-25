@@ -1,23 +1,21 @@
 // bin/analyzer.dart
 //
-// This is the ONLY entry point -> build ONE analyzer.exe from this.
-// It runs your HSD scanner today, and is designed so that later
-// other components can be plugged in and merged into one output.
+// Insecure Data Storage (IDS) Analyzer
+// This analyzer detects insecure data storage patterns in Flutter/Dart applications.
 //
-// Future integration idea (teammates):
-// - Add lib/network/..., lib/storage/..., lib/validation/...
-// - Each will return List<Issue>
-// - Merge all lists into one `allIssues` and output once.
+// Detects:
+// - Unencrypted SharedPreferences
+// - Unencrypted File Storage
+// - Insecure SQLite Storage
+// - Hardcoded Sensitive Storage Keys
+// - Insecure Cache Storage
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:analyzer/dart/analysis/utilities.dart';
 
 import '../lib/core/output.dart';
-import '../lib/core/paths.dart';
-import '../lib/hsd/index.dart';
-import '../lib/ids/index.dart';  // Import insecure storage module
+import '../lib/ids/index.dart';
 
 void main(List<String> args) {
   // ---------------------------
@@ -39,70 +37,35 @@ void main(List<String> args) {
   }
 
   // ---------------------------
-  // 2) Load dynamic rules JSON
-  // ---------------------------
-  final rulesFile = RulesPathResolver.resolveRulesFile('hardcoded_secrets_rules.json');
-
-  // Reload fresh every analyzer run (same as your original behavior)
-  List<Map<String, dynamic>> rawRules = const [];
-
-  if (rulesFile.existsSync()) {
-    try {
-      rawRules = (jsonDecode(rulesFile.readAsStringSync()) as List)
-          .cast<Map<String, dynamic>>();
-
-      stderr.writeln('♻️ Reloaded ${rawRules.length} rule(s) from ${rulesFile.path}');
-    } catch (e) {
-      stderr.writeln('⚠️ Failed to parse rules.json: $e');
-    }
-  } else {
-    stderr.writeln('⚠️ rules.json not found – continuing with built-in rules.');
-  }
-
-  final engine = RulesEngine();
-  engine.loadDynamicRules(rawRules);
-
-  // ---------------------------
-  // 3) Parse Dart file -> AST
+  // 2) Parse Dart file -> AST
   // ---------------------------
   final content = file.readAsStringSync();
   final result = parseString(content: content, path: filePath);
   final unit = result.unit;
 
   // ---------------------------
-  // 4) Run your HSD module (visitor)
-  // ---------------------------
-  final visitor = SecretVisitor(engine, content, filePath);
-  unit.accept(visitor);
-
-  // ---------------------------
-  // 5) Run IDS module (Insecure Data Storage)
+  // 3) Run IDS module (Insecure Data Storage)
   // ---------------------------
   final storageEngine = InsecureStorageRulesEngine();
   final storageVisitor = StorageVisitor(storageEngine, content, filePath);
   unit.accept(storageVisitor);
 
-  // ---------------------------
-  // 6) Merge all issues from all components
-  // ---------------------------
-  final allIssues = [
-    ...visitor.issues,
-    ...storageVisitor.issues,
-  ];
+  stderr.writeln('🔍 Analyzed file: $filePath');
+  stderr.writeln('📊 Found ${storageVisitor.issues.length} insecure storage issue(s)');
 
   // ---------------------------
-  // 5) Output (same behavior as before)
+  // 4) Output
   // ---------------------------
-
+  
   // Minimal stdout payload for VS Code extension
-  OutputWriter.printStdout(allIssues);
+  OutputWriter.printStdout(storageVisitor.issues);
 
 /*
   // Rich findings.json for dashboard/diagnostics
   OutputWriter.writeFindingsJson(
     filePath: filePath,
     content: content,
-    issues: allIssues,
+    issues: storageVisitor.issues,
   );
   */
 }
