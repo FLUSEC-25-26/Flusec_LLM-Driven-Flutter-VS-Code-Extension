@@ -31,6 +31,11 @@ class OutputWriter {
               // Your extra metadata:
               'functionName': i.functionName,
               'complexity': i.complexity,
+              // IDS metadata:
+              'dataType': i.dataType,
+              'riskLevel': i.riskLevel,
+              'storageContext': i.storageContext,
+              'recommendation': i.recommendation,
             })
         .toList();
 
@@ -65,6 +70,12 @@ class OutputWriter {
           // Your contribution:
           'functionName': i.functionName,
           'complexity': i.complexity,
+          
+          // IDS metadata:
+          'dataType': i.dataType,
+          'riskLevel': i.riskLevel,
+          'storageContext': i.storageContext,
+          'recommendation': i.recommendation,
 
           // Deterministic grouping key:
           'fingerprint': _fingerprint(
