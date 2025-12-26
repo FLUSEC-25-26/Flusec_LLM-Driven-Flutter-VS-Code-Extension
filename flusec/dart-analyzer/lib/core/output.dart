@@ -31,6 +31,8 @@ class OutputWriter {
               // Your extra metadata:
               'functionName': i.functionName,
               'complexity': i.complexity,
+              'nestingDepth': i.nestingDepth,
+              'functionLoc': i.functionLoc,
             })
         .toList();
 
@@ -65,6 +67,8 @@ class OutputWriter {
           // Your contribution:
           'functionName': i.functionName,
           'complexity': i.complexity,
+          'nestingDepth': i.nestingDepth,
+          'functionLoc': i.functionLoc,
 
           // Deterministic grouping key:
           'fingerprint': _fingerprint(

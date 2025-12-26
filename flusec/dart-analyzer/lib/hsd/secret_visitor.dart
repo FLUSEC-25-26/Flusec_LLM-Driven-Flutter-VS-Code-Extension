@@ -92,7 +92,7 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
     return false;
   }
 
-  /// Decide if a node/value should become an Issue.
+    /// Decide if a node/value should become an Issue.
   void _maybeReport(AstNode node, String? value, String contextName) {
     if (value == null || value.isEmpty) return;
 
@@ -107,10 +107,18 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
     final key = '$filePath:${loc.$1}:${loc.$2}:${hit.ruleId}';
 
     if (_seen.add(key)) {
-      // Your feature: compute enclosing function name & complexity
+      // Your feature: compute enclosing function name & metrics
       String? fnName;
       int? complexity;
       String? complexityLevel;
+
+      // NEW numeric metrics
+      int? nestingDepth;
+      int? functionLoc;
+
+      // NEW human-readable levels
+      String? nestingLevel;
+      String? sizeLevel;
 
       final exec = FunctionUtils.enclosingExecutable(node);
       if (exec != null) {
@@ -122,13 +130,52 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
 
         // human-readable level (low / medium / high)
         complexityLevel = Complexity.levelFor(score);
+
+        // NEW: numeric nesting depth + size
+        nestingDepth = Complexity.computeMaxNestingDepth(exec);
+        functionLoc = Complexity.computeFunctionLoc(exec);
+
+        // NEW: human-readable levels
+        if (nestingDepth != null) {
+          nestingLevel = Complexity.nestingLevelFor(nestingDepth);
+        }
+        if (functionLoc != null) {
+          sizeLevel = Complexity.sizeLevelFor(functionLoc);
+        }
       }
 
-      // Optionally enrich the message with complexity level for better context.
+      // Build a nice human-readable message:
+      //
+      // Example:
+      // "Hardcoded API key in function loginUser
+      //  (Function complexity: high, nesting: medium, size: medium)"
+      //
       final baseMessage = hit.message;
-      final annotatedMessage = complexityLevel == null
-          ? baseMessage
-          : '$baseMessage (Function complexity: $complexityLevel)';
+      final buffer = StringBuffer(baseMessage);
+
+      // Add function name if we know it
+      if (fnName != null && fnName.trim().isNotEmpty) {
+        buffer.write(' in function ${fnName.trim()}');
+      }
+
+      // Collect labels like:
+      //  "complexity: high", "nesting: medium", "size: medium"
+      final details = <String>[];
+      if (complexityLevel != null) {
+        details.add('complexity: $complexityLevel');
+      }
+      if (nestingLevel != null) {
+        details.add('nesting: $nestingLevel');
+      }
+      if (sizeLevel != null) {
+        details.add('size: $sizeLevel');
+      }
+
+      if (details.isNotEmpty) {
+        buffer.write(' (Function ${details.join(', ')})');
+      }
+
+      final annotatedMessage = buffer.toString();
 
       issues.add(Issue(
         filePath,
@@ -139,9 +186,12 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
         loc.$2,
         functionName: fnName,
         complexity: complexity,
+        nestingDepth: nestingDepth, // numeric
+        functionLoc: functionLoc,   // numeric
       ));
     }
   }
+
 
   /// Convert AST node offset into (line, column).
   (int, int) _nodeLocation(AstNode node) {
