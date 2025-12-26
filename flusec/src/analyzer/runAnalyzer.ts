@@ -110,40 +110,44 @@ export async function runAnalyzer(
       }
 
       // Build diagnostics for this document (in-memory view).
-      const diags: vscode.Diagnostic[] = [];
+   const diags: vscode.Diagnostic[] = [];
+    for (const f of findings) {
+      const lineIdx = Math.max(0, f.line - 1);
+      const text = doc.lineAt(lineIdx).text;
+      const range = new vscode.Range(lineIdx, 0, lineIdx, text.length);
 
-      for (const f of findings) {
-        const lineIdx = Math.max(0, f.line - 1);
-        const text = doc.lineAt(lineIdx).text;
-        const range = new vscode.Range(lineIdx, 0, lineIdx, text.length);
-
-        const cx =
-          typeof f.complexity === "number"
-            ? ` (Complexity: ${f.complexity})`
-            : "";
-        const message = `${f.message}${cx}`;
-
-        const diag = new vscode.Diagnostic(
-          range,
-          message,
-          severityToVS(f.severity || "warning")
-        );
-
-        diag.source = "flusec";
-        diag.code = f.ruleId;
-
-        diags.push(diag);
-
-        // NOTE: you previously had commented-out LLM prefetch here.
-        // If you want to pre-queue LLM requests, you can re-add it via
-        // exported helpers from hoverLLM.ts.
+      // 🔹 Build numeric metric suffix: Cx, Depth, Size
+      const metricParts: string[] = [];
+      if (typeof f.complexity === "number") {
+        metricParts.push(`Cx=${f.complexity}`);
       }
+      if (typeof f.nestingDepth === "number") {
+        metricParts.push(`Depth=${f.nestingDepth}`);
+      }
+      if (typeof f.functionLoc === "number") {
+        metricParts.push(`Size=${f.functionLoc} LOC`);
+      }
+      const metricSuffix =
+        metricParts.length > 0 ? ` [${metricParts.join(", ")}]` : "";
 
-      // Set diagnostics for THIS document.
-      diagCollection.set(doc.uri, diags);
+      // f.message is already enriched in Dart:
+      // e.g. "Hardcoded API key in function loginUser
+      //       (Function complexity: high, nesting: medium, size: medium)"
+      const message = `${f.message}${metricSuffix}`;
 
-      // Merge into findings.json + refresh global diagnostics.
-      upsertFindingsForDoc(findingsFile, doc, findings);
+      const diag = new vscode.Diagnostic(
+        range,
+        message,
+        severityToVS(f.severity || "warning")
+      );
+      diag.source = "flusec";
+      diag.code = f.ruleId;
+      diags.push(diag);
+    }
+
+    diagCollection.set(doc.uri, diags);
+    upsertFindingsForDoc(findingsFile, doc, findings);
+
     }
   );
 }
