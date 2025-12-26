@@ -3045,7 +3045,7 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
-var vscode6 = __toESM(require("vscode"));
+var vscode7 = __toESM(require("vscode"));
 
 // src/analyzer/runAnalyzer.ts
 var vscode3 = __toESM(require("vscode"));
@@ -3550,33 +3550,175 @@ function openDashboard(context) {
   });
 }
 
+// src/ui/flusecNavigation.ts
+var vscode6 = __toESM(require("vscode"));
+var FlusecNavItem = class extends vscode6.TreeItem {
+  constructor(label, collapsibleState, options = { nodeType: "component" }) {
+    super(label, collapsibleState);
+    this.contextValue = options.contextValue ?? options.nodeType;
+    this.description = options.description;
+    this.tooltip = options.tooltip;
+    this.iconPath = options.icon;
+    if (options.command) {
+      this.command = options.command;
+    }
+    if (options.componentId) {
+      this.id = `${options.nodeType}:${options.componentId}:${label}`;
+    }
+  }
+};
+var FlusecNavigationProvider = class {
+  _onDidChangeTreeData = new vscode6.EventEmitter();
+  onDidChangeTreeData = this._onDidChangeTreeData.event;
+  //  Only HSD for now (your component)
+  components = [
+    {
+      id: "hsd",
+      label: "Hardcoded Secrets (HSD)",
+      icon: new vscode6.ThemeIcon("shield")
+    }
+    // Uncomment later when you add other components
+    // {
+    //   id: "network",
+    //   label: " Network Security",
+    //   description: "Future component",
+    //   icon: new vscode.ThemeIcon("rss"),
+    // },
+    // {
+    //   id: "storage",
+    //   label: " Secure Storage",
+    //   description: "Future component",
+    //   icon: new vscode.ThemeIcon("database"),
+    // },
+    // {
+    //   id: "inputValidation",
+    //   label: "Input Validation",
+    //   description: "Future component",
+    //   icon: new vscode.ThemeIcon("checklist"),
+    // },
+  ];
+  getTreeItem(element) {
+    return element;
+  }
+  getChildren(element) {
+    if (!element) {
+      const items = this.components.map(
+        (c) => new FlusecNavItem(
+          c.label,
+          vscode6.TreeItemCollapsibleState.Collapsed,
+          {
+            nodeType: "component",
+            componentId: c.id,
+            tooltip: "Your module: Hardcoded Secrets Detection (HSD)",
+            icon: c.icon,
+            contextValue: "component-hsd"
+          }
+        )
+      );
+      return Promise.resolve(items);
+    }
+    if (element.contextValue?.startsWith("component")) {
+      const componentId = this.extractComponentId(element);
+      if (componentId) {
+        return Promise.resolve(this.getActionsForComponent(componentId));
+      }
+    }
+    return Promise.resolve([]);
+  }
+  extractComponentId(element) {
+    if (!element.id) {
+      return null;
+    }
+    const parts = element.id.split(":");
+    if (parts.length < 2) {
+      return null;
+    }
+    const candidate = parts[1];
+    if (candidate === "hsd") {
+      return candidate;
+    }
+    return null;
+  }
+  getActionsForComponent(componentId) {
+    switch (componentId) {
+      //
+      //  component: HSD
+      //
+      case "hsd": {
+        const dashboard = new FlusecNavItem(
+          "HSD Dashboard",
+          vscode6.TreeItemCollapsibleState.None,
+          {
+            nodeType: "action",
+            componentId,
+            tooltip: "Open the Hardcoded Secrets (HSD) dashboard \u2013 shows findings for your component.",
+            icon: new vscode6.ThemeIcon("graph"),
+            command: {
+              command: "flusec.openFindings",
+              title: "Open HSD Dashboard"
+            },
+            contextValue: "hsd-dashboard"
+          }
+        );
+        const ruleManager = new FlusecNavItem(
+          "HSD Rule Manager",
+          vscode6.TreeItemCollapsibleState.None,
+          {
+            nodeType: "action",
+            componentId,
+            tooltip: "Open the HSD Rule Manager \u2013 add, edit, or delete dynamic rules for hardcoded secrets.",
+            icon: new vscode6.ThemeIcon("wrench"),
+            command: {
+              command: "flusec.manageRules",
+              title: "Open HSD Rule Manager"
+            },
+            contextValue: "hsd-rule-manager"
+          }
+        );
+        return [dashboard, ruleManager];
+      }
+    }
+  }
+  refresh() {
+    this._onDidChangeTreeData.fire();
+  }
+};
+function registerFlusecNavigationView(context) {
+  const provider = new FlusecNavigationProvider();
+  const treeView = vscode6.window.createTreeView("flusecNavView", {
+    treeDataProvider: provider,
+    showCollapseAll: false
+  });
+  context.subscriptions.push(treeView);
+}
+
 // src/extension.ts
 function activate(context) {
   context.subscriptions.push(diagCollection);
   context.subscriptions.push(
-    vscode6.commands.registerCommand("flusec.scanFile", async () => {
-      const editor = vscode6.window.activeTextEditor;
+    vscode7.commands.registerCommand("flusec.scanFile", async () => {
+      const editor = vscode7.window.activeTextEditor;
       if (editor) {
         await runAnalyzer(editor.document, context);
       } else {
-        vscode6.window.showInformationMessage("No active Dart file to scan.");
+        vscode7.window.showInformationMessage("No active Dart file to scan.");
       }
     })
   );
   context.subscriptions.push(
-    vscode6.commands.registerCommand(
+    vscode7.commands.registerCommand(
       "flusec.manageRules",
       () => openRuleManager(context)
     )
   );
   context.subscriptions.push(
-    vscode6.commands.registerCommand(
+    vscode7.commands.registerCommand(
       "flusec.openFindings",
       () => openDashboard(context)
     )
   );
   context.subscriptions.push(
-    vscode6.workspace.onDidSaveTextDocument(async (doc) => {
+    vscode7.workspace.onDidSaveTextDocument(async (doc) => {
       if (doc.languageId === "dart") {
         await runAnalyzer(doc, context);
       }
@@ -3584,7 +3726,7 @@ function activate(context) {
   );
   let typingTimeout;
   context.subscriptions.push(
-    vscode6.workspace.onDidChangeTextDocument((event) => {
+    vscode7.workspace.onDidChangeTextDocument((event) => {
       const doc = event.document;
       if (doc.languageId !== "dart") {
         return;
@@ -3596,6 +3738,7 @@ function activate(context) {
     })
   );
   registerHoverProvider(context);
+  registerFlusecNavigationView(context);
 }
 function deactivate() {
   diagCollection.clear();

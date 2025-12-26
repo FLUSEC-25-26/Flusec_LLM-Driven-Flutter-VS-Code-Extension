@@ -24,14 +24,31 @@
       },
       {
         "command": "flusec.manageRules",
-        "title": "Flusec: Manage Rules"
+        "title": "Open HSD Rule Manager"
       },
       {
         "command": "flusec.openFindings",
-        "title": "Flusec: Open Findings Dashboard"
+        "title": "Open HSD Dashboard"
       }
      
-    ]
+    ],
+     "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "flusec",
+          "title": "FLUSEC",
+          "icon": "resources/programming-security-svgrepo-com.svg"
+        }
+      ]
+    },
+    "views": {
+      "flusec": [
+        {
+          "id": "flusecNavView",
+          "name": "FLUSEC Navigation"
+        }
+      ]
+    }
   },
   "files": [
     "dist",
