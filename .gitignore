@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Build Output
+out/
+dist/
+*.vsix
+
+# Debugging
+.vscode-test/
+.history/
+npm-debug.log
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# Misc
+.env
