@@ -14,9 +14,9 @@ import 'dart:io';
 
 import 'package:analyzer/dart/analysis/utilities.dart';
 
-import '../lib/core/output.dart';
-import '../lib/core/paths.dart';
-import '../lib/hsd/index.dart';
+import 'package:dart_analyzer/core/output.dart';
+import 'package:dart_analyzer/core/paths.dart';
+import 'package:dart_analyzer/hsd/index.dart';
 
 void main(List<String> args) {
   // ---------------------------
