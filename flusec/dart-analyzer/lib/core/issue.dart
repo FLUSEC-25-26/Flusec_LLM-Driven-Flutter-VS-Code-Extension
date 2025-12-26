@@ -22,9 +22,11 @@ class Issue {
   // Other components can ignore these fields or later reuse them.
   final String? functionName; // enclosing function/method name, if any
   final int? complexity; // cyclomatic complexity of that executable
+  final int? nestingDepth; /// Maximum nesting depth (if/for/while/switch/try) inside the enclosing function/method. Higher depth usually means harder-to-understand logic.
+  final int? functionLoc; /// Approximate number of lines in the enclosing function/method.Helps estimate refactoring effort for removing the secret.
 
   Issue(
-    this.filePath, 
+    this.filePath,
     this.ruleId,
     this.message,
     this.severity,
@@ -32,5 +34,7 @@ class Issue {
     this.column, {
     this.functionName,
     this.complexity,
+    this.nestingDepth, 
+    this.functionLoc,
   });
 }
