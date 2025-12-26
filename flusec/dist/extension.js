@@ -3491,7 +3491,9 @@ function openDashboard(context) {
   );
   const htmlPath = path3.join(
     context.extensionUri.fsPath,
+    "src",
     "web",
+    "hsd",
     "dashboard.html"
   );
   panel.webview.html = fs4.existsSync(htmlPath) ? fs4.readFileSync(htmlPath, "utf8") : "<html><body>Dashboard not found</body></html>";
