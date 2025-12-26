@@ -26,7 +26,9 @@ export function openDashboard(context: vscode.ExtensionContext) {
   // Load static HTML file for the dashboard UI.
   const htmlPath = path.join(
     context.extensionUri.fsPath,
+    "src",
     "web",
+    "hsd",
     "dashboard.html"
   );
 
