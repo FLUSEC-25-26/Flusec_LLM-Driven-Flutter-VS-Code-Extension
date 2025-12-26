@@ -110,17 +110,30 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
       // Your feature: compute enclosing function name & complexity
       String? fnName;
       int? complexity;
+      String? complexityLevel;
 
       final exec = FunctionUtils.enclosingExecutable(node);
       if (exec != null) {
         fnName = FunctionUtils.executableName(exec);
-        complexity = Complexity.computeCyclomaticComplexity(exec);
+
+        // numeric complexity score
+        final score = Complexity.computeCyclomaticComplexity(exec);
+        complexity = score;
+
+        // human-readable level (low / medium / high)
+        complexityLevel = Complexity.levelFor(score);
       }
 
+      // Optionally enrich the message with complexity level for better context.
+      final baseMessage = hit.message;
+      final annotatedMessage = complexityLevel == null
+          ? baseMessage
+          : '$baseMessage (Function complexity: $complexityLevel)';
+
       issues.add(Issue(
-        filePath,  
+        filePath,
         hit.ruleId,
-        hit.message,
+        annotatedMessage,
         hit.severity,
         loc.$1,
         loc.$2,
