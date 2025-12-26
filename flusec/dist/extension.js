@@ -762,14 +762,14 @@ var require_url_state_machine = __commonJS({
       return url.replace(/\u0009|\u000A|\u000D/g, "");
     }
     function shortenPath(url) {
-      const path4 = url.path;
-      if (path4.length === 0) {
+      const path5 = url.path;
+      if (path5.length === 0) {
         return;
       }
-      if (url.scheme === "file" && path4.length === 1 && isNormalizedWindowsDriveLetter(path4[0])) {
+      if (url.scheme === "file" && path5.length === 1 && isNormalizedWindowsDriveLetter(path5[0])) {
         return;
       }
-      path4.pop();
+      path5.pop();
     }
     function includesCredentials(url) {
       return url.username !== "" || url.password !== "";
@@ -3050,12 +3050,19 @@ var vscode7 = __toESM(require("vscode"));
 // src/analyzer/runAnalyzer.ts
 var vscode3 = __toESM(require("vscode"));
 var import_child_process = require("child_process");
-var path = __toESM(require("path"));
+var path2 = __toESM(require("path"));
 var fs2 = __toESM(require("fs"));
 
 // src/analyzer/findingsStore.ts
 var vscode = __toESM(require("vscode"));
 var fs = __toESM(require("fs"));
+var path = __toESM(require("path"));
+function ensureDirForFile(filePath) {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
 var diagCollection = vscode.languages.createDiagnosticCollection("flusec");
 function severityToVS(sev) {
   return sev?.toLowerCase() === "error" ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning;
@@ -3080,11 +3087,21 @@ function refreshDiagnosticsFromFindings(fp) {
     }
     const line = Math.max(0, (f.line ?? 1) - 1);
     const col = Math.max(0, (f.column ?? 1) - 1);
-    const endCol = Math.max(col + Math.max(1, f.snippet?.length ?? 80), col + 1);
-    const cx = typeof f.complexity === "number" ? ` (Cx: ${f.complexity})` : "";
+    const endCol = col + Math.max(1, f.snippet?.length ?? 80);
+    const metricParts = [];
+    if (typeof f.complexity === "number") {
+      metricParts.push(`Cx=${f.complexity}`);
+    }
+    if (typeof f.nestingDepth === "number") {
+      metricParts.push(`Depth=${f.nestingDepth}`);
+    }
+    if (typeof f.functionLoc === "number") {
+      metricParts.push(`Size=${f.functionLoc} LOC`);
+    }
+    const metricSuffix = metricParts.length > 0 ? ` [${metricParts.join(", ")}]` : "";
     const diag = new vscode.Diagnostic(
       new vscode.Range(line, col, line, endCol),
-      `[${f.ruleId}] ${f.message || ""}${cx}`,
+      `[${f.ruleId}] ${f.message || ""}${metricSuffix}`,
       severityToVS(f.severity || "warning")
     );
     diag.source = "flusec";
@@ -3099,10 +3116,7 @@ function refreshDiagnosticsFromFindings(fp) {
   }
 }
 function upsertFindingsForDoc(findingsFilePath, doc, newFindings) {
-  const dir = require("path").dirname(findingsFilePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  ensureDirForFile(findingsFilePath);
   let all = [];
   if (fs.existsSync(findingsFilePath)) {
     try {
@@ -3128,7 +3142,10 @@ function upsertFindingsForDoc(findingsFilePath, doc, newFindings) {
       message: f.message,
       severity: f.severity || "warning",
       functionName: f.functionName,
-      complexity: f.complexity
+      complexity: f.complexity,
+      // 🔹 store numeric metrics in findings.json
+      nestingDepth: f.nestingDepth,
+      functionLoc: f.functionLoc
     });
   }
   fs.writeFileSync(findingsFilePath, JSON.stringify(all, null, 2), "utf8");
@@ -3140,7 +3157,7 @@ var vscode2 = __toESM(require("vscode"));
 
 // src/llm.ts
 var fetch = require_lib2();
-async function getLLMFeedback(issueMessage) {
+async function getLLMFeedback(issueMessage, codeSnippet) {
   try {
     const res = await fetch("http://localhost:11434/api/generate", {
       method: "POST",
@@ -3152,26 +3169,44 @@ async function getLLMFeedback(issueMessage) {
         keep_alive: "30m",
         // Balanced prompt: more educational, still constrained
         prompt: `
-You are a secure coding assistant for Flutter/Dart.
-Explain clearly and briefly.
+        Return ONLY one valid JSON object (no markdown, no extra text) in this shape:
+        {
+          "why": "2 short sentences explaining the security problem and 1 short sentence on impact.",
+          "fix": ["3 short, practical Flutter/Dart fixes."],
+          "maintainability": "1 sentence starting with: 'Because complexity is X, nesting is Y, and size is Z, ...'",
+          "example": "Very short safe Flutter/Dart example (no real secrets)."
+        }
 
-Return JSON only (no markdown, no extra text):
-{
-  "why": "2-3 sentences explaining why this is a problem",
-  "risk": "1 sentence describing impact",
-  "fix": ["3 short steps to fix it"],
-  "example": "very short Dart example"
-}
+        Context:
+        - This is Flutter/Dart mobile app code (APK/IPA can be reverse-engineered).
+        - If it looks like an API key / token / credential / backend secret:
+          - Say real secrets must live on the server or secure config, not in the client.
+          - Mention attackers can extract client-side secrets from APK/IPA.
+        - DO NOT suggest hardcoding secrets anywhere (even in another file).
+        - Do NOT suggest client-side encryption as the main solution.
 
-Issue: ${issueMessage}
-        `.trim(),
+        For maintainability:
+        - Read X, Y, Z from the text in Issue details like:
+          "Function complexity: medium, nesting: high, size: small".
+        - Use those exact words.
+        - Write exactly ONE sentence that starts with:
+          "Because complexity is X, nesting is Y, and size is Z, "
+          and then briefly say how hard or risky it is to refactor.
+
+
+        Issue details:
+        ${issueMessage}
+
+        Code (Dart):
+        ${codeSnippet || "// (no code snippet provided)"}
+                `.trim(),
         // Ollama generation controls (balanced)
         options: {
           num_ctx: 2048,
           // keep context small for speed
           num_predict: 160,
           // enough for educational content, still fast
-          temperature: 0.15,
+          temperature: 0.2,
           // slight creativity, but not rambling
           top_p: 0.9,
           repeat_penalty: 1.1
@@ -3205,10 +3240,10 @@ var processingQueue = false;
 function makeKey(uri, range) {
   return `${uri.toString()}:${range.start.line}:${range.start.character}`;
 }
-function enqueueLLMRequest(key, message) {
+function enqueueLLMRequest(key, message, codeSnippet) {
   llmQueue.push(async () => {
     try {
-      const feedback = await getLLMFeedback(message);
+      const feedback = await getLLMFeedback(message, codeSnippet);
       feedbackCache.set(key, feedback);
       vscode2.commands.executeCommand("editor.action.showHover");
       setTimeout(
@@ -3261,6 +3296,11 @@ function formatFeedbackForHover(raw) {
       md.appendMarkdown(`
 `);
     }
+    if (obj.maintainability) {
+      md.appendMarkdown(`**Maintainability**: ${obj.maintainability}
+
+`);
+    }
     if (obj.example && String(obj.example).trim()) {
       md.appendMarkdown(`**Example**:
 
@@ -3288,7 +3328,17 @@ function registerHoverProvider(context) {
               formatFeedbackForHover(feedbackCache.get(key))
             );
           }
-          enqueueLLMRequest(key, diag.message);
+          const doc = document;
+          const startLine = Math.max(0, diag.range.start.line - 2);
+          const endLine = Math.min(doc.lineCount - 1, diag.range.end.line + 2);
+          const snippetRange = new vscode2.Range(
+            startLine,
+            0,
+            endLine,
+            doc.lineAt(endLine).text.length
+          );
+          const codeSnippet = doc.getText(snippetRange);
+          enqueueLLMRequest(key, diag.message, codeSnippet);
           return new vscode2.Hover("\u{1F4A1} Loading feedback from LLM...");
         }
       }
@@ -3314,7 +3364,7 @@ function findWorkspaceFolderForDoc(doc) {
   return vscode3.workspace.getWorkspaceFolder(doc.uri) ?? vscode3.workspace.workspaceFolders?.[0];
 }
 function findingsPathForFolder(folder) {
-  return path.join(folder.uri.fsPath, "dart-analyzer", ".out", "findings.json");
+  return path2.join(folder.uri.fsPath, "dart-analyzer", ".out", "findings.json");
 }
 async function runAnalyzer(doc, _context) {
   resetLLMState();
@@ -3327,7 +3377,7 @@ async function runAnalyzer(doc, _context) {
     return;
   }
   const findingsFile = findingsPathForFolder(folder);
-  const analyzerPath = path.join(
+  const analyzerPath = path2.join(
     __dirname,
     "..",
     "dart-analyzer",
@@ -3364,8 +3414,18 @@ async function runAnalyzer(doc, _context) {
         const lineIdx = Math.max(0, f.line - 1);
         const text = doc.lineAt(lineIdx).text;
         const range = new vscode3.Range(lineIdx, 0, lineIdx, text.length);
-        const cx = typeof f.complexity === "number" ? ` (Complexity: ${f.complexity})` : "";
-        const message = `${f.message}${cx}`;
+        const metricParts = [];
+        if (typeof f.complexity === "number") {
+          metricParts.push(`Cx=${f.complexity}`);
+        }
+        if (typeof f.nestingDepth === "number") {
+          metricParts.push(`Depth=${f.nestingDepth}`);
+        }
+        if (typeof f.functionLoc === "number") {
+          metricParts.push(`Size=${f.functionLoc} LOC`);
+        }
+        const metricSuffix = metricParts.length > 0 ? ` [${metricParts.join(", ")}]` : "";
+        const message = `${f.message}${metricSuffix}`;
         const diag = new vscode3.Diagnostic(
           range,
           message,
@@ -3384,7 +3444,7 @@ async function runAnalyzer(doc, _context) {
 // src/ui/ruleManager/hardcoded_secrets/ruleManager.ts
 var vscode4 = __toESM(require("vscode"));
 var fs3 = __toESM(require("fs"));
-var path2 = __toESM(require("path"));
+var path3 = __toESM(require("path"));
 function openRuleManager(context) {
   const panel = vscode4.window.createWebviewPanel(
     "ruleManager",
@@ -3393,8 +3453,8 @@ function openRuleManager(context) {
     { enableScripts: true, retainContextWhenHidden: true }
   );
   const extensionRoot = context.extensionUri.fsPath;
-  const rulesPath = path2.join(extensionRoot, "dart-analyzer", "data", "hardcoded_secrets_rules.json");
-  const htmlFile = path2.join(extensionRoot, "src", "ui", "ruleManager", "hardcoded_secrets", "ruleManager.html");
+  const rulesPath = path3.join(extensionRoot, "dart-analyzer", "data", "hardcoded_secrets_rules.json");
+  const htmlFile = path3.join(extensionRoot, "src", "ui", "ruleManager", "hardcoded_secrets", "ruleManager.html");
   panel.webview.html = fs3.readFileSync(htmlFile, "utf8");
   function readRules() {
     try {
@@ -3406,7 +3466,7 @@ function openRuleManager(context) {
     }
   }
   function writeRules(rules) {
-    fs3.mkdirSync(path2.dirname(rulesPath), { recursive: true });
+    fs3.mkdirSync(path3.dirname(rulesPath), { recursive: true });
     const tmp = rulesPath + ".tmp";
     fs3.writeFileSync(tmp, JSON.stringify(rules, null, 2), "utf8");
     fs3.renameSync(tmp, rulesPath);
@@ -3478,7 +3538,7 @@ function openRuleManager(context) {
 // src/web/hsd/dashboard.ts
 var vscode5 = __toESM(require("vscode"));
 var fs4 = __toESM(require("fs"));
-var path3 = __toESM(require("path"));
+var path4 = __toESM(require("path"));
 function openDashboard(context) {
   const panel = vscode5.window.createWebviewPanel(
     "flusecDashboard",
@@ -3489,7 +3549,7 @@ function openDashboard(context) {
       retainContextWhenHidden: true
     }
   );
-  const htmlPath = path3.join(
+  const htmlPath = path4.join(
     context.extensionUri.fsPath,
     "src",
     "web",

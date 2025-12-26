@@ -27,21 +27,29 @@ export async function getLLMFeedback(issueMessage: string, codeSnippet?: string)
 
         // Balanced prompt: more educational, still constrained
         prompt: `
-        You are a Flutter/Dart mobile security reviewer.
-        Assume attackers may reverse-engineer APK/IPA builds.
-
-        Explain clearly and briefly.
-
-        Return JSON only (no markdown, no extra text):
+        Return ONLY one valid JSON object (no markdown, no extra text) in this shape:
         {
-          "why": "2-3 short sentences explaining why this is a security problem",
-          "risk": "1 short sentence describing potential impact",
-          "fix": ["3 short, practical steps to fix it in Flutter/Dart"],
-          "maintainability": "1 short sentence about how function complexity / nesting / size affect effort and safety of refactoring",
-          "example": "very short Flutter/Dart-safe example"
+          "why": "2 short sentences explaining the security problem and 1 short sentence on impact.",
+          "fix": ["3 short, practical Flutter/Dart fixes."],
+          "maintainability": "1 sentence starting with: 'Because complexity is X, nesting is Y, and size is Z, ...'",
+          "example": "Very short safe Flutter/Dart example (no real secrets)."
         }
 
-        The analyzer already detected a vulnerability.
+        Context:
+        - This is Flutter/Dart mobile app code (APK/IPA can be reverse-engineered).
+        - If it looks like an API key / token / credential / backend secret:
+          - Say real secrets must live on the server or secure config, not in the client.
+          - Mention attackers can extract client-side secrets from APK/IPA.
+        - DO NOT suggest hardcoding secrets anywhere (even in another file).
+        - Do NOT suggest client-side encryption as the main solution.
+
+        For maintainability:
+        - Read X, Y, Z from the text in Issue details like:
+          "Function complexity: medium, nesting: high, size: small".
+        - Use those exact words.
+        - Write exactly ONE sentence that starts with:
+          "Because complexity is X, nesting is Y, and size is Z, "
+          and then briefly say how hard or risky it is to refactor.
 
 
         Issue details:
@@ -55,7 +63,7 @@ export async function getLLMFeedback(issueMessage: string, codeSnippet?: string)
         options: {
           num_ctx: 2048,        // keep context small for speed
           num_predict: 160,     // enough for educational content, still fast
-          temperature: 0.15,    // slight creativity, but not rambling
+          temperature: 0.2,    // slight creativity, but not rambling
           top_p: 0.9,
           repeat_penalty: 1.1,
         },
