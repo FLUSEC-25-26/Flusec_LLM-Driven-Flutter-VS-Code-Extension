@@ -16,6 +16,8 @@ import { diagCollection } from "./analyzer/findingsStore.js";
 import { registerHoverProvider } from "./diagnostics/hoverllm.js";
 import { openRuleManager } from "./ui/ruleManager/hardcoded_secrets/ruleManager.js";
 import { openDashboard } from "./web/hsd/dashboard.js";
+import { registerFlusecNavigationView } from "./ui/flusecNavigation.js";
+
 
 export function activate(context: vscode.ExtensionContext) {
   // Ensure diagnostics collection is disposed when extension is deactivated.
@@ -90,6 +92,8 @@ export function activate(context: vscode.ExtensionContext) {
   // Hover provider (LLM feedback)
   // -----------------------------
   registerHoverProvider(context);
+
+   registerFlusecNavigationView(context);
 }
 
 export function deactivate() {
