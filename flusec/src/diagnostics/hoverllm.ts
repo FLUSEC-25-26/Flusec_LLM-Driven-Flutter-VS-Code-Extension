@@ -95,6 +95,11 @@ function formatFeedbackForHover(raw: string): vscode.MarkdownString {
       md.appendMarkdown(`\n`);
     }
 
+    // 🔹 NEW — maintainability if provided
+    if (obj.maintainability) {
+      md.appendMarkdown(`**Maintainability**: ${obj.maintainability}\n\n`);
+    }
+
     if (obj.example && String(obj.example).trim()) {
       md.appendMarkdown(`**Example**:\n\n`);
       md.appendCodeblock(String(obj.example), "dart");
