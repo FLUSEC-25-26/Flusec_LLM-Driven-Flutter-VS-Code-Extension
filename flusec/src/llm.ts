@@ -13,7 +13,7 @@ type OllamaServerResponse = {
  * - More educational than the ultra-short version
  * - Local-only (privacy)
  */
-export async function getLLMFeedback(issueMessage: string): Promise<string> {
+export async function getLLMFeedback(issueMessage: string, codeSnippet?: string): Promise<string> {
   try {
     const res = await fetch("http://localhost:11434/api/generate", {
       method: "POST",
@@ -27,19 +27,29 @@ export async function getLLMFeedback(issueMessage: string): Promise<string> {
 
         // Balanced prompt: more educational, still constrained
         prompt: `
-You are a secure coding assistant for Flutter/Dart.
-Explain clearly and briefly.
+        You are a Flutter/Dart mobile security reviewer.
+        Assume attackers may reverse-engineer APK/IPA builds.
 
-Return JSON only (no markdown, no extra text):
-{
-  "why": "2-3 sentences explaining why this is a problem",
-  "risk": "1 sentence describing impact",
-  "fix": ["3 short steps to fix it"],
-  "example": "very short Dart example"
-}
+        Explain clearly and briefly.
 
-Issue: ${issueMessage}
-        `.trim(),
+        Return JSON only (no markdown, no extra text):
+        {
+          "why": "2-3 short sentences explaining why this is a security problem",
+          "risk": "1 short sentence describing potential impact",
+          "fix": ["3 short, practical steps to fix it in Flutter/Dart"],
+          "maintainability": "1 short sentence about how function complexity / nesting / size affect effort and safety of refactoring",
+          "example": "very short Flutter/Dart-safe example"
+        }
+
+        The analyzer already detected a vulnerability.
+
+
+        Issue details:
+        ${issueMessage}
+
+        Code (Dart):
+        ${codeSnippet || "// (no code snippet provided)"}
+                `.trim(),
 
         // Ollama generation controls (balanced)
         options: {
