@@ -28,10 +28,10 @@ function makeKey(uri: vscode.Uri, range: vscode.Range): string {
 /**
  * Enqueue an LLM feedback request for a diagnostic message.
  */
-function enqueueLLMRequest(key: string, message: string) {
+function enqueueLLMRequest(key: string, message: string, codeSnippet: string) {
   llmQueue.push(async () => {
     try {
-      const feedback = await getLLMFeedback(message);
+      const feedback = await getLLMFeedback(message,codeSnippet);
       feedbackCache.set(key, feedback);
 
       // Double-trigger hover refresh to reduce perceived delay.
@@ -131,8 +131,21 @@ export function registerHoverProvider(context: vscode.ExtensionContext) {
             );
           }
 
-          // Otherwise, enqueue LLM request and show loading text.
-          enqueueLLMRequest(key, diag.message);
+          // Build a small code snippet around the diagnostic.
+          // Here we take 2 lines above and 2 lines below for context.
+          const doc = document;
+          const startLine = Math.max(0, diag.range.start.line - 2);
+          const endLine = Math.min(doc.lineCount - 1, diag.range.end.line + 2);
+          const snippetRange = new vscode.Range(
+            startLine,
+            0,
+            endLine,
+            doc.lineAt(endLine).text.length
+          );
+          const codeSnippet = doc.getText(snippetRange);
+
+          // Enqueue LLM request with both the message and the code snippet.
+          enqueueLLMRequest(key, diag.message, codeSnippet);
           return new vscode.Hover("💡 Loading feedback from LLM...");
         }
       }
