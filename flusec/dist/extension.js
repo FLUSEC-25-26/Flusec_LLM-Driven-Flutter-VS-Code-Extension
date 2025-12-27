@@ -762,14 +762,14 @@ var require_url_state_machine = __commonJS({
       return url.replace(/\u0009|\u000A|\u000D/g, "");
     }
     function shortenPath(url) {
-      const path5 = url.path;
-      if (path5.length === 0) {
+      const path4 = url.path;
+      if (path4.length === 0) {
         return;
       }
-      if (url.scheme === "file" && path5.length === 1 && isNormalizedWindowsDriveLetter(path5[0])) {
+      if (url.scheme === "file" && path4.length === 1 && isNormalizedWindowsDriveLetter(path4[0])) {
         return;
       }
-      path5.pop();
+      path4.pop();
     }
     function includesCredentials(url) {
       return url.username !== "" || url.password !== "";
@@ -3539,7 +3539,6 @@ function openRuleManager(context) {
 // src/web/hsd/dashboard.ts
 var vscode5 = __toESM(require("vscode"));
 var fs4 = __toESM(require("fs"));
-var path4 = __toESM(require("path"));
 function openDashboard(context) {
   const panel = vscode5.window.createWebviewPanel(
     "flusecDashboard",
@@ -3550,14 +3549,33 @@ function openDashboard(context) {
       retainContextWhenHidden: true
     }
   );
-  const htmlPath = path4.join(
-    context.extensionUri.fsPath,
+  const webview = panel.webview;
+  const hsdRoot = vscode5.Uri.joinPath(
+    context.extensionUri,
     "src",
     "web",
-    "hsd",
-    "dashboard.html"
+    "hsd"
   );
-  panel.webview.html = fs4.existsSync(htmlPath) ? fs4.readFileSync(htmlPath, "utf8") : "<html><body>Dashboard not found</body></html>";
+  const styleRoot = vscode5.Uri.joinPath(
+    context.extensionUri,
+    "src",
+    "web"
+  );
+  const htmlPath = vscode5.Uri.joinPath(hsdRoot, "dashboard.html");
+  const cssPath = vscode5.Uri.joinPath(styleRoot, "css", "dashboard.css");
+  const jsPath = vscode5.Uri.joinPath(styleRoot, "js", "dashboard.js");
+  const cssUri = webview.asWebviewUri(cssPath);
+  const jsUri = webview.asWebviewUri(jsPath);
+  let html = "<html><body>Dashboard not found</body></html>";
+  if (fs4.existsSync(htmlPath.fsPath)) {
+    try {
+      const raw = fs4.readFileSync(htmlPath.fsPath, "utf8");
+      html = raw.replace(/{{cssUri}}/g, cssUri.toString()).replace(/{{jsUri}}/g, jsUri.toString()).replace(/{{cspSource}}/g, webview.cspSource);
+    } catch {
+      html = "<html><body>Failed to load dashboard template</body></html>";
+    }
+  }
+  panel.webview.html = html;
   const folder = vscode5.workspace.workspaceFolders?.[0];
   if (!folder) {
     panel.webview.postMessage({ command: "loadFindings", data: [] });
