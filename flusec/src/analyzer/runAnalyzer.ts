@@ -23,6 +23,8 @@ import {
   clearFeedbackForDocument,
 } from "../diagnostics/hoverllm.js";
 
+
+
 /**
  * Return workspace folder for a document.
  * If none is directly associated, fallback to the first workspace folder.
@@ -143,6 +145,8 @@ export async function runAnalyzer(
       diag.source = "flusec";
       diag.code = f.ruleId;
       diags.push(diag);
+
+    
     }
 
     diagCollection.set(doc.uri, diags);

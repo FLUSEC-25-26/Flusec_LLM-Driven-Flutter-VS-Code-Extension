@@ -108,6 +108,7 @@ function formatFeedbackForHover(raw: string): vscode.MarkdownString {
     return md;
   } catch {
     // Fallback if JSON parsing fails → plain text.
+     console.log("[Flusec] JSON parse failed. Raw:", raw);
     md.appendMarkdown(`### 💡 Educational feedback\n\n`);
     md.appendMarkdown(raw);
     return md;
@@ -181,3 +182,6 @@ export function clearFeedbackForDocument(uri: vscode.Uri) {
     }
   }
 }
+
+
+
