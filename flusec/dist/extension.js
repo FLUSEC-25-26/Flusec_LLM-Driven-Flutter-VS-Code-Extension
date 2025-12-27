@@ -3204,7 +3204,7 @@ async function getLLMFeedback(issueMessage, codeSnippet) {
         options: {
           num_ctx: 2048,
           // keep context small for speed
-          num_predict: 160,
+          num_predict: 200,
           // enough for educational content, still fast
           temperature: 0.2,
           // slight creativity, but not rambling
@@ -3309,6 +3309,7 @@ function formatFeedbackForHover(raw) {
     }
     return md;
   } catch {
+    console.log("[Flusec] JSON parse failed. Raw:", raw);
     md.appendMarkdown(`### \u{1F4A1} Educational feedback
 
 `);
