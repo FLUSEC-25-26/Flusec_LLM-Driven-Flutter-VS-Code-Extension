@@ -1,0 +1,87 @@
+body {
+  font-family: Segoe UI, sans-serif;
+  background: #1e1e1e;
+  color: #ddd;
+  padding: 12px;
+}
+
+h2 {
+  margin: 0 0 8px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.card {
+  background: #252526;
+  border: 1px solid #444;
+  padding: 12px;
+  border-radius: 8px;
+  flex: 1;
+  min-width: 260px;
+}
+
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+th,
+td {
+  border: 1px solid #444;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+th {
+  background: #2d2d2d;
+}
+
+.btn {
+  background: #007acc;
+  border: none;
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.btn:hover {
+  background: #005fa3;
+}
+
+canvas {
+  width: 100%;
+  height: 160px;
+}
+
+a {
+  color: #4fc1ff;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Hotspot rows slightly tinted */
+#tblHotspots tbody tr {
+  background: #2a2525;
+}
