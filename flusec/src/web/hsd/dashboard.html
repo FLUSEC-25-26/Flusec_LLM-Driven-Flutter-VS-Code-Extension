@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+
+    <!-- CSP placeholders will be replaced in dashboard.ts -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src {{cspSource}} data:; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}} 'unsafe-inline';"
+    />
+
+    <title>Flusec Findings</title>
+
+    <!-- CSS injected from extension -->
+    <link rel="stylesheet" href="{{cssUri}}" />
+  </head>
+  <body>
+    <h2>Flusec Findings – Hardcoded Secrets & Complexity</h2>
+
+    <div class="row">
+      <!-- Summary counters -->
+      <div class="card">
+        <div id="counters">Loading…</div>
+      </div>
+
+      <!-- Top rules chart -->
+      <div class="card">
+        <strong>Top Rules</strong>
+        <canvas id="chartRules"></canvas>
+      </div>
+
+      <!-- Top files chart -->
+      <div class="card">
+        <strong>Top Files</strong>
+        <canvas id="chartFiles"></canvas>
+      </div>
+    </div>
+
+    <!-- Maintainability hotspots (high complexity / deep nesting) -->
+    <div class="card" style="margin-top: 12px">
+      <strong>Maintainability hotspots (secrets in complex code)</strong>
+      <table id="tblHotspots">
+        <thead>
+          <tr>
+            <th>Function</th>
+            <th>File</th>
+            <th>Line</th>
+            <th>Cx</th>
+            <th>Depth</th>
+            <th>Size (LOC)</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- Full findings -->
+    <div class="card" style="margin-top: 12px">
+      <div class="header-row">
+        <strong>All Findings</strong>
+        <!-- <div class="actions">
+          
+          <button class="btn" id="exportPdf">Export PDF</button>
+        </div> -->
+      </div>
+
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th>Severity</th>
+            <th>Rule</th>
+            <th>Message</th>
+            <th>File</th>
+            <th>Line</th>
+            <th>Function</th>
+            <th>Metrics</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- JS injected from extension -->
+    <script src="{{jsUri}}"></script>
+  </body>
+</html>
