@@ -3202,11 +3202,11 @@ async function getLLMFeedback(issueMessage, codeSnippet) {
                 `.trim(),
         // Ollama generation controls (balanced)
         options: {
-          num_ctx: 2048,
+          num_ctx: 2050,
           // keep context small for speed
-          num_predict: 200,
+          num_predict: 220,
           // enough for educational content, still fast
-          temperature: 0.2,
+          temperature: 0.16,
           // slight creativity, but not rambling
           top_p: 0.9,
           repeat_penalty: 1.1

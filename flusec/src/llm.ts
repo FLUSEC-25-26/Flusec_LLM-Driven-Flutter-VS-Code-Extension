@@ -61,9 +61,9 @@ export async function getLLMFeedback(issueMessage: string, codeSnippet?: string)
 
         // Ollama generation controls (balanced)
         options: {
-          num_ctx: 2048,        // keep context small for speed
-          num_predict: 200,     // enough for educational content, still fast
-          temperature: 0.2,    // slight creativity, but not rambling
+          num_ctx: 2050,        // keep context small for speed
+          num_predict: 220,     // enough for educational content, still fast
+          temperature: 0.16,    // slight creativity, but not rambling
           top_p: 0.9,
           repeat_penalty: 1.1,
         },
