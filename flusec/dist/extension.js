@@ -3052,8 +3052,13 @@ var fs2 = __toESM(require("fs"));
 
 // src/llm.ts
 var fetch = require_lib2();
-async function getLLMFeedback(issueMessage) {
+async function getLLMFeedback(issueMessage, metadata) {
   try {
+    const contextInfo = metadata ? `
+Risk Level: ${metadata.riskLevel || "MEDIUM"}
+Data Type: ${metadata.dataType || "Sensitive Data"}
+Storage Context: ${metadata.storageContext || "Unknown"}
+` : "";
     const res = await fetch("http://localhost:11434/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -3062,27 +3067,29 @@ async function getLLMFeedback(issueMessage) {
         stream: false,
         // Keep model warm so repeated hovers are fast
         keep_alive: "30m",
-        // Balanced prompt: more educational, still constrained
+        // Enhanced prompt with IDS context
         prompt: `
-You are a secure coding assistant for Flutter/Dart.
-Explain clearly and briefly.
+You are a Flutter security expert specializing in insecure data storage.
 
-Return JSON only (no markdown, no extra text):
+${contextInfo}
+Issue: ${issueMessage}
+
+Provide educational feedback in JSON format (no markdown, no extra text):
 {
-  "why": "2-3 sentences explaining why this is a problem",
-  "risk": "1 sentence describing impact",
-  "fix": ["3 short steps to fix it"],
-  "example": "very short Dart example"
+  "why": "Explain why this ${metadata?.riskLevel || "issue"} risk is dangerous for ${metadata?.dataType || "sensitive data"} in ${metadata?.storageContext || "this storage"}. 2-3 sentences.",
+  "risk": "Specific security impact for ${metadata?.dataType || "this data"} stored in ${metadata?.storageContext || "this location"}. 1 sentence.",
+  "fix": ["3 concrete steps to fix, prioritized by ${metadata?.riskLevel || "severity"}"],
+  "example": "Short secure Dart code example for ${metadata?.storageContext || "this scenario"}"
 }
 
-Issue: ${issueMessage}
+Be specific to the storage type (${metadata?.storageContext || "storage mechanism"}) and data sensitivity (${metadata?.dataType || "data type"}).
         `.trim(),
-        // Ollama generation controls (balanced)
+        // Ollama generation controls (optimized for IDS feedback)
         options: {
           num_ctx: 2048,
           // keep context small for speed
-          num_predict: 160,
-          // enough for educational content, still fast
+          num_predict: 200,
+          // increased for richer context
           temperature: 0.15,
           // slight creativity, but not rambling
           top_p: 0.9,
@@ -3211,14 +3218,15 @@ var processingQueue = false;
 function makeKey(uri, range) {
   return `${uri.toString()}:${range.start.line}:${range.start.character}`;
 }
-function enqueueLLMRequest(key, message) {
+function enqueueLLMRequest(key, message, metadata) {
   llmQueue.push(async () => {
     try {
-      const feedback = await getLLMFeedback(message);
+      const feedback = await getLLMFeedback(message, metadata);
       feedbackCache.set(key, feedback);
       vscode2.commands.executeCommand("editor.action.showHover");
       setTimeout(() => vscode2.commands.executeCommand("editor.action.showHover"), 500);
-      vscode2.window.setStatusBarMessage("\u2705 LLM feedback ready", 2e3);
+      const riskBadge = metadata?.riskLevel ? `[${metadata.riskLevel}] ` : "";
+      vscode2.window.setStatusBarMessage(`\u2705 ${riskBadge}LLM feedback ready`, 2e3);
     } catch (err) {
       console.error("Error fetching LLM feedback:", err);
       feedbackCache.set(key, "\u26A0\uFE0F Error fetching LLM feedback.");
@@ -3253,21 +3261,44 @@ function ensureDirForFile(filePath) {
     fs2.mkdirSync(dir, { recursive: true });
   }
 }
-function formatFeedbackForHover(raw) {
+function formatFeedbackForHover(raw, metadata) {
   const md = new vscode2.MarkdownString();
   md.isTrusted = false;
   try {
     const obj = JSON.parse(raw);
-    md.appendMarkdown(`### \u{1F4A1} Educational feedback
+    if (metadata?.riskLevel) {
+      const riskEmoji = {
+        "CRITICAL": "\u{1F534}",
+        "HIGH": "\u{1F7E0}",
+        "MEDIUM": "\u{1F7E1}",
+        "LOW": "\u{1F7E2}"
+      };
+      const emoji = riskEmoji[metadata.riskLevel] || "\u26AA";
+      md.appendMarkdown(`### ${emoji} ${metadata.riskLevel} Risk - ${metadata.dataType || "Sensitive Data"}
+
+`);
+      md.appendMarkdown(`**Storage**: ${metadata.storageContext || "Unknown"}
+
+`);
+      md.appendMarkdown(`---
+
+`);
+    }
+    md.appendMarkdown(`### \u{1F4A1} Educational Feedback
 
 `);
     if (obj.why) {
-      md.appendMarkdown(`**Why**: ${obj.why}
+      md.appendMarkdown(`**Why This Matters**: ${obj.why}
+
+`);
+    }
+    if (obj.risk) {
+      md.appendMarkdown(`**Security Impact**: ${obj.risk}
 
 `);
     }
     if (Array.isArray(obj.fix) && obj.fix.length > 0) {
-      md.appendMarkdown(`**Fix**:
+      md.appendMarkdown(`**How to Fix**:
 `);
       for (const step of obj.fix.slice(0, 3)) {
         md.appendMarkdown(`- ${String(step).replace(/^\d+\.\s*/, "")}
@@ -3277,14 +3308,22 @@ function formatFeedbackForHover(raw) {
 `);
     }
     if (obj.example && String(obj.example).trim()) {
-      md.appendMarkdown(`**Example**:
+      md.appendMarkdown(`**Secure Example**:
 
 `);
       md.appendCodeblock(String(obj.example), "dart");
     }
+    if (metadata?.recommendation) {
+      md.appendMarkdown(`
+---
+
+`);
+      md.appendMarkdown(`**Recommended Action**: ${metadata.recommendation}
+`);
+    }
     return md;
   } catch {
-    md.appendMarkdown(`### \u{1F4A1} Educational feedback
+    md.appendMarkdown(`### \u{1F4A1} Educational Feedback
 
 `);
     md.appendMarkdown(raw);
@@ -3374,13 +3413,15 @@ function registerHoverProvider(context) {
       for (const diag of diags) {
         if (diag.range.contains(position)) {
           const key = makeKey(document.uri, diag.range);
+          const metadata = diag.idsMetadata;
           if (feedbackCache.has(key)) {
             return new vscode2.Hover(
-              formatFeedbackForHover(feedbackCache.get(key))
+              formatFeedbackForHover(feedbackCache.get(key), metadata)
             );
           }
-          enqueueLLMRequest(key, diag.message);
-          return new vscode2.Hover("\u{1F4A1} Loading feedback from LLM...");
+          enqueueLLMRequest(key, diag.message, metadata);
+          const riskBadge = metadata?.riskLevel ? `[${metadata.riskLevel}] ` : "";
+          return new vscode2.Hover(`\u{1F4A1} ${riskBadge}Loading feedback from LLM...`);
         }
       }
       return void 0;
@@ -3469,8 +3510,10 @@ async function runAnalyzer(doc, context) {
       const lineIdx = Math.max(0, f.line - 1);
       const text = doc.lineAt(lineIdx).text;
       const range = new vscode2.Range(lineIdx, 0, lineIdx, text.length);
+      const riskBadge = f.riskLevel ? `[${f.riskLevel}] ` : "";
+      const dataTypeBadge = f.dataType ? `(${f.dataType}) ` : "";
       const cx = typeof f.complexity === "number" ? ` (Complexity: ${f.complexity})` : "";
-      const message = `${f.message}${cx}`;
+      const message = `${riskBadge}${dataTypeBadge}${f.message}${cx}`;
       const diag = new vscode2.Diagnostic(
         range,
         message,
@@ -3478,6 +3521,12 @@ async function runAnalyzer(doc, context) {
       );
       diag.source = "flusec";
       diag.code = f.ruleId;
+      diag.idsMetadata = {
+        riskLevel: f.riskLevel,
+        dataType: f.dataType,
+        storageContext: f.storageContext,
+        recommendation: f.recommendation
+      };
       diags.push(diag);
     }
     diagCollection.set(doc.uri, diags);
