@@ -26,12 +26,19 @@
       {
         "command": "flusec.openFindings",
         "title": "Flusec: Open Findings Dashboard"
+      },
+      {
+        "command": "flusec.openIDSFindings",
+        "title": "Flusec: Open IDS Dashboard",
+        "category": "Flusec",
+        "icon": "$(shield)"
       }
     ]
   },
   "files": [
     "dist",
-    "web"
+    "web",
+    "src"
   ],
   "scripts": {
     "vscode:prepublish": "npm run package",

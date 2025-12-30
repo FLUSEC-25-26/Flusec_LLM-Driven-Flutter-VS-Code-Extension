@@ -72,7 +72,8 @@ function findWorkspaceFolderForDoc(
 }
 
 function findingsPathForFolder(folder: vscode.WorkspaceFolder): string {
-  return path.join(folder.uri.fsPath, "dart-analyzer", ".out", "findings.json");
+  // IDS findings path - save to flusec/dart-analyzer/.out/ids-findings.json
+  return path.join(folder.uri.fsPath, "flusec", "dart-analyzer", ".out", "ids-findings.json");
 }
 
 function ensureDirForFile(filePath: string) {
@@ -300,6 +301,11 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("flusec.openFindings", () => openDashboard(context))
   );
 
+  // IDS Dashboard
+  context.subscriptions.push(
+    vscode.commands.registerCommand("flusec.openIDSFindings", () => openIDSDashboard(context))
+  );
+
   //  AUTO scan on SAVE
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument(async (doc) => {
@@ -347,7 +353,10 @@ async function runAnalyzer(doc: vscode.TextDocument, context: vscode.ExtensionCo
     return;
   }
   const findingsFile = findingsPathForFolder(folder);
-  const analyzerPath = path.join(__dirname, "..", "dart-analyzer", "bin", "analyzer.exe");
+
+  // Use context.extensionPath to get the correct path to the analyzer
+  const analyzerPath = path.join(context.extensionPath, "dart-analyzer", "bin", "analyzer.exe");
+
   if (!fs.existsSync(analyzerPath)) {
     vscode.window.showErrorMessage(`Analyzer not found at path: ${analyzerPath}`);
     return;
@@ -487,4 +496,123 @@ function openDashboard(context: vscode.ExtensionContext) {
   });
 }
 
+// ----------------------------------------
+// IDS Dashboard
+// ----------------------------------------
+function openIDSDashboard(context: vscode.ExtensionContext) {
+  const panel = vscode.window.createWebviewPanel(
+    'idsDashboard',
+    'IDS Vulnerability Dashboard',
+    vscode.ViewColumn.Beside,
+    {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+      localResourceRoots: [
+        vscode.Uri.file(path.join(context.extensionPath, 'src', 'web', 'ids'))
+      ]
+    }
+  );
+
+  // Get workspace folder
+  const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    panel.webview.postMessage({ command: 'loadFindings', data: [] });
+    return;
+  }
+
+  // IDS findings path
+  const findingsPath = path.join(
+    workspaceFolder.uri.fsPath,
+    'flusec',
+    'dart-analyzer',
+    '.out',
+    'ids-findings.json'
+  );
+
+  // Load HTML template and inject URIs
+  const htmlPath = path.join(context.extensionPath, 'src', 'web', 'ids', 'dashboard.html');
+  const cssPath = path.join(context.extensionPath, 'src', 'web', 'ids', 'dashboard.css');
+  const jsPath = path.join(context.extensionPath, 'src', 'web', 'ids', 'dashboard.js');
+
+  const cssUri = panel.webview.asWebviewUri(vscode.Uri.file(cssPath));
+  const jsUri = panel.webview.asWebviewUri(vscode.Uri.file(jsPath));
+  const cspSource = panel.webview.cspSource;
+
+  let html = fs.readFileSync(htmlPath, 'utf8');
+  html = html.replace(/\{\{cssUri\}\}/g, cssUri.toString());
+  html = html.replace(/\{\{jsUri\}\}/g, jsUri.toString());
+  html = html.replace(/\{\{cspSource\}\}/g, cspSource);
+
+  panel.webview.html = html;
+
+  // Function to send findings to webview
+  const sendFindings = () => {
+    let findings: any[] = [];
+
+    if (fs.existsSync(findingsPath)) {
+      try {
+        const content = fs.readFileSync(findingsPath, 'utf8');
+        findings = JSON.parse(content);
+        if (!Array.isArray(findings)) {
+          findings = [];
+        }
+      } catch (error) {
+        console.error('Error reading IDS findings:', error);
+        findings = [];
+      }
+    }
+
+    panel.webview.postMessage({ command: 'loadFindings', data: findings });
+  };
+
+  // Send findings initially
+  sendFindings();
+
+  // Refresh when panel becomes visible
+  panel.onDidChangeViewState(() => {
+    if (panel.visible) {
+      sendFindings();
+    }
+  });
+
+  // Handle messages from webview
+  panel.webview.onDidReceiveMessage(
+    async (message) => {
+      switch (message.command) {
+        case 'reveal':
+          try {
+            const uri = vscode.Uri.file(message.file);
+            const document = await vscode.workspace.openTextDocument(uri);
+            const editor = await vscode.window.showTextDocument(document, { preview: false });
+
+            const position = new vscode.Position(
+              Math.max(0, (message.line || 1) - 1),
+              Math.max(0, (message.column || 1) - 1)
+            );
+
+            editor.selection = new vscode.Selection(position, position);
+            editor.revealRange(
+              new vscode.Range(position, position),
+              vscode.TextEditorRevealType.InCenter
+            );
+          } catch (error) {
+            vscode.window.showErrorMessage(`Failed to open file: ${error}`);
+          }
+          break;
+
+        case 'rescan':
+          try {
+            await vscode.commands.executeCommand('flusec.scanFile');
+            setTimeout(sendFindings, 500);
+            vscode.window.showInformationMessage('Rescan triggered successfully');
+          } catch (error) {
+            vscode.window.showErrorMessage(`Failed to trigger rescan: ${error}`);
+          }
+          break;
+      }
+    },
+    undefined,
+    context.subscriptions
+  );
+}
 
