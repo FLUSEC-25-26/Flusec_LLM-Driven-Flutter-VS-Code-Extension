@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; 
+                  style-src {{cspSource}} 'unsafe-inline'; 
+                  script-src {{cspSource}} 'unsafe-inline' https://cdn.jsdelivr.net; 
+                  img-src {{cspSource}} data:;">
+    <title>IDS Vulnerability Dashboard</title>
+    <link rel="stylesheet" href="{{cssUri}}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+
+<body>
+    <!-- Header -->
+    <div class="header">
+        <h1>
+            <span class="header-icon">🛡️</span>
+            IDS Vulnerability Dashboard
+        </h1>
+        <div class="header-actions">
+            <button class="btn btn-secondary" id="rescan-btn">
+                🔄 Rescan
+            </button>
+            <button class="btn" id="export-btn">
+                📥 Export JSON
+            </button>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="summary-row">
+        <div class="summary-card">
+            <div class="summary-card-title">Total Vulnerabilities</div>
+            <div class="summary-card-value" id="total-count">0</div>
+            <div class="summary-card-subtitle">Detected Issues</div>
+        </div>
+
+        <div class="summary-card card-critical">
+            <div class="summary-card-title">Critical Risk</div>
+            <div class="summary-card-value" id="critical-count">0</div>
+            <div class="summary-card-subtitle">Immediate Action Required</div>
+        </div>
+
+        <div class="summary-card card-high">
+            <div class="summary-card-title">High Risk</div>
+            <div class="summary-card-value" id="high-count">0</div>
+            <div class="summary-card-subtitle">Priority Fixes</div>
+        </div>
+
+        <div class="summary-card card-medium">
+            <div class="summary-card-title">Medium Risk</div>
+            <div class="summary-card-value" id="medium-count">0</div>
+            <div class="summary-card-subtitle">Should Fix Soon</div>
+        </div>
+
+        <div class="summary-card card-low">
+            <div class="summary-card-title">Low Risk</div>
+            <div class="summary-card-value" id="low-count">0</div>
+            <div class="summary-card-subtitle">Minor Issues</div>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="charts-row">
+        <div class="chart-card">
+            <h3>📊 Risk Level Distribution</h3>
+            <canvas id="riskChart"></canvas>
+        </div>
+
+        <div class="chart-card">
+            <h3>🔐 Data Type Analysis</h3>
+            <canvas id="dataTypeChart"></canvas>
+        </div>
+
+        <div class="chart-card">
+            <h3>💾 Storage Context Breakdown</h3>
+            <canvas id="storageChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters-section">
+        <div class="filters-row">
+            <div class="filter-group">
+                <label class="filter-label">Risk Level</label>
+                <select id="risk-filter" class="filter-select">
+                    <option value="">All Levels</option>
+                    <option value="CRITICAL">Critical</option>
+                    <option value="HIGH">High</option>
+                    <option value="MEDIUM">Medium</option>
+                    <option value="LOW">Low</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label class="filter-label">Data Type</label>
+                <select id="datatype-filter" class="filter-select">
+                    <option value="">All Types</option>
+                    <!-- Options populated dynamically -->
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label class="filter-label">Severity</label>
+                <select id="severity-filter" class="filter-select">
+                    <option value="">All Severities</option>
+                    <option value="critical">Critical</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                </select>
+            </div>
+
+            <div class="filter-group">
+                <label class="filter-label">Storage Context</label>
+                <select id="storage-filter" class="filter-select">
+                    <option value="">All Contexts</option>
+                    <!-- Options populated dynamically -->
+                </select>
+            </div>
+
+            <div class="filter-group" style="flex: 1;">
+                <label class="filter-label">Search</label>
+                <input type="text" id="search-input" class="search-input" placeholder="Search vulnerabilities...">
+            </div>
+
+            <button class="btn btn-secondary clear-filters-btn" id="clear-filters-btn">
+                Clear Filters
+            </button>
+        </div>
+    </div>
+
+    <!-- Findings Table -->
+    <div class="findings-section">
+        <div class="findings-header">
+            <h2>🔍 Vulnerability Findings</h2>
+            <span class="findings-count" id="findings-count">0 findings</span>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Risk Level</th>
+                        <th>Data Type</th>
+                        <th>Storage</th>
+                        <th>Message</th>
+                        <th>File</th>
+                        <th>Line</th>
+                        <th>Rule & Recommendation</th>
+                    </tr>
+                </thead>
+                <tbody id="findings-tbody">
+                    <tr>
+                        <td colspan="7" style="text-align: center; padding: 40px;">
+                            <div class="empty-state">
+                                <div class="empty-state-icon">⏳</div>
+                                <div class="empty-state-title">Loading...</div>
+                                <div class="empty-state-message">Please wait while we load the findings</div>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        FLUSEC © 2025 • Insecure Data Storage (IDS) Scanner • Protecting Your Data
+    </div>
+
+    <script src="{{jsUri}}"></script>
+</body>
+
+</html>
