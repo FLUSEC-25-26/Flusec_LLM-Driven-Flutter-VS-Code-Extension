@@ -10,10 +10,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onLanguage:dart",
-    "onCommand:flusec.scanFile",
-    "onCommand:flusec.manageRules",
-    "onCommand:flusec.openFindings"
+    "onLanguage:dart"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -30,7 +27,6 @@
         "command": "flusec.openFindings",
         "title": "Flusec: Open Findings Dashboard"
       }
-     
     ]
   },
   "files": [

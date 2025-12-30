@@ -1,0 +1,41 @@
+[
+    {
+        "file": "test_files/insecure_app.dart",
+        "line": 10,
+        "column": 3,
+        "ruleId": "IDS-001",
+        "ruleName": "Unencrypted SharedPreferences",
+        "severity": "high",
+        "message": "Sensitive data stored in SharedPreferences without encryption",
+        "dataType": "CREDENTIALS",
+        "riskLevel": "HIGH",
+        "storageContext": "shared_prefs",
+        "recommendation": "Use flutter_secure_storage"
+    },
+    {
+        "file": "test_files/insecure_app.dart",
+        "line": 27,
+        "column": 3,
+        "ruleId": "IDS-004",
+        "ruleName": "External Public Storage",
+        "severity": "critical",
+        "message": "Sensitive data written to external/public storage directories",
+        "dataType": "ANY_SENSITIVE",
+        "riskLevel": "CRITICAL",
+        "storageContext": "external_storage",
+        "recommendation": "Use internal app storage with encryption"
+    },
+    {
+        "file": "test_files/insecure_app.dart",
+        "line": 50,
+        "column": 3,
+        "ruleId": "IDS-008",
+        "ruleName": "Logging Secrets",
+        "severity": "medium",
+        "message": "Sensitive data logged to console",
+        "dataType": "CREDENTIALS",
+        "riskLevel": "MEDIUM",
+        "storageContext": "log",
+        "recommendation": "Remove sensitive data from logs"
+    }
+]
