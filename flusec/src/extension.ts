@@ -17,32 +17,44 @@ function makeKey(uri: vscode.Uri, range: vscode.Range) {
   return `${uri.toString()}:${range.start.line}:${range.start.character}`;
 }
 
-function enqueueLLMRequest(key: string, message: string) {
+function enqueueLLMRequest(
+  key: string,
+  message: string,
+  metadata?: {
+    riskLevel?: string;
+    dataType?: string;
+    storageContext?: string;
+    recommendation?: string;
+  }
+) {
   llmQueue.push(async () => {
     try {
-      const feedback = await getLLMFeedback(message);
+      // Pass metadata to LLM for context-aware feedback
+      const feedback = await getLLMFeedback(message, metadata);
       feedbackCache.set(key, feedback);
 
       //  Double-trigger hover refresh to reduce delay
       vscode.commands.executeCommand("editor.action.showHover");
       setTimeout(() => vscode.commands.executeCommand("editor.action.showHover"), 500);
 
-      vscode.window.setStatusBarMessage("✅ LLM feedback ready", 2000);
+      // Enhanced status message with risk level
+      const riskBadge = metadata?.riskLevel ? `[${metadata.riskLevel}] ` : '';
+      vscode.window.setStatusBarMessage(`✅ ${riskBadge}LLM feedback ready`, 2000);
     } catch (err) {
       console.error("Error fetching LLM feedback:", err);
       feedbackCache.set(key, "⚠️ Error fetching LLM feedback.");
     }
   });
 
-  if (!processingQueue) {processQueue();}
+  if (!processingQueue) { processQueue(); }
 }
 
 async function processQueue() {
-  if (processingQueue) {return;}
+  if (processingQueue) { return; }
   processingQueue = true;
   while (llmQueue.length > 0) {
     const job = llmQueue.shift();
-    if (job) {await job();}
+    if (job) { await job(); }
   }
   processingQueue = false;
 }
@@ -65,24 +77,43 @@ function findingsPathForFolder(folder: vscode.WorkspaceFolder): string {
 
 function ensureDirForFile(filePath: string) {
   const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {fs.mkdirSync(dir, { recursive: true });}
+  if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
 }
 
-function formatFeedbackForHover(raw: string): vscode.MarkdownString {
+function formatFeedbackForHover(raw: string, metadata?: any): vscode.MarkdownString {
   const md = new vscode.MarkdownString();
   md.isTrusted = false;
 
   try {
     const obj = JSON.parse(raw);
 
-    md.appendMarkdown(`### 💡 Educational feedback\n\n`);
+    // Add risk level header with color-coded emoji
+    if (metadata?.riskLevel) {
+      const riskEmoji: Record<string, string> = {
+        'CRITICAL': '🔴',
+        'HIGH': '🟠',
+        'MEDIUM': '🟡',
+        'LOW': '🟢'
+      };
+      const emoji = riskEmoji[metadata.riskLevel] || '⚪';
+
+      md.appendMarkdown(`### ${emoji} ${metadata.riskLevel} Risk - ${metadata.dataType || 'Sensitive Data'}\n\n`);
+      md.appendMarkdown(`**Storage**: ${metadata.storageContext || 'Unknown'}\n\n`);
+      md.appendMarkdown(`---\n\n`);
+    }
+
+    md.appendMarkdown(`### 💡 Educational Feedback\n\n`);
 
     if (obj.why) {
-      md.appendMarkdown(`**Why**: ${obj.why}\n\n`);
+      md.appendMarkdown(`**Why This Matters**: ${obj.why}\n\n`);
+    }
+
+    if (obj.risk) {
+      md.appendMarkdown(`**Security Impact**: ${obj.risk}\n\n`);
     }
 
     if (Array.isArray(obj.fix) && obj.fix.length > 0) {
-      md.appendMarkdown(`**Fix**:\n`);
+      md.appendMarkdown(`**How to Fix**:\n`);
       for (const step of obj.fix.slice(0, 3)) {
         md.appendMarkdown(`- ${String(step).replace(/^\d+\.\s*/, "")}\n`);
       }
@@ -90,14 +121,20 @@ function formatFeedbackForHover(raw: string): vscode.MarkdownString {
     }
 
     if (obj.example && String(obj.example).trim()) {
-      md.appendMarkdown(`**Example**:\n\n`);
+      md.appendMarkdown(`**Secure Example**:\n\n`);
       md.appendCodeblock(String(obj.example), "dart");
+    }
+
+    // Add recommendation if available
+    if (metadata?.recommendation) {
+      md.appendMarkdown(`\n---\n\n`);
+      md.appendMarkdown(`**Recommended Action**: ${metadata.recommendation}\n`);
     }
 
     return md;
   } catch {
     // fallback if JSON parsing fails
-    md.appendMarkdown(`### 💡 Educational feedback\n\n`);
+    md.appendMarkdown(`### 💡 Educational Feedback\n\n`);
     md.appendMarkdown(raw);
     return md;
   }
@@ -131,7 +168,7 @@ function refreshDiagnosticsFromFindings(fp: string) {
   const map = new Map<string, vscode.Diagnostic[]>();
   for (const f of raw) {
     const file = String(f.file || "");
-    if (!file) {continue;}
+    if (!file) { continue; }
     const line = Math.max(0, (f.line ?? 1) - 1);
     const col = Math.max(0, (f.column ?? 1) - 1);
     const endCol = col + Math.max(1, (f.snippet?.length ?? 80));
@@ -170,13 +207,13 @@ function upsertFindingsForDoc(
     functionName?: string;
     complexity?: number;
   }>
-){
+) {
   ensureDirForFile(findingsFilePath);
   let all: any[] = [];
   if (fs.existsSync(findingsFilePath)) {
     try {
       all = JSON.parse(fs.readFileSync(findingsFilePath, "utf8"));
-      if (!Array.isArray(all)) {all = [];}
+      if (!Array.isArray(all)) { all = []; }
     } catch {
       all = [];
     }
@@ -185,7 +222,7 @@ function upsertFindingsForDoc(
   const filePath = doc.fileName;
   all = all.filter((x) => x?.file !== filePath);
 
-    for (const f of newFindings) {
+  for (const f of newFindings) {
     const lineIdx = Math.max(0, f.line - 1);
     const lineText = doc.lineAt(lineIdx).text;
     all.push({
@@ -218,15 +255,21 @@ function registerHoverProvider(context: vscode.ExtensionContext) {
         if (diag.range.contains(position)) {
           const key = makeKey(document.uri, diag.range);
 
+          // Extract IDS metadata from diagnostic
+          const metadata = (diag as any).idsMetadata;
+
           if (feedbackCache.has(key)) {
             return new vscode.Hover(
-               formatFeedbackForHover(feedbackCache.get(key)!)
-           );
-         }
+              formatFeedbackForHover(feedbackCache.get(key)!, metadata)
+            );
+          }
 
+          // Pass metadata to LLM for context-aware feedback
+          enqueueLLMRequest(key, diag.message, metadata);
 
-          enqueueLLMRequest(key, diag.message);
-          return new vscode.Hover("💡 Loading feedback from LLM...");
+          // Enhanced loading message with risk level
+          const riskBadge = metadata?.riskLevel ? `[${metadata.riskLevel}] ` : '';
+          return new vscode.Hover(`💡 ${riskBadge}Loading feedback from LLM...`);
         }
       }
       return undefined;
@@ -245,7 +288,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand("flusec.scanFile", async () => {
       const editor = vscode.window.activeTextEditor;
-      if (editor) {await runAnalyzer(editor.document, context);}
+      if (editor) { await runAnalyzer(editor.document, context); }
     })
   );
 
@@ -257,7 +300,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("flusec.openFindings", () => openDashboard(context))
   );
 
-   //  AUTO scan on SAVE
+  //  AUTO scan on SAVE
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument(async (doc) => {
       if (doc.languageId === "dart") {
@@ -272,7 +315,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((event) => {
       const doc = event.document;
-      if (doc.languageId !== "dart") {return;}
+      if (doc.languageId !== "dart") { return; }
 
       clearTimeout(typingTimeout);
       typingTimeout = setTimeout(() => {
@@ -315,7 +358,7 @@ async function runAnalyzer(doc: vscode.TextDocument, context: vscode.ExtensionCo
       console.error("Analyzer execution error:", err);
       return;
     }
-    if (stderr) {console.error("Analyzer stderr:", stderr);}
+    if (stderr) { console.error("Analyzer stderr:", stderr); }
 
     let findings: any[] = [];
     try {
@@ -326,7 +369,7 @@ async function runAnalyzer(doc: vscode.TextDocument, context: vscode.ExtensionCo
     }
 
     for (const key of Array.from(feedbackCache.keys())) {
-      if (key.startsWith(doc.uri.toString())) {feedbackCache.delete(key);}
+      if (key.startsWith(doc.uri.toString())) { feedbackCache.delete(key); }
     }
 
     const diags: vscode.Diagnostic[] = [];
@@ -335,11 +378,15 @@ async function runAnalyzer(doc: vscode.TextDocument, context: vscode.ExtensionCo
       const text = doc.lineAt(lineIdx).text;
       const range = new vscode.Range(lineIdx, 0, lineIdx, text.length);
 
+
+      // Build enhanced message with IDS metadata
+      const riskBadge = f.riskLevel ? `[${f.riskLevel}] ` : '';
+      const dataTypeBadge = f.dataType ? `(${f.dataType}) ` : '';
       const cx =
         typeof f.complexity === "number"
           ? ` (Complexity: ${f.complexity})`
           : "";
-      const message = `${f.message}${cx}`;
+      const message = `${riskBadge}${dataTypeBadge}${f.message}${cx}`;
 
       const diag = new vscode.Diagnostic(
         range,
@@ -348,13 +395,22 @@ async function runAnalyzer(doc: vscode.TextDocument, context: vscode.ExtensionCo
       );
       diag.source = "flusec";
       diag.code = f.ruleId;
+
+      // Attach IDS metadata to diagnostic for hover provider
+      (diag as any).idsMetadata = {
+        riskLevel: f.riskLevel,
+        dataType: f.dataType,
+        storageContext: f.storageContext,
+        recommendation: f.recommendation
+      };
+
       diags.push(diag);
 
-      // 🧠 Prefetch feedback immediately after scan (now with complexity in prompt)
-   //   const key = makeKey(doc.uri, range);
-   //   if (!feedbackCache.has(key)) {
-   //     enqueueLLMRequest(key, message);
-   //   }
+      // 🧠 Prefetch feedback immediately after scan with IDS metadata
+      //   const key = makeKey(doc.uri, range);
+      //   if (!feedbackCache.has(key)) {
+      //     enqueueLLMRequest(key, message, (diag as any).idsMetadata);
+      //   }
     }
 
 
@@ -395,7 +451,7 @@ function openDashboard(context: vscode.ExtensionContext) {
     if (fs.existsSync(findingsPath)) {
       try {
         data = JSON.parse(fs.readFileSync(findingsPath, "utf8"));
-        if (!Array.isArray(data)) {data = [];}
+        if (!Array.isArray(data)) { data = []; }
       } catch {
         data = [];
       }
@@ -408,7 +464,7 @@ function openDashboard(context: vscode.ExtensionContext) {
 
   // Optional: refresh when the dashboard becomes visible again
   panel.onDidChangeViewState(() => {
-    if (panel.visible) {sendFindings();}
+    if (panel.visible) { sendFindings(); }
   });
 
   // Handle messages from the webview (reveal link)
