@@ -762,14 +762,14 @@ var require_url_state_machine = __commonJS({
       return url.replace(/\u0009|\u000A|\u000D/g, "");
     }
     function shortenPath(url) {
-      const path4 = url.path;
-      if (path4.length === 0) {
+      const path5 = url.path;
+      if (path5.length === 0) {
         return;
       }
-      if (url.scheme === "file" && path4.length === 1 && isNormalizedWindowsDriveLetter(path4[0])) {
+      if (url.scheme === "file" && path5.length === 1 && isNormalizedWindowsDriveLetter(path5[0])) {
         return;
       }
-      path4.pop();
+      path5.pop();
     }
     function includesCredentials(url) {
       return url.username !== "" || url.password !== "";
@@ -3046,6 +3046,8 @@ __export(extension_exports, {
 });
 module.exports = __toCommonJS(extension_exports);
 var vscode7 = __toESM(require("vscode"));
+var fs5 = __toESM(require("fs"));
+var path4 = __toESM(require("path"));
 
 // src/analyzer/runAnalyzer.ts
 var vscode3 = __toESM(require("vscode"));
@@ -3157,6 +3159,14 @@ var vscode2 = __toESM(require("vscode"));
 
 // src/llm.ts
 var fetch = require_lib2();
+function extractJsonObject(raw) {
+  const first = raw.indexOf("{");
+  const last = raw.lastIndexOf("}");
+  if (first === -1 || last === -1 || last <= first) {
+    return null;
+  }
+  return raw.slice(first, last + 1);
+}
 async function getLLMFeedback(issueMessage, codeSnippet) {
   try {
     const res = await fetch("http://localhost:11434/api/generate", {
@@ -3165,25 +3175,29 @@ async function getLLMFeedback(issueMessage, codeSnippet) {
       body: JSON.stringify({
         model: "llama3.2:latest",
         stream: false,
-        // Keep model warm so repeated hovers are fast
         keep_alive: "30m",
-        // Balanced prompt: more educational, still constrained
+        // Ask Ollama to produce strict JSON output.
+        format: "json",
+        // Prompt kept tight to avoid long responses.
         prompt: `
-        Return ONLY one valid JSON object (no markdown, no extra text) in this shape:
+        You are a Flutter/Dart security assistant integrated into a VS Code extension for hardcoded secret detection.
+
+        Return ONLY a single JSON object with these fields:
+
         {
           "why": "2 short sentences explaining the security problem and 1 short sentence on impact.",
-          "fix": ["3 short, practical Flutter/Dart fixes."],
+          "fix": ["3 very short, practical Flutter/Dart fixes as separate items."],
           "maintainability": "1 sentence starting with: 'Because complexity is X, nesting is Y, and size is Z, ...'",
-          "example": "Very short safe Flutter/Dart example (no real secrets)."
+          "example": "Very short best security practice Flutter/Dart example related to this issue"
         }
 
-        Context:
-        - This is Flutter/Dart mobile app code (APK/IPA can be reverse-engineered).
+        Guidelines:
+        - Context: This is Flutter/Dart mobile app code (APK/IPA can be reverse-engineered).
         - If it looks like an API key / token / credential / backend secret:
-          - Say real secrets must live on the server or secure config, not in the client.
+          - Say real secrets must live on the server or a secure backend config, not in the client.
           - Mention attackers can extract client-side secrets from APK/IPA.
         - DO NOT suggest hardcoding secrets anywhere (even in another file).
-        - Do NOT suggest client-side encryption as the main solution.
+        - DO NOT suggest client-side encryption as the main solution.
 
         For maintainability:
         - Read X, Y, Z from the text in Issue details like:
@@ -3193,43 +3207,41 @@ async function getLLMFeedback(issueMessage, codeSnippet) {
           "Because complexity is X, nesting is Y, and size is Z, "
           and then briefly say how hard or risky it is to refactor.
 
-
         Issue details:
         ${issueMessage}
 
         Code (Dart):
         ${codeSnippet || "// (no code snippet provided)"}
-                `.trim(),
-        // Ollama generation controls (balanced)
+         `.trim(),
+        // Balanced generation controls: short, deterministic, fast.
         options: {
           num_ctx: 2048,
-          // keep context small for speed
-          num_predict: 200,
-          // enough for educational content, still fast
-          temperature: 0.2,
-          // slight creativity, but not rambling
+          num_predict: 220,
+          // enough for the 4 fields, but not huge
+          temperature: 0.1,
+          // low = more deterministic, better JSON
           top_p: 0.9,
-          repeat_penalty: 1.1
+          repeat_penalty: 1.05
         }
       })
     });
     if (!res.ok) {
       console.error("Ollama response not OK:", res.status, res.statusText);
-      {
-        return "Could not get LLM feedback.";
-      }
+      return "Could not get LLM feedback.";
     }
     const data = await res.json();
     const raw = (data.response || "").trim();
     if (!raw) {
       return "No feedback returned by LLM.";
     }
+    const jsonCandidate = extractJsonObject(raw);
+    if (jsonCandidate) {
+      return jsonCandidate;
+    }
     return raw;
   } catch (err) {
     console.error("Error fetching LLM feedback:", err);
-    {
-      return "Error getting LLM feedback.";
-    }
+    return "Error getting LLM feedback.";
   }
 }
 
@@ -3240,17 +3252,26 @@ var processingQueue = false;
 function makeKey(uri, range) {
   return `${uri.toString()}:${range.start.line}:${range.start.character}`;
 }
-function enqueueLLMRequest(key, message, codeSnippet) {
+function enqueueLLMRequest(key, message, codeSnippet, uri, range) {
   llmQueue.push(async () => {
     try {
       const feedback = await getLLMFeedback(message, codeSnippet);
       feedbackCache.set(key, feedback);
-      vscode2.commands.executeCommand("editor.action.showHover");
-      setTimeout(
-        () => vscode2.commands.executeCommand("editor.action.showHover"),
-        500
+      const editor = vscode2.window.visibleTextEditors.find(
+        (e) => e.document.uri.toString() === uri.toString()
       );
-      vscode2.window.setStatusBarMessage("\u2705 LLM feedback ready", 2e3);
+      if (editor) {
+        const pos = range.start;
+        editor.selection = new vscode2.Selection(pos, pos);
+        editor.revealRange(
+          range,
+          vscode2.TextEditorRevealType.InCenterIfOutsideViewport
+        );
+        setTimeout(() => {
+          vscode2.commands.executeCommand("editor.action.showHover");
+        }, 50);
+      }
+      vscode2.window.setStatusBarMessage("\u2705 FLUSEC: LLM feedback ready", 2e3);
     } catch (err) {
       console.error("Error fetching LLM feedback:", err);
       feedbackCache.set(key, "\u26A0\uFE0F Error fetching LLM feedback.");
@@ -3309,7 +3330,7 @@ function formatFeedbackForHover(raw) {
     }
     return md;
   } catch {
-    console.log("[Flusec] JSON parse failed. Raw:", raw);
+    console.log("[FLUSEC] JSON parse failed. Raw:", raw);
     md.appendMarkdown(`### \u{1F4A1} Educational feedback
 
 `);
@@ -3329,18 +3350,26 @@ function registerHoverProvider(context) {
               formatFeedbackForHover(feedbackCache.get(key))
             );
           }
-          const doc = document;
           const startLine = Math.max(0, diag.range.start.line - 2);
-          const endLine = Math.min(doc.lineCount - 1, diag.range.end.line + 2);
+          const endLine = Math.min(
+            document.lineCount - 1,
+            diag.range.end.line + 2
+          );
           const snippetRange = new vscode2.Range(
             startLine,
             0,
             endLine,
-            doc.lineAt(endLine).text.length
+            document.lineAt(endLine).text.length
           );
-          const codeSnippet = doc.getText(snippetRange);
-          enqueueLLMRequest(key, diag.message, codeSnippet);
-          return new vscode2.Hover("\u{1F4A1} Loading feedback from LLM...");
+          const codeSnippet = document.getText(snippetRange);
+          enqueueLLMRequest(
+            key,
+            diag.message,
+            codeSnippet,
+            document.uri,
+            diag.range
+          );
+          return new vscode2.Hover("\u{1F4A1} Loading feedback from FLUSEC LLM...");
         }
       }
       return void 0;
@@ -3391,55 +3420,72 @@ async function runAnalyzer(doc, _context) {
     );
     return;
   }
-  (0, import_child_process.execFile)(
-    analyzerPath,
-    [doc.fileName],
-    { shell: true },
-    (err, stdout, stderr) => {
-      if (err) {
-        console.error("Analyzer execution error:", err);
-        return;
-      }
-      if (stderr) {
-        console.error("Analyzer stderr:", stderr);
-      }
-      let findings = [];
-      try {
-        findings = JSON.parse(stdout);
-      } catch (e) {
-        console.error("Failed to parse analyzer output:", e);
-        return;
-      }
-      const diags = [];
-      for (const f of findings) {
-        const lineIdx = Math.max(0, f.line - 1);
-        const text = doc.lineAt(lineIdx).text;
-        const range = new vscode3.Range(lineIdx, 0, lineIdx, text.length);
-        const metricParts = [];
-        if (typeof f.complexity === "number") {
-          metricParts.push(`Cx=${f.complexity}`);
+  const stdout = await new Promise((resolve, reject) => {
+    (0, import_child_process.execFile)(
+      analyzerPath,
+      [doc.fileName],
+      { shell: true },
+      (err, stdout2, stderr) => {
+        if (err) {
+          console.error("Analyzer execution error:", err);
+          vscode3.window.showErrorMessage(
+            "FLUSEC analyzer failed. See console for details."
+          );
+          return reject(err);
         }
-        if (typeof f.nestingDepth === "number") {
-          metricParts.push(`Depth=${f.nestingDepth}`);
+        if (stderr) {
+          console.error("Analyzer stderr:", stderr);
         }
-        if (typeof f.functionLoc === "number") {
-          metricParts.push(`Size=${f.functionLoc} LOC`);
-        }
-        const metricSuffix = metricParts.length > 0 ? ` [${metricParts.join(", ")}]` : "";
-        const message = `${f.message}${metricSuffix}`;
-        const diag = new vscode3.Diagnostic(
-          range,
-          message,
-          severityToVS(f.severity || "warning")
-        );
-        diag.source = "flusec";
-        diag.code = f.ruleId;
-        diags.push(diag);
+        resolve(stdout2);
       }
-      diagCollection.set(doc.uri, diags);
-      upsertFindingsForDoc(findingsFile, doc, findings);
+    );
+  });
+  let findings = [];
+  try {
+    findings = JSON.parse(stdout);
+    if (!Array.isArray(findings)) {
+      findings = [];
     }
-  );
+  } catch (e) {
+    console.error("Failed to parse analyzer output as JSON:", e);
+    vscode3.window.showErrorMessage(
+      "FLUSEC: Failed to parse analyzer output. See console for details."
+    );
+    return;
+  }
+  const diags = [];
+  for (const f of findings) {
+    const lineIdx = Math.max(0, (f.line ?? 1) - 1);
+    let range;
+    try {
+      const textLine = doc.lineAt(lineIdx);
+      range = new vscode3.Range(lineIdx, 0, lineIdx, textLine.text.length);
+    } catch {
+      range = new vscode3.Range(lineIdx, 0, lineIdx, 0);
+    }
+    const metricParts = [];
+    if (typeof f.complexity === "number") {
+      metricParts.push(`Cx=${f.complexity}`);
+    }
+    if (typeof f.nestingDepth === "number") {
+      metricParts.push(`Depth=${f.nestingDepth}`);
+    }
+    if (typeof f.functionLoc === "number") {
+      metricParts.push(`Size=${f.functionLoc} LOC`);
+    }
+    const metricSuffix = metricParts.length > 0 ? ` [${metricParts.join(", ")}]` : "";
+    const message = `${f.message ?? ""}${metricSuffix}`;
+    const diag = new vscode3.Diagnostic(
+      range,
+      message,
+      severityToVS(f.severity || "warning")
+    );
+    diag.source = "flusec";
+    diag.code = f.ruleId;
+    diags.push(diag);
+  }
+  diagCollection.set(doc.uri, diags);
+  upsertFindingsForDoc(findingsFile, doc, findings);
 }
 
 // src/ui/ruleManager/hardcoded_secrets/ruleManager.ts
@@ -3556,11 +3602,7 @@ function openDashboard(context) {
     "web",
     "hsd"
   );
-  const styleRoot = vscode5.Uri.joinPath(
-    context.extensionUri,
-    "src",
-    "web"
-  );
+  const styleRoot = vscode5.Uri.joinPath(context.extensionUri, "src", "web");
   const htmlPath = vscode5.Uri.joinPath(hsdRoot, "dashboard.html");
   const cssPath = vscode5.Uri.joinPath(styleRoot, "css", "dashboard.css");
   const jsPath = vscode5.Uri.joinPath(styleRoot, "js", "dashboard.js");
@@ -3603,7 +3645,8 @@ function openDashboard(context) {
     }
   });
   panel.webview.onDidReceiveMessage(async (msg) => {
-    if (msg?.command === "reveal") {
+    const cmd = msg?.command;
+    if (cmd === "reveal") {
       const file = String(msg.file || "");
       const line = Math.max(0, (msg.line ?? 1) - 1);
       const col = Math.max(0, (msg.column ?? 1) - 1);
@@ -3625,6 +3668,19 @@ function openDashboard(context) {
           "Failed to open file from dashboard: " + String(e)
         );
       }
+    } else if (cmd === "refresh") {
+      sendFindings();
+    } else if (cmd === "rescanActiveFile") {
+      vscode5.commands.executeCommand("flusec.scanFile").then(
+        () => {
+          sendFindings();
+        },
+        (err) => {
+          vscode5.window.showErrorMessage(
+            "Failed to trigger rescan: " + String(err)
+          );
+        }
+      );
     }
   });
 }
@@ -3772,15 +3828,86 @@ function registerFlusecNavigationView(context) {
 }
 
 // src/extension.ts
+var lastDartDoc;
+var clearedFindingsThisSession = false;
+function clearFindingsForAllWorkspaceFoldersOnce() {
+  if (clearedFindingsThisSession) {
+    return;
+  }
+  const folders = vscode7.workspace.workspaceFolders ?? [];
+  if (!folders.length) {
+    return;
+  }
+  try {
+    for (const folder of folders) {
+      const findingsPath = findingsPathForFolder(folder);
+      if (fs5.existsSync(findingsPath)) {
+        fs5.unlinkSync(findingsPath);
+        console.log("FLUSEC: deleted", findingsPath);
+      }
+      const outDir = path4.dirname(findingsPath);
+      const analyzerDir = path4.dirname(outDir);
+      if (fs5.existsSync(outDir) && fs5.readdirSync(outDir).length === 0) {
+        fs5.rmdirSync(outDir);
+        console.log("FLUSEC: deleted empty dir", outDir);
+      }
+      if (fs5.existsSync(analyzerDir) && fs5.readdirSync(analyzerDir).length === 0) {
+        fs5.rmdirSync(analyzerDir);
+        console.log("FLUSEC: deleted empty dir", analyzerDir);
+      }
+    }
+  } catch (e) {
+    console.warn("FLUSEC: Cleanup warning:", e);
+  }
+  clearedFindingsThisSession = true;
+}
 function activate(context) {
   context.subscriptions.push(diagCollection);
+  clearFindingsForAllWorkspaceFoldersOnce();
+  context.subscriptions.push(
+    vscode7.workspace.onDidChangeWorkspaceFolders(() => {
+      clearFindingsForAllWorkspaceFoldersOnce();
+    })
+  );
+  context.subscriptions.push(
+    vscode7.workspace.onDidOpenTextDocument((doc) => {
+      if (doc.languageId === "dart") {
+        lastDartDoc = doc;
+      }
+    })
+  );
   context.subscriptions.push(
     vscode7.commands.registerCommand("flusec.scanFile", async () => {
-      const editor = vscode7.window.activeTextEditor;
-      if (editor) {
-        await runAnalyzer(editor.document, context);
+      const active = vscode7.window.activeTextEditor;
+      let target;
+      if (active && active.document.languageId === "dart") {
+        target = active.document;
+      } else if (lastDartDoc) {
+        target = lastDartDoc;
       } else {
-        vscode7.window.showInformationMessage("No active Dart file to scan.");
+        const dartDocs = vscode7.workspace.textDocuments.filter(
+          (d) => d.languageId === "dart"
+        );
+        if (dartDocs.length > 0) {
+          target = dartDocs[0];
+        }
+      }
+      if (!target) {
+        vscode7.window.showInformationMessage(
+          "FLUSEC: No Dart file available to scan. Open a Dart file first."
+        );
+        return;
+      }
+      try {
+        await runAnalyzer(target, context);
+        vscode7.window.setStatusBarMessage(
+          `FLUSEC: Scan completed for ${target.fileName}`,
+          3e3
+        );
+      } catch (e) {
+        vscode7.window.showErrorMessage(
+          "FLUSEC: Scan failed: " + String(e)
+        );
       }
     })
   );
@@ -3799,6 +3926,7 @@ function activate(context) {
   context.subscriptions.push(
     vscode7.workspace.onDidSaveTextDocument(async (doc) => {
       if (doc.languageId === "dart") {
+        lastDartDoc = doc;
         await runAnalyzer(doc, context);
       }
     })
@@ -3810,6 +3938,7 @@ function activate(context) {
       if (doc.languageId !== "dart") {
         return;
       }
+      lastDartDoc = doc;
       clearTimeout(typingTimeout);
       typingTimeout = setTimeout(() => {
         runAnalyzer(doc, context);

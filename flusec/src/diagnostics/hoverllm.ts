@@ -26,22 +26,44 @@ function makeKey(uri: vscode.Uri, range: vscode.Range): string {
 }
 
 /**
- * Enqueue an LLM feedback request for a diagnostic message.
+ * Enqueue an LLM feedback request for a diagnostic message + code snippet.
+ *
+ * We also carry the URI + range so that when the feedback is ready,
+ * we can programmatically re-show the hover at the correct location
+ * (so the user doesn't have to move the mouse out and back in).
  */
-function enqueueLLMRequest(key: string, message: string, codeSnippet: string) {
+function enqueueLLMRequest(
+  key: string,
+  message: string,
+  codeSnippet: string,
+  uri: vscode.Uri,
+  range: vscode.Range
+) {
   llmQueue.push(async () => {
     try {
-      const feedback = await getLLMFeedback(message,codeSnippet);
+      const feedback = await getLLMFeedback(message, codeSnippet);
       feedbackCache.set(key, feedback);
 
-      // Double-trigger hover refresh to reduce perceived delay.
-      vscode.commands.executeCommand("editor.action.showHover");
-      setTimeout(
-        () => vscode.commands.executeCommand("editor.action.showHover"),
-        500
+      // Try to re-trigger hover at the diagnostic position
+      const editor = vscode.window.visibleTextEditors.find(
+        (e) => e.document.uri.toString() === uri.toString()
       );
 
-      vscode.window.setStatusBarMessage("✅ LLM feedback ready", 2000);
+      if (editor) {
+        const pos = range.start;
+        editor.selection = new vscode.Selection(pos, pos);
+        editor.revealRange(
+          range,
+          vscode.TextEditorRevealType.InCenterIfOutsideViewport
+        );
+
+        // Small delay so VS Code updates selection before showing hover
+        setTimeout(() => {
+          vscode.commands.executeCommand("editor.action.showHover");
+        }, 50);
+      }
+
+      vscode.window.setStatusBarMessage("✅ FLUSEC: LLM feedback ready", 2000);
     } catch (err) {
       console.error("Error fetching LLM feedback:", err);
       feedbackCache.set(key, "⚠️ Error fetching LLM feedback.");
@@ -57,7 +79,7 @@ function enqueueLLMRequest(key: string, message: string, codeSnippet: string) {
  * Sequentially process queued LLM jobs.
  */
 async function processQueue() {
-  if (processingQueue) {return;}
+  if (processingQueue) { return; }
   processingQueue = true;
 
   while (llmQueue.length > 0) {
@@ -78,6 +100,7 @@ function formatFeedbackForHover(raw: string): vscode.MarkdownString {
   const md = new vscode.MarkdownString();
   md.isTrusted = false;
 
+  // Try JSON → if it fails, we show raw.
   try {
     const obj = JSON.parse(raw);
 
@@ -95,7 +118,6 @@ function formatFeedbackForHover(raw: string): vscode.MarkdownString {
       md.appendMarkdown(`\n`);
     }
 
-    // 🔹 NEW — maintainability if provided
     if (obj.maintainability) {
       md.appendMarkdown(`**Maintainability**: ${obj.maintainability}\n\n`);
     }
@@ -107,8 +129,7 @@ function formatFeedbackForHover(raw: string): vscode.MarkdownString {
 
     return md;
   } catch {
-    // Fallback if JSON parsing fails → plain text.
-     console.log("[Flusec] JSON parse failed. Raw:", raw);
+    console.log("[FLUSEC] JSON parse failed. Raw:", raw);
     md.appendMarkdown(`### 💡 Educational feedback\n\n`);
     md.appendMarkdown(raw);
     return md;
@@ -137,22 +158,31 @@ export function registerHoverProvider(context: vscode.ExtensionContext) {
             );
           }
 
-          // Build a small code snippet around the diagnostic.
-          // Here we take 2 lines above and 2 lines below for context.
-          const doc = document;
+          // Build a small code snippet around the diagnostic:
+          // 2 lines above and 2 lines below for context.
           const startLine = Math.max(0, diag.range.start.line - 2);
-          const endLine = Math.min(doc.lineCount - 1, diag.range.end.line + 2);
+          const endLine = Math.min(
+            document.lineCount - 1,
+            diag.range.end.line + 2
+          );
           const snippetRange = new vscode.Range(
             startLine,
             0,
             endLine,
-            doc.lineAt(endLine).text.length
+            document.lineAt(endLine).text.length
           );
-          const codeSnippet = doc.getText(snippetRange);
+          const codeSnippet = document.getText(snippetRange);
 
           // Enqueue LLM request with both the message and the code snippet.
-          enqueueLLMRequest(key, diag.message, codeSnippet);
-          return new vscode.Hover("💡 Loading feedback from LLM...");
+          enqueueLLMRequest(
+            key,
+            diag.message,
+            codeSnippet,
+            document.uri,
+            diag.range
+          );
+
+          return new vscode.Hover("💡 Loading feedback from FLUSEC LLM...");
         }
       }
 
@@ -182,6 +212,3 @@ export function clearFeedbackForDocument(uri: vscode.Uri) {
     }
   }
 }
-
-
-
