@@ -5,7 +5,7 @@
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 
-import '../core/issue.dart';
+import 'ids_models.dart';
 import 'insecure_storage_rules.dart';
 import 'heuristic_analyzer.dart';
 
@@ -13,7 +13,7 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
   final InsecureStorageRulesEngine engine;
   final String sourceCode;
   final String filePath;
-  final List<Issue> issues = [];
+  final List<IDSIssue> issues = [];
   
   // Heuristic analysis
   final SensitiveVariableAnalyzer variableAnalyzer = SensitiveVariableAnalyzer();
@@ -265,7 +265,7 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
     String storageContext = _getStorageContext(rule.id);
     
     // Determine data type from rule or heuristic analysis
-    String? dataType;
+    String dataType = 'GENERIC_SENSITIVE';
     if (rule.dataTypes.isNotEmpty) {
       dataType = rule.dataTypes.first;
     }
@@ -279,22 +279,22 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
     
     // Classify severity based on context
     final riskLevel = severityClassifier.classify(
-      dataType: dataType ?? 'GENERIC_SENSITIVE',
+      dataType: dataType,
       storageType: storageContext,
       isEncrypted: false, // We're detecting unencrypted storage
       isPublicStorage: rule.id == 'IDS-004', // External storage
     );
 
-    issues.add(Issue(
-      filePath,
-      rule.id,
-      rule.description,
-      rule.severity.toLowerCase(),
-      line,
-      column,
+    issues.add(IDSIssue(
+      ruleId: rule.id,
+      message: rule.description,
+      severity: rule.severity.toLowerCase(),
+      line: line,
+      column: column,
+      codeSnippet: snippet,
       dataType: dataType,
-      riskLevel: riskLevel,
       storageContext: storageContext,
+      riskLevel: riskLevel,
       recommendation: rule.remediation,
     ));
   }
