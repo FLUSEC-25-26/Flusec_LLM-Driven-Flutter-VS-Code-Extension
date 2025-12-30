@@ -9,76 +9,146 @@
       content="default-src 'none'; img-src {{cspSource}} data:; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}} 'unsafe-inline';"
     />
 
-    <title>Flusec Findings</title>
+    <title>FLUSEC – Hardcoded Secrets Dashboard</title>
 
     <!-- CSS injected from extension -->
     <link rel="stylesheet" href="{{cssUri}}" />
   </head>
   <body>
-    <h2>Flusec Findings – Hardcoded Secrets & Complexity</h2>
-
-    <div class="row">
-      <!-- Summary counters -->
-      <div class="card">
-        <div id="counters">Loading…</div>
+    <!-- App header -->
+    <header class="app-header">
+      <div class="titles">
+        <h1>FLUSEC – Hardcoded Secrets Dashboard</h1>
+        <p>
+          Hardcoded secret detection &amp; maintainability analysis
+          for Flutter/Dart
+        </p>
       </div>
-
-      <!-- Top rules chart -->
-      <div class="card">
-        <strong>Top Rules</strong>
-        <canvas id="chartRules"></canvas>
+      <div class="actions">
+        <button class="btn primary" id="btnRescan">Re-scan Active File</button>
+        <button class="btn" id="btnRefresh">Refresh Findings</button>
       </div>
+    </header>
 
-      <!-- Top files chart -->
-      <div class="card">
-        <strong>Top Files</strong>
-        <canvas id="chartFiles"></canvas>
-      </div>
-    </div>
+    <main class="container">
+      <!-- SUMMARY -->
+      <section class="section summary">
+        <h2 class="section-title">Overview</h2>
+        <div class="row">
+          <!-- Summary counters -->
+          <div class="card kpi-card">
+            <h3 class="card-title">Findings &amp; Complexity</h3>
+            <div id="counters">Loading…</div>
+          </div>
 
-    <!-- Maintainability hotspots (high complexity / deep nesting) -->
-    <div class="card" style="margin-top: 12px">
-      <strong>Maintainability hotspots (secrets in complex code)</strong>
-      <table id="tblHotspots">
-        <thead>
-          <tr>
-            <th>Function</th>
-            <th>File</th>
-            <th>Line</th>
-            <th>Cx</th>
-            <th>Depth</th>
-            <th>Size (LOC)</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
+          <!-- Explanation card (research alignment) -->
+          <div class="card info-card">
+            <h3 class="card-title">What this dashboard shows</h3>
+            <p class="small-note">
+              This view combines <strong>hardcoded secret findings</strong> with
+              <strong>function-level maintainability metrics</strong>:
+              cyclomatic complexity (Cx), nesting depth, and size (LOC).
+            </p>
+            <p class="small-note">
+              Use it to answer questions like:
+              “Where do secrets live in complex code?” and
+              “Which files and rules are the highest-risk hotspots?”.
+            </p>
+          </div>
+        </div>
+      </section>
 
-    <!-- Full findings -->
-    <div class="card" style="margin-top: 12px">
-      <div class="header-row">
-        <strong>All Findings</strong>
-        <!-- <div class="actions">
-          
-          <button class="btn" id="exportPdf">Export PDF</button>
-        </div> -->
-      </div>
+      <!-- CHARTS -->
+      <section class="section charts">
+        <h2 class="section-title">Secrets Distribution</h2>
+        <div class="row">
+          <!-- Top rules chart -->
+          <div class="card">
+            <h3 class="card-title">Top Rules</h3>
+            <canvas id="chartRules" aria-label="Bar chart of findings per rule"></canvas>
+            <p class="small-note">
+              Shows which <code>HSD rules</code> trigger most often
+              (e.g., API keys, tokens, Firebase keys, etc.).
+            </p>
+          </div>
 
-      <table id="tbl">
-        <thead>
-          <tr>
-            <th>Severity</th>
-            <th>Rule</th>
-            <th>Message</th>
-            <th>File</th>
-            <th>Line</th>
-            <th>Function</th>
-            <th>Metrics</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
+          <!-- Top files chart -->
+          <div class="card">
+            <h3 class="card-title">Top Files</h3>
+            <canvas id="chartFiles" aria-label="Bar chart of findings per file"></canvas>
+            <p class="small-note">
+              Highlights files where secret findings accumulate,
+              helping you prioritize secure refactoring.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- HOTSPOTS -->
+      <section class="section hotspots">
+        <h2 class="section-title">Maintainability Hotspots</h2>
+        <div class="card">
+          <h3 class="card-title">
+            Secrets in complex functions
+          </h3>
+          <p class="small-note">
+            Functions are ranked by <strong>cyclomatic complexity</strong>
+            and <strong>nesting depth</strong>. High-Cx + deep nesting +
+            large LOC indicate risky areas where secrets are harder to review
+            and maintain safely.
+          </p>
+          <table id="tblHotspots">
+            <thead>
+              <tr>
+                <th>Function</th>
+                <th>File</th>
+                <th>Line</th>
+                <th>Cx</th>
+                <th>Depth</th>
+                <th>Size (LOC)</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- FULL FINDINGS -->
+      <section class="section issues">
+        <h2 class="section-title">All Findings</h2>
+        <div class="card">
+          <div class="header-row">
+            <strong>Hardcoded Secrets – Detailed View</strong>
+            <!--
+            <div class="actions">
+              <button class="btn" id="exportPdf">Export PDF</button>
+            </div>
+            -->
+          </div>
+
+          <table id="tbl">
+            <thead>
+              <tr>
+                <th>Severity</th>
+                <th>Rule</th>
+                <th>Message</th>
+                <th>File</th>
+                <th>Line</th>
+                <th>Function</th>
+                <th>Metrics</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <small>
+        FLUSEC © 2025 • Hardcoded Secrets &amp; Maintainability Insights
+      </small>
+    </footer>
 
     <!-- JS injected from extension -->
     <script src="{{jsUri}}"></script>

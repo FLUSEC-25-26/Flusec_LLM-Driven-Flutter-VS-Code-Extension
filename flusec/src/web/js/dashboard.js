@@ -6,6 +6,23 @@ const vscode = acquireVsCodeApi();
 // Global findings array
 let findings = [];
 
+// Wire up buttons once DOM is ready
+document.addEventListener("DOMContentLoaded", () => {
+  const btnRefresh = document.getElementById("btnRefresh");
+  if (btnRefresh) {
+    btnRefresh.addEventListener("click", () => {
+      vscode.postMessage({ command: "refresh" });
+    });
+  }
+
+  const btnRescan = document.getElementById("btnRescan");
+  if (btnRescan) {
+    btnRescan.addEventListener("click", () => {
+      vscode.postMessage({ command: "rescanActiveFile" });
+    });
+  }
+});
+
 // Listen for messages from extension (dashboard.ts)
 window.addEventListener("message", (e) => {
   const { command, data } = e.data || {};
@@ -25,7 +42,9 @@ function render() {
 
 function renderCounters() {
   const total = findings.length;
-  const err = findings.filter((f) => (f.severity || "").toLowerCase() === "error").length;
+  const err = findings.filter(
+    (f) => (f.severity || "").toLowerCase() === "error"
+  ).length;
   const warn = total - err;
 
   // Complexity buckets based on numeric complexity
@@ -35,9 +54,13 @@ function renderCounters() {
 
   findings.forEach((f) => {
     const cx = typeof f.complexity === "number" ? f.complexity : 0;
-    if (cx > 0 && cx <= 5) {lowCx++;}
-    else if (cx > 5 && cx <= 10) {medCx++;}
-    else if (cx > 10) {highCx++;}
+    if (cx > 0 && cx <= 5) {
+      lowCx++;
+    } else if (cx > 5 && cx <= 10) {
+      medCx++;
+    } else if (cx > 10) {
+      highCx++;
+    }
   });
 
   // Secrets inside *_test.dart
@@ -47,18 +70,35 @@ function renderCounters() {
 
   const counters = document.getElementById("counters");
   counters.innerHTML = `
-    <div><strong>Total findings:</strong> ${total}</div>
-    <div>
-      <span style="color:#f44747"><strong>Errors:</strong> ${err}</span> |
-      <span style="color:#e5e510"><strong>Warnings:</strong> ${warn}</span>
+    <div class="kpi-row">
+      <div class="kpi">
+        <span class="kpi-label">Total findings</span>
+        <span class="kpi-value">${total}</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">Errors</span>
+        <span class="kpi-value" style="color:#f44747">${err}</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">Warnings</span>
+        <span class="kpi-value" style="color:#e5e510">${warn}</span>
+      </div>
     </div>
-    <div style="margin-top:4px;">
-      <strong>Secrets by function complexity:</strong>
-      low: ${lowCx}, medium: ${medCx}, high: ${highCx}
+    <div class="kpi-row" style="margin-top:6px;">
+      <div class="kpi">
+        <span class="kpi-label">Secrets by complexity</span>
+        <span class="kpi-value">
+          low: ${lowCx} • medium: ${medCx} • high: ${highCx}
+        </span>
+      </div>
     </div>
-    <div style="margin-top:4px;">
-      <strong>Secrets in test files:</strong> ${testSecrets}
-      <span style="color:#999;">( *_test.dart )</span>
+    <div class="kpi-row" style="margin-top:6px;">
+      <div class="kpi">
+        <span class="kpi-label">Secrets in test files</span>
+        <span class="kpi-value">
+          ${testSecrets} <span style="color:#999;">( *_test.dart )</span>
+        </span>
+      </div>
     </div>
   `;
 }
@@ -70,7 +110,8 @@ function renderFindingsTable() {
   findings.forEach((f) => {
     const tr = document.createElement("tr");
 
-    const cx = typeof f.complexity === "number" ? `Cx=${f.complexity}` : "";
+    const cx =
+      typeof f.complexity === "number" ? `Cx=${f.complexity}` : "";
     const depth =
       typeof f.nestingDepth === "number" ? `,Depth=${f.nestingDepth}` : "";
     const size =
@@ -120,7 +161,9 @@ function renderHotspots() {
   candidates.sort((a, b) => {
     const cxA = typeof a.complexity === "number" ? a.complexity : 0;
     const cxB = typeof b.complexity === "number" ? b.complexity : 0;
-    if (cxB !== cxA) {return cxB - cxA;}
+    if (cxB !== cxA) {
+      return cxB - cxA;
+    }
 
     const dA = typeof a.nestingDepth === "number" ? a.nestingDepth : 0;
     const dB = typeof b.nestingDepth === "number" ? b.nestingDepth : 0;
@@ -143,8 +186,6 @@ function renderHotspots() {
     tbody.appendChild(tr);
   });
 }
-
-
 
 function renderCharts() {
   drawBar(
@@ -174,6 +215,10 @@ function topCounts(arr, keyFn, topN = 8, mapLbl = (x) => x) {
 
 function drawBar(id, data) {
   const cvs = document.getElementById(id);
+  if (!cvs) {
+    return;
+  }
+
   const ctx = cvs.getContext("2d");
   const W = (cvs.width = cvs.clientWidth);
   const H = (cvs.height = 160);
@@ -217,12 +262,12 @@ function escapeHtml(s) {
 }
 
 function shorten(s, n = 60) {
-  if (!s) {return "";}
+  if (!s) {
+    return "";
+  }
   return s.length > n ? "…" + s.slice(-n) : s;
 }
 
 function reveal(file, line, column) {
   vscode.postMessage({ command: "reveal", file, line, column });
 }
-
-
