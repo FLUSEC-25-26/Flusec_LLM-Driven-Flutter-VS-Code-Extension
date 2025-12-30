@@ -180,29 +180,31 @@ class RulesEngine {
 
     if (builtIn != null) return builtIn;
 
-    // 3️⃣ heuristics
+   // 3️⃣ heuristics (keyword + entropy, tuned to reduce false positives)
     final e = _entropy(trimmed);
     final ctxLower = contextName.toLowerCase();
-    final hasKeyword = _sensitiveKeywords.any((kw) => ctxLower.contains(kw));
 
+    // 🔹 Look for sensitive words in BOTH the context (var/function name)
+    //    and the actual string value.
+    final hasKeyword = _sensitiveKeywords.any(
+      (kw) => ctxLower.contains(kw) || lc.contains(kw),
+    );
+
+    // 🔹 If we see obvious "dummy" markers, bail out early.
     final hasBenignValueMarker = _benignMarkers.any((m) => lc.contains(m));
-    final hasBenignContextMarker = _benignMarkers.any((m) => ctxLower.contains(m));
+    final hasBenignContextMarker =
+        _benignMarkers.any((m) => ctxLower.contains(m));
     if (hasBenignValueMarker || hasBenignContextMarker) return null;
 
+    // 🔹 For HTTP values, only keep well-known sensitive webhook / signed URLs.
     if (isHttp && !_isSensitiveUrl(trimmed)) return null;
 
-    if (!isHttp &&
-        trimmed.length >= max(_globalMinLen, 17) &&
-        e > max(_globalMinEntropy, 3.6)) {
-      return MatchHit(
-        MatchSource.heuristic,
-        'FLUSEC.SEC_HEUR',
-        'Possible hardcoded secret in $nodeKind',
-        'warning',
-      );
-    }
-
-    if (hasKeyword && trimmed.length >= _globalMinLen && e > _globalMinEntropy) {
+    // 🔹 Heuristic trigger:
+    //    - NOT HTTP (normal literals)
+    //    - some secret keyword (in context OR value)
+    //    - length >= 14 (so "XyP9wq8s7t6v5r4Q" is allowed)
+    //    - entropy decent enough to avoid "password123"
+    if (!isHttp && hasKeyword && trimmed.length >= 14 && e > 3.5) {
       return MatchHit(
         MatchSource.heuristic,
         'FLUSEC.SEC_HEUR',

@@ -1,19 +1,40 @@
-//llm.ts
+// src/llm.ts
+//
+// Local Ollama client for FLUSEC educational feedback.
+// Uses llama3.2 via Ollama HTTP API and returns a JSON string
+// that hoverLLM.ts will parse into a rich hover.
+//
+// We try to:
+// - keep responses short (fast)
+// - enforce JSON format using Ollama's `format: "json"`
+// - be robust if the model still returns junk.
+
 const fetch = require("node-fetch");
 
-// Type matching Ollama server response
+// Type matching Ollama server response (simplified)
 type OllamaServerResponse = {
   response?: string;
   done?: boolean;
 };
 
+// Try to extract the first top-level JSON object from raw text.
+function extractJsonObject(raw: string): string | null {
+  const first = raw.indexOf("{");
+  const last = raw.lastIndexOf("}");
+  if (first === -1 || last === -1 || last <= first) {
+    return null;
+  }
+  return raw.slice(first, last + 1);
+}
+
 /**
- * Get educational feedback from Ollama (Option B: balanced).
- * - Still fast (short-ish output)
- * - More educational than the ultra-short version
- * - Local-only (privacy)
+ * Get educational feedback from Ollama.
+ * Returns a string that is ideally a JSON object as text.
  */
-export async function getLLMFeedback(issueMessage: string, codeSnippet?: string): Promise<string> {
+export async function getLLMFeedback(
+  issueMessage: string,
+  codeSnippet?: string
+): Promise<string> {
   try {
     const res = await fetch("http://localhost:11434/api/generate", {
       method: "POST",
@@ -21,27 +42,31 @@ export async function getLLMFeedback(issueMessage: string, codeSnippet?: string)
       body: JSON.stringify({
         model: "llama3.2:latest",
         stream: false,
-
-        // Keep model warm so repeated hovers are fast
         keep_alive: "30m",
 
-        // Balanced prompt: more educational, still constrained
+        // Ask Ollama to produce strict JSON output.
+        format: "json",
+
+        // Prompt kept tight to avoid long responses.
         prompt: `
-        Return ONLY one valid JSON object (no markdown, no extra text) in this shape:
+        You are a Flutter/Dart security assistant integrated into a VS Code extension for hardcoded secret detection.
+
+        Return ONLY a single JSON object with these fields:
+
         {
           "why": "2 short sentences explaining the security problem and 1 short sentence on impact.",
-          "fix": ["3 short, practical Flutter/Dart fixes."],
+          "fix": ["3 very short, practical Flutter/Dart fixes as separate items."],
           "maintainability": "1 sentence starting with: 'Because complexity is X, nesting is Y, and size is Z, ...'",
-          "example": "Very short safe Flutter/Dart example (no real secrets)."
+          "example": "Very short best security practice Flutter/Dart example related to this issue"
         }
 
-        Context:
-        - This is Flutter/Dart mobile app code (APK/IPA can be reverse-engineered).
+        Guidelines:
+        - Context: This is Flutter/Dart mobile app code (APK/IPA can be reverse-engineered).
         - If it looks like an API key / token / credential / backend secret:
-          - Say real secrets must live on the server or secure config, not in the client.
+          - Say real secrets must live on the server or a secure backend config, not in the client.
           - Mention attackers can extract client-side secrets from APK/IPA.
         - DO NOT suggest hardcoding secrets anywhere (even in another file).
-        - Do NOT suggest client-side encryption as the main solution.
+        - DO NOT suggest client-side encryption as the main solution.
 
         For maintainability:
         - Read X, Y, Z from the text in Issue details like:
@@ -51,38 +76,46 @@ export async function getLLMFeedback(issueMessage: string, codeSnippet?: string)
           "Because complexity is X, nesting is Y, and size is Z, "
           and then briefly say how hard or risky it is to refactor.
 
-
         Issue details:
         ${issueMessage}
 
         Code (Dart):
         ${codeSnippet || "// (no code snippet provided)"}
-                `.trim(),
+         `.trim(),
 
-        // Ollama generation controls (balanced)
+        // Balanced generation controls: short, deterministic, fast.
         options: {
-          num_ctx: 2050,        // keep context small for speed
-          num_predict: 220,     // enough for educational content, still fast
-          temperature: 0.16,    // slight creativity, but not rambling
+          num_ctx: 2048,
+          num_predict: 220,   // enough for the 4 fields, but not huge
+          temperature: 0.1,   // low = more deterministic, better JSON
           top_p: 0.9,
-          repeat_penalty: 1.1,
+          repeat_penalty: 1.05,
         },
       }),
     });
 
     if (!res.ok) {
       console.error("Ollama response not OK:", res.status, res.statusText);
-      {return "Could not get LLM feedback.";}
+      return "Could not get LLM feedback.";
     }
 
     const data: OllamaServerResponse = await res.json();
     const raw = (data.response || "").trim();
 
-    if (!raw) {return "No feedback returned by LLM.";}
+    if (!raw) {
+      return "No feedback returned by LLM.";
+    }
 
+    // Try to isolate a proper JSON object.
+    const jsonCandidate = extractJsonObject(raw);
+    if (jsonCandidate) {
+      return jsonCandidate;
+    }
+
+    // Fallback: just return raw text (hoverLLM will treat it as plain text).
     return raw;
   } catch (err) {
     console.error("Error fetching LLM feedback:", err);
-    {return "Error getting LLM feedback.";}
+    return "Error getting LLM feedback.";
   }
 }
