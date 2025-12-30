@@ -139,7 +139,7 @@ class InsecureStorageRulesEngine {
       requiresImport: ['package:sqflite/sqflite.dart'],
     ));
 
-    // Rule 10: Hardcoded Sensitive Storage Keys (moved from IDS-004)
+    // Rule 10: Sensitive Storage Keys (moved from IDS-004)
     _rules.add(InsecureStorageRule(
       id: 'IDS-010',
       name: 'Hardcoded Sensitive Storage Keys',
