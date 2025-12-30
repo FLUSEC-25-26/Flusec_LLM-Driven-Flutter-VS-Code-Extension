@@ -3253,7 +3253,7 @@ function findWorkspaceFolderForDoc(doc) {
   return vscode2.workspace.getWorkspaceFolder(doc.uri) ?? vscode2.workspace.workspaceFolders?.[0];
 }
 function findingsPathForFolder(folder) {
-  return path2.join(folder.uri.fsPath, "dart-analyzer", ".out", "findings.json");
+  return path2.join(folder.uri.fsPath, "flusec", "dart-analyzer", ".out", "ids-findings.json");
 }
 function ensureDirForFile(filePath) {
   const dir = path2.dirname(filePath);
@@ -3446,6 +3446,9 @@ function activate(context) {
     vscode2.commands.registerCommand("flusec.openFindings", () => openDashboard(context))
   );
   context.subscriptions.push(
+    vscode2.commands.registerCommand("flusec.openIDSFindings", () => openIDSDashboard(context))
+  );
+  context.subscriptions.push(
     vscode2.workspace.onDidSaveTextDocument(async (doc) => {
       if (doc.languageId === "dart") {
         await runAnalyzer(doc, context);
@@ -3480,7 +3483,7 @@ async function runAnalyzer(doc, context) {
     return;
   }
   const findingsFile = findingsPathForFolder(folder);
-  const analyzerPath = path2.join(__dirname, "..", "dart-analyzer", "bin", "analyzer.exe");
+  const analyzerPath = path2.join(context.extensionPath, "dart-analyzer", "bin", "analyzer.exe");
   if (!fs2.existsSync(analyzerPath)) {
     vscode2.window.showErrorMessage(`Analyzer not found at path: ${analyzerPath}`);
     return;
@@ -3584,6 +3587,100 @@ function openDashboard(context) {
       }
     }
   });
+}
+function openIDSDashboard(context) {
+  const panel = vscode2.window.createWebviewPanel(
+    "idsDashboard",
+    "IDS Vulnerability Dashboard",
+    vscode2.ViewColumn.Beside,
+    {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+      localResourceRoots: [
+        vscode2.Uri.file(path2.join(context.extensionPath, "src", "web", "ids"))
+      ]
+    }
+  );
+  const workspaceFolder = vscode2.workspace.workspaceFolders?.[0];
+  if (!workspaceFolder) {
+    panel.webview.postMessage({ command: "loadFindings", data: [] });
+    return;
+  }
+  const findingsPath = path2.join(
+    workspaceFolder.uri.fsPath,
+    "flusec",
+    "dart-analyzer",
+    ".out",
+    "ids-findings.json"
+  );
+  const htmlPath = path2.join(context.extensionPath, "src", "web", "ids", "dashboard.html");
+  const cssPath = path2.join(context.extensionPath, "src", "web", "ids", "dashboard.css");
+  const jsPath = path2.join(context.extensionPath, "src", "web", "ids", "dashboard.js");
+  const cssUri = panel.webview.asWebviewUri(vscode2.Uri.file(cssPath));
+  const jsUri = panel.webview.asWebviewUri(vscode2.Uri.file(jsPath));
+  const cspSource = panel.webview.cspSource;
+  let html = fs2.readFileSync(htmlPath, "utf8");
+  html = html.replace(/\{\{cssUri\}\}/g, cssUri.toString());
+  html = html.replace(/\{\{jsUri\}\}/g, jsUri.toString());
+  html = html.replace(/\{\{cspSource\}\}/g, cspSource);
+  panel.webview.html = html;
+  const sendFindings = () => {
+    let findings = [];
+    if (fs2.existsSync(findingsPath)) {
+      try {
+        const content = fs2.readFileSync(findingsPath, "utf8");
+        findings = JSON.parse(content);
+        if (!Array.isArray(findings)) {
+          findings = [];
+        }
+      } catch (error) {
+        console.error("Error reading IDS findings:", error);
+        findings = [];
+      }
+    }
+    panel.webview.postMessage({ command: "loadFindings", data: findings });
+  };
+  sendFindings();
+  panel.onDidChangeViewState(() => {
+    if (panel.visible) {
+      sendFindings();
+    }
+  });
+  panel.webview.onDidReceiveMessage(
+    async (message) => {
+      switch (message.command) {
+        case "reveal":
+          try {
+            const uri = vscode2.Uri.file(message.file);
+            const document = await vscode2.workspace.openTextDocument(uri);
+            const editor = await vscode2.window.showTextDocument(document, { preview: false });
+            const position = new vscode2.Position(
+              Math.max(0, (message.line || 1) - 1),
+              Math.max(0, (message.column || 1) - 1)
+            );
+            editor.selection = new vscode2.Selection(position, position);
+            editor.revealRange(
+              new vscode2.Range(position, position),
+              vscode2.TextEditorRevealType.InCenter
+            );
+          } catch (error) {
+            vscode2.window.showErrorMessage(`Failed to open file: ${error}`);
+          }
+          break;
+        case "rescan":
+          try {
+            await vscode2.commands.executeCommand("flusec.scanFile");
+            setTimeout(sendFindings, 500);
+            vscode2.window.showInformationMessage("Rescan triggered successfully");
+          } catch (error) {
+            vscode2.window.showErrorMessage(`Failed to trigger rescan: ${error}`);
+          }
+          break;
+      }
+    },
+    void 0,
+    context.subscriptions
+  );
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
