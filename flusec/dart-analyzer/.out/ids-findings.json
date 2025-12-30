@@ -1,0 +1,200 @@
+[
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 10,
+    "column": 19,
+    "endColumn": 51,
+    "ruleId": "IDS-004",
+    "message": "Sensitive data written to external/public storage directories",
+    "severity": "critical"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 10,
+    "column": 32,
+    "endColumn": 51,
+    "ruleId": "IDS-004",
+    "message": "Sensitive data written to external/public storage directories",
+    "severity": "critical"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 10,
+    "column": 3,
+    "endColumn": 51,
+    "ruleId": "IDS-001",
+    "message": "Sensitive data stored in SharedPreferences without encryption",
+    "severity": "high"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 11,
+    "column": 19,
+    "endColumn": 40,
+    "ruleId": "IDS-004",
+    "message": "Sensitive data written to external/public storage directories",
+    "severity": "critical"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 11,
+    "column": 3,
+    "endColumn": 40,
+    "ruleId": "IDS-001",
+    "message": "Sensitive data stored in SharedPreferences without encryption",
+    "severity": "high"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 12,
+    "column": 19,
+    "endColumn": 50,
+    "ruleId": "IDS-004",
+    "message": "Sensitive data written to external/public storage directories",
+    "severity": "critical"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 12,
+    "column": 3,
+    "endColumn": 50,
+    "ruleId": "IDS-001",
+    "message": "Sensitive data stored in SharedPreferences without encryption",
+    "severity": "high"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 16,
+    "column": 28,
+    "endColumn": 45,
+    "ruleId": "IDS-004",
+    "message": "Sensitive data written to external/public storage directories",
+    "severity": "critical"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 16,
+    "column": 9,
+    "endColumn": 45,
+    "ruleId": "IDS-002",
+    "message": "Sensitive data written to files without encryption",
+    "severity": "high"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 22,
+    "column": 50,
+    "endColumn": 77,
+    "ruleId": "IDS-004",
+    "message": "Sensitive data written to external/public storage directories",
+    "severity": "critical"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 22,
+    "column": 62,
+    "endColumn": 77,
+    "ruleId": "IDS-004",
+    "message": "Sensitive data written to external/public storage directories",
+    "severity": "critical"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 22,
+    "column": 9,
+    "endColumn": 77,
+    "ruleId": "IDS-003",
+    "message": "Sensitive data stored in SQLite database without encryption",
+    "severity": "medium"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 24,
+    "column": 9,
+    "endColumn": 80,
+    "ruleId": "IDS-003",
+    "message": "Sensitive data stored in SQLite database without encryption",
+    "severity": "medium"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 27,
+    "column": 22,
+    "endColumn": 51,
+    "ruleId": "IDS-004",
+    "message": "Sensitive data written to external/public storage directories",
+    "severity": "critical"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 34,
+    "column": 32,
+    "endColumn": 51,
+    "ruleId": "IDS-004",
+    "message": "Sensitive data written to external/public storage directories",
+    "severity": "critical"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 34,
+    "column": 9,
+    "endColumn": 51,
+    "ruleId": "IDS-002",
+    "message": "Sensitive data written to files without encryption",
+    "severity": "high"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 39,
+    "column": 3,
+    "endColumn": 67,
+    "ruleId": "IDS-006",
+    "message": "Sensitive data stored in WebView localStorage/sessionStorage",
+    "severity": "high"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 40,
+    "column": 3,
+    "endColumn": 80,
+    "ruleId": "IDS-006",
+    "message": "Sensitive data stored in WebView localStorage/sessionStorage",
+    "severity": "high"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 41,
+    "column": 3,
+    "endColumn": 62,
+    "ruleId": "IDS-006",
+    "message": "Sensitive data stored in WebView localStorage/sessionStorage",
+    "severity": "high"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 49,
+    "column": 3,
+    "endColumn": 36,
+    "ruleId": "IDS-008",
+    "message": "Sensitive data logged to console or analytics (may persist in crash logs)",
+    "severity": "medium"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 50,
+    "column": 3,
+    "endColumn": 35,
+    "ruleId": "IDS-008",
+    "message": "Sensitive data logged to console or analytics (may persist in crash logs)",
+    "severity": "medium"
+  },
+  {
+    "file": "c:\\Users\\USER\\OneDrive\\Desktop\\Flusec_LLM-Driven-Flutter-VS-Code-Extension\\flusec\\dart-analyzer\\test_files\\insecure_app.dart",
+    "line": 52,
+    "column": 3,
+    "endColumn": 28,
+    "ruleId": "IDS-008",
+    "message": "Sensitive data logged to console or analytics (may persist in crash logs)",
+    "severity": "medium"
+  }
+]
