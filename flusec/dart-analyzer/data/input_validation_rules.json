@@ -1,0 +1,37 @@
+[
+  {
+    "id": "FLUSEC.IVD.SQLI",
+    "name": "SQL Injection",
+    "severity": "critical",
+    "description": "Raw SQL query detected with potential string interpolation. Use parameters (?) instead.",
+    "targetFunctions": ["rawQuery", "execute", "rawInsert", "rawUpdate", "rawDelete"]
+  },
+  {
+    "id": "FLUSEC.IVD.CMD",
+    "name": "Command Injection",
+    "severity": "critical",
+    "description": "System process execution detected. Ensure arguments are sanitized.",
+    "targetFunctions": ["run", "start", "runSync"]
+  },
+  {
+    "id": "FLUSEC.IVD.FILE",
+    "name": "Unsafe File Upload",
+    "severity": "high",
+    "description": "File picker used without extension filters. Malicious files could be uploaded.",
+    "targetFunctions": ["pickFiles"]
+  },
+  {
+    "id": "FLUSEC.IVD.FORM",
+    "name": "Missing Form Validation",
+    "severity": "medium",
+    "description": "TextFormField used without a 'validator' function.",
+    "targetFunctions": ["TextFormField"]
+  },
+  {
+    "id": "FLUSEC.IVD.DEEP",
+    "name": "Deep Link Poisoning",
+    "severity": "high",
+    "description": "Deep link handler detected. Ensure the URI is validated before usage.",
+    "targetFunctions": ["getInitialUri", "uriLinkStream"]
+  }
+]
