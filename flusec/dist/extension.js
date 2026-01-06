@@ -3093,22 +3093,37 @@ Issue: ${issueMessage}
     });
     if (!res.ok) {
       console.error("Ollama response not OK:", res.status, res.statusText);
-      {
-        return "Could not get LLM feedback.";
-      }
+      return null;
     }
     const data = await res.json();
     const raw = (data.response || "").trim();
-    if (!raw) {
-      return "No feedback returned by LLM.";
+    if (!raw) return null;
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      console.error("LLM returned non-JSON:", raw);
+      return null;
     }
-    return raw;
+    const feedback = {
+      why: truncate(String(parsed.why ?? "")),
+      risk: truncate(String(parsed.risk ?? ""), 200),
+      //  Fix: type the map parameter to avoid implicit any
+      fix: Array.isArray(parsed.fix) ? parsed.fix.map((step) => truncate(String(step), 160)) : [],
+      example: String(parsed.example ?? "")
+    };
+    if (!feedback.why && !feedback.risk && feedback.fix.length === 0 && !feedback.example) {
+      return null;
+    }
+    return feedback;
   } catch (err) {
     console.error("Error fetching LLM feedback:", err);
-    {
-      return "Error getting LLM feedback.";
-    }
+    return null;
   }
+}
+function truncate(s, n = 320) {
+  s = String(s).trim();
+  return s.length > n ? s.slice(0, n) + "\u2026" : s;
 }
 
 // src/couplingAnalysis.ts
@@ -3531,7 +3546,7 @@ var tempPathToUntitledUri = /* @__PURE__ */ new Map();
 var currentDiagnostics = /* @__PURE__ */ new Map();
 function activate(context) {
   logAnalyzerLocations(context);
-  const scanCmd = vscode2.commands.registerCommand("flusec.helloWorld", () => scanAll(context));
+  const scanCmd = vscode2.commands.registerCommand("flusec.netScanner", () => scanAll(context));
   context.subscriptions.push(scanCmd);
   const openDashboardCmd = vscode2.commands.registerCommand("flusec.openDashboard", async () => {
     const panel = vscode2.window.createWebviewPanel(
@@ -3604,10 +3619,36 @@ function activate(context) {
       const diags = collection.get(doc.uri) ?? [];
       const diag = diags.find((d) => d.range.contains(pos));
       if (!diag) return;
-      const feedback = await getLLMFeedback(diag.message);
+      const fb = await getLLMFeedback(diag.message);
       const md = new vscode2.MarkdownString();
       md.isTrusted = true;
-      md.appendCodeblock(feedback, "json");
+      if (!fb) {
+        md.appendMarkdown("**FLUSEC Education**: No feedback available right now.");
+        return new vscode2.Hover(md);
+      }
+      md.appendMarkdown(`### \u{1F512} FLUSEC \u2014 Secure Coding Help
+`);
+      if (fb.why) md.appendMarkdown(`**Why**: ${escapeMd(fb.why)}
+
+`);
+      if (fb.risk) md.appendMarkdown(`**Risk**: ${escapeMd(fb.risk)}
+
+`);
+      if (fb.fix?.length) {
+        md.appendMarkdown(`**Fix**:
+`);
+        for (const step of fb.fix) {
+          md.appendMarkdown(`- ${escapeMd(step)}
+`);
+        }
+        md.appendMarkdown(`
+`);
+      }
+      if (fb.example) {
+        md.appendMarkdown(`**Example**:
+`);
+        md.appendCodeblock(fb.example, "dart");
+      }
       return new vscode2.Hover(md);
     }
   });
@@ -3847,7 +3888,7 @@ function logAnalyzerLocations(context) {
     const exists = fs.existsSync(abs);
     out.appendLine(`${abs} exists=${exists}`);
   }
-  out.appendLine("-----------------------------------------");
+  out.appendLine("----------------------------------------");
 }
 function collectCurrentDiagnostics() {
   const payload = [];
@@ -3884,12 +3925,12 @@ function buildDashboardHtml(webview, rawHtml, uris) {
   const cspMeta = `
     <meta http-equiv="Content-Security-Policy"
       content="
-        default-src 'none';
-        img-src ${webview.cspSource} https:;
-        style-src ${webview.cspSource} 'unsafe-inline';
-        script-src 'nonce-${nonce}';
-        font-src ${webview.cspSource} https:;
-        connect-src ${webview.cspSource} https:;
+      default-src 'none';
+      img-src ${webview.cspSource} https:;
+      style-src ${webview.cspSource} 'unsafe-inline';
+      script-src 'nonce-${nonce}';
+      font-src ${webview.cspSource} https:;
+      connect-src ${webview.cspSource} https:;
       ">
   `;
   let html = rawHtml.replace(/\{\{styleHref\}\}/g, uris.styleHref).replace(/\{\{chartHref\}\}/g, uris.chartHref).replace(/\{\{nonce\}\}/g, nonce);
@@ -3905,6 +3946,9 @@ function getNonce() {
   let text = "";
   for (let i = 0; i < 32; i++) text += possible.charAt(Math.floor(Math.random() * possible.length));
   return text;
+}
+function escapeMd(s) {
+  return String(s).replace(/([*_`])/g, "\\$1");
 }
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {

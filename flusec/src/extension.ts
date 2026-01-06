@@ -5,19 +5,14 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-
-// Optional: keep if you already have llm.ts
+// Use the updated llm.ts
 import { getLLMFeedback } from './llm';
-
-// NEW: coupling KPI helper
+// NEW: keep imports you already had
 import { computeAndPostCoupling } from './couplingAnalysis';
-
-// NEW (Option B): inline script provider
 import { getNetChartMessagingScript } from './netChartScript';
 
 const collection = vscode.languages.createDiagnosticCollection('flusec');
 const out = vscode.window.createOutputChannel('FLUSEC');
-
 const tempPathToUntitledUri = new Map<string, vscode.Uri>();
 const currentDiagnostics = new Map<string, vscode.Diagnostic[]>();
 
@@ -25,7 +20,7 @@ export function activate(context: vscode.ExtensionContext) {
   logAnalyzerLocations(context);
 
   // Example existing command
-  const scanCmd = vscode.commands.registerCommand('flusec.helloWorld', () => scanAll(context));
+  const scanCmd = vscode.commands.registerCommand('flusec.netScanner', () => scanAll(context));
   context.subscriptions.push(scanCmd);
 
   // Dashboard command (opens src/web/dashboard.html)
@@ -46,12 +41,9 @@ export function activate(context: vscode.ExtensionContext) {
     // Webview-safe URIs for assets
     const htmlPath = path.join(context.extensionPath, 'src', 'web', 'dashboard.html');
     const rawHtml = fs.readFileSync(htmlPath, 'utf8');
-
     const styleHref = panel.webview.asWebviewUri(
       vscode.Uri.file(path.join(context.extensionPath, 'src', 'web', 'style.css'))
     ).toString();
-
-    // Local Chart.js (UMD/minified). Place file at src/web/chart.min.js
     const chartHref = panel.webview.asWebviewUri(
       vscode.Uri.file(path.join(context.extensionPath, 'src', 'web', 'chart.min.js'))
     ).toString();
@@ -105,16 +97,46 @@ export function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(openDashboardCmd);
 
-  // Hover provider for LLM feedback (optional)
+  /**
+   * Hover provider for LLM feedback (decorated inline education).
+   * - Renders sections: Why / Risk / Fix / Example
+   * - Uses MarkdownString for clean formatting
+   */
   const hoverProvider = vscode.languages.registerHoverProvider({ language: 'dart' }, {
     provideHover: async (doc, pos) => {
       const diags = collection.get(doc.uri) ?? [];
       const diag = diags.find(d => d.range.contains(pos));
       if (!diag) return;
-      const feedback = await getLLMFeedback(diag.message);
+
+      const fb = await getLLMFeedback(diag.message);
       const md = new vscode.MarkdownString();
       md.isTrusted = true;
-      md.appendCodeblock(feedback, 'json');
+
+      if (!fb) {
+        md.appendMarkdown("**FLUSEC Education**: No feedback available right now.");
+        return new vscode.Hover(md);
+      }
+
+      // Title
+      md.appendMarkdown(`### 🔒 FLUSEC — Secure Coding Help\n`);
+
+      // Sections (with safe escaping)
+      if (fb.why) md.appendMarkdown(`**Why**: ${escapeMd(fb.why)}\n\n`);
+      if (fb.risk) md.appendMarkdown(`**Risk**: ${escapeMd(fb.risk)}\n\n`);
+
+      if (fb.fix?.length) {
+        md.appendMarkdown(`**Fix**:\n`);
+        for (const step of fb.fix) {
+          md.appendMarkdown(`- ${escapeMd(step)}\n`);
+        }
+        md.appendMarkdown(`\n`);
+      }
+
+      if (fb.example) {
+        md.appendMarkdown(`**Example**:\n`);
+        md.appendCodeblock(fb.example, 'dart');
+      }
+
       return new vscode.Hover(md);
     }
   });
@@ -228,7 +250,6 @@ async function runAnalyzer(
     vscode.window.showErrorMessage('FLUSEC: analyzer not found. Put analyzer(.exe/.dart) in flusec/bin/ or dart-analyzer/bin/.');
     return;
   }
-
   out.appendLine(`[runAnalyzer] cmd=${cmd.cmd}`);
   out.appendLine(`[runAnalyzer] args=${JSON.stringify([...cmd.args, ...analyzerArgs])}`);
   if (cwd) out.appendLine(`[runAnalyzer] cwd=${cwd}`);
@@ -277,7 +298,6 @@ async function runAnalyzer(
 /** Apply diagnostics for legacy 'findings' shape (file+range) */
 function applyDiagnosticsFromFindings(findings: any[]) {
   const byUriStr = new Map<string, vscode.Diagnostic[]>();
-
   for (const f of findings) {
     const analyzedPath: string = f.file;
     const untitledUri = tempPathToUntitledUri.get(analyzedPath);
@@ -285,8 +305,8 @@ function applyDiagnosticsFromFindings(findings: any[]) {
 
     const startLC = f.range?.start;
     const endLC = f.range?.end;
-    let range: vscode.Range;
 
+    let range: vscode.Range;
     const hasLineCols =
       startLC?.line !== undefined &&
       startLC?.column !== undefined &&
@@ -319,7 +339,6 @@ function applyDiagnosticsFromFindings(findings: any[]) {
 
   collection.clear();
   currentDiagnostics.clear();
-
   for (const [uriStr, diags] of byUriStr.entries()) {
     const uri = vscode.Uri.parse(uriStr);
     collection.set(uri, diags);
@@ -331,22 +350,18 @@ function applyDiagnosticsFromFindings(findings: any[]) {
 function applyDiagnosticsFromIssues(issues: any[], srcPath: string) {
   const targetUri = tempPathToUntitledUri.get(srcPath) ?? vscode.Uri.file(srcPath);
   const diags: vscode.Diagnostic[] = [];
-
   for (const i of issues) {
     const line = Number(i.line ?? 1);
     const column = Number(i.column ?? 1);
     const start = new vscode.Position(Math.max(0, line - 1), Math.max(0, column - 1));
     const end = new vscode.Position(Math.max(0, line - 1), Math.max(0, column));
     const range = new vscode.Range(start, end);
-
     const msg = String(i.message ?? i.ruleId ?? 'FLUSEC issue');
     const diag = new vscode.Diagnostic(range, msg, vscode.DiagnosticSeverity.Warning);
     diag.code = String(i.ruleId ?? 'flusec');
     diag.source = 'flusec';
-
     diags.push(diag);
   }
-
   collection.set(targetUri, diags);
   currentDiagnostics.set(targetUri.fsPath, diags);
 }
@@ -354,7 +369,6 @@ function applyDiagnosticsFromIssues(issues: any[], srcPath: string) {
 function docPosByOffsetForUri(uri: vscode.Uri, offset: number): vscode.Position {
   const doc = vscode.workspace.textDocuments.find(d => d.uri.toString() === uri.toString());
   if (!doc) return new vscode.Position(0, 0);
-
   const text = doc.getText();
   let line = 0, ch = 0;
   for (let i = 0; i < Math.min(offset, text.length); i++) {
@@ -366,16 +380,13 @@ function docPosByOffsetForUri(uri: vscode.Uri, offset: number): vscode.Position 
 /** Smoke test: a single warning for the first 'http://' */
 function smokeTestDiagnostics(doc: vscode.TextDocument) {
   if (doc.languageId !== 'dart') return;
-
   const text = doc.getText();
   const idx = text.indexOf('http://');
-
   if (idx < 0) {
     collection.set(doc.uri, []);
     currentDiagnostics.set(doc.uri.fsPath, []);
     return;
   }
-
   const start = doc.positionAt(idx);
   const end = doc.positionAt(idx + 'http://'.length);
   const d = new vscode.Diagnostic(
@@ -385,7 +396,6 @@ function smokeTestDiagnostics(doc: vscode.TextDocument) {
   );
   d.code = 'flusec_smoke';
   d.source = 'flusec';
-
   collection.set(doc.uri, [d]);
   currentDiagnostics.set(doc.uri.fsPath, [d]);
 }
@@ -406,10 +416,10 @@ function logAnalyzerLocations(context: vscode.ExtensionContext) {
     const exists = fs.existsSync(abs);
     out.appendLine(`${abs} exists=${exists}`);
   }
-  out.appendLine('-----------------------------------------');
+  out.appendLine('----------------------------------------');
 }
 
-/** Collect diagnostics snapshot for the dashboard */
+/** Collect diagnostics snapshot for the dashboard (unchanged) */
 function collectCurrentDiagnostics(): Array<{
   file: string;
   message: string;
@@ -444,39 +454,32 @@ function severityToString(s: vscode.DiagnosticSeverity): 'error' | 'warning' | '
   }
 }
 
-/** Build final dashboard HTML: inject CSP + replace hrefs + add messaging & chart logic */
+/** Build final dashboard HTML (unchanged) */
 function buildDashboardHtml(
   webview: vscode.Webview,
   rawHtml: string,
   uris: { styleHref: string; chartHref: string }
 ): string {
   const nonce = getNonce();
-
   const cspMeta = `
     <meta http-equiv="Content-Security-Policy"
       content="
-        default-src 'none';
-        img-src ${webview.cspSource} https:;
-        style-src ${webview.cspSource} 'unsafe-inline';
-        script-src 'nonce-${nonce}';
-        font-src ${webview.cspSource} https:;
-        connect-src ${webview.cspSource} https:;
+      default-src 'none';
+      img-src ${webview.cspSource} https:;
+      style-src ${webview.cspSource} 'unsafe-inline';
+      script-src 'nonce-${nonce}';
+      font-src ${webview.cspSource} https:;
+      connect-src ${webview.cspSource} https:;
       ">
   `;
-
-  // Replace placeholders in raw HTML
   let html = rawHtml
     .replace(/\{\{styleHref\}\}/g, uris.styleHref)
     .replace(/\{\{chartHref\}\}/g, uris.chartHref)
     .replace(/\{\{nonce\}\}/g, nonce);
 
-  // Insert CSP after <head>
   html = html.replace(/<head>/i, `<head>\n${cspMeta}`);
-
-  // Inject Option B: inline messaging script with the nonce
   const messagingScript = getNetChartMessagingScript(nonce);
   html = html.replace(/<\/body>\s*<\/html>\s*$/i, `${messagingScript}\n</body></html>`);
-
   return html;
 }
 
@@ -485,4 +488,9 @@ function getNonce() {
   let text = '';
   for (let i = 0; i < 32; i++) text += possible.charAt(Math.floor(Math.random() * possible.length));
   return text;
+}
+
+/** Helper to escape basic Markdown special chars */
+function escapeMd(s: string): string {
+  return String(s).replace(/([*_`])/g, '\\$1');
 }

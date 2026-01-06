@@ -25,8 +25,8 @@
         "title": "Flusec: Open Findings Dashboard"
       },
       {
-        "command": "flusec.helloWorld",
-        "title": "Hello World",
+        "command": "flusec.netScanner",
+        "title": "Net Scanner",
         "category": "FLUSEC"
       },
       {

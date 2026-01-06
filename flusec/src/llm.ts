@@ -1,19 +1,27 @@
-//llm.ts
+
+// llm.ts
 const fetch = require("node-fetch");
 
-// Type matching Ollama server response
+// A typed structure for the educational feedback we expect from the LLM.
+export type LLMFeedback = {
+  why: string;
+  risk: string;
+  fix: string[];
+  example: string;
+};
+
+// Type matching the Ollama server response.
 type OllamaServerResponse = {
   response?: string;
   done?: boolean;
 };
 
 /**
- * Get educational feedback from Ollama (Option B: balanced).
- * - Still fast (short-ish output)
- * - More educational than the ultra-short version
+ * Get educational feedback from Ollama (Balanced output).
  * - Local-only (privacy)
+ * - Parsed and validated JSON for clean rendering in hover
  */
-export async function getLLMFeedback(issueMessage: string): Promise<string> {
+export async function getLLMFeedback(issueMessage: string): Promise<LLMFeedback | null> {
   try {
     const res = await fetch("http://localhost:11434/api/generate", {
       method: "POST",
@@ -54,17 +62,47 @@ Issue: ${issueMessage}
 
     if (!res.ok) {
       console.error("Ollama response not OK:", res.status, res.statusText);
-      {return "Could not get LLM feedback.";}
+      return null;
     }
 
     const data: OllamaServerResponse = await res.json();
     const raw = (data.response || "").trim();
+    if (!raw) return null;
 
-    if (!raw) {return "No feedback returned by LLM.";}
+    // Parse JSON strictly
+    let parsed: any;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (e) {
+      console.error("LLM returned non-JSON:", raw);
+      return null;
+    }
 
-    return raw;
+    // Normalize/validate shape
+    const feedback: LLMFeedback = {
+      why: truncate(String(parsed.why ?? "")),
+      risk: truncate(String(parsed.risk ?? ""), 200),
+      //  Fix: type the map parameter to avoid implicit any
+      fix: Array.isArray(parsed.fix)
+        ? parsed.fix.map((step: unknown) => truncate(String(step), 160))
+        : [],
+      example: String(parsed.example ?? ""),
+    };
+
+    // Basic validation to avoid empty cards
+    if (!feedback.why && !feedback.risk && feedback.fix.length === 0 && !feedback.example) {
+      return null;
+    }
+    return feedback;
   } catch (err) {
     console.error("Error fetching LLM feedback:", err);
-    {return "Error getting LLM feedback.";}
+    return null;
   }
 }
+
+// Optional: length limiter to keep hover compact
+function truncate(s: string, n = 320): string {
+  s = String(s).trim();
+  return s.length > n ? s.slice(0, n) + "…" : s;
+}
+
