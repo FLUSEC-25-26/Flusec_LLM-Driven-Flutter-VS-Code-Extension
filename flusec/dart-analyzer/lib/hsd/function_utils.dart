@@ -23,19 +23,38 @@ class FunctionUtils {
 
   /// Human-readable name for an executable node.
   static String executableName(AstNode exec) {
-    if (exec is FunctionDeclaration) {
-      return exec.name.lexeme;
+  // Normal named functions / methods / ctors
+  if (exec is FunctionDeclaration) {
+    return exec.name.lexeme;
+  }
+  if (exec is MethodDeclaration) {
+    return exec.name.lexeme;
+  }
+  if (exec is ConstructorDeclaration) {
+    final typeName = exec.returnType?.toSource() ?? '';
+    final ctorName = exec.name?.lexeme ?? '';
+    return ctorName.isEmpty ? typeName : '$typeName.$ctorName';
+  }
+
+  // Handle the common case where we actually get the FunctionExpression
+  // that belongs to a named declaration like:
+  //   void cx1_simple() { ... }
+  if (exec is FunctionExpression) {
+    final parent = exec.parent;
+    if (parent is FunctionDeclaration) {
+      return parent.name.lexeme;
     }
-    if (exec is MethodDeclaration) {
-      return exec.name.lexeme;
+    if (parent is MethodDeclaration) {
+      return parent.name.lexeme;
     }
-    if (exec is ConstructorDeclaration) {
-      final typeName = exec.returnType?.toSource() ?? '';
-      final ctorName = exec.name?.lexeme ?? '';
+    if (parent is ConstructorDeclaration) {
+      final typeName = parent.returnType?.toSource() ?? '';
+      final ctorName = parent.name?.lexeme ?? '';
       return ctorName.isEmpty ? typeName : '$typeName.$ctorName';
     }
+  }
 
-    // anonymous functions / lambdas
-    return '<anonymous>';
+  // Truly anonymous functions / lambdas
+   return '<anonymous>';
   }
 }
