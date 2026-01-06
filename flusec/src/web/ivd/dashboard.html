@@ -18,7 +18,7 @@
 
 
 
-<!DOCTYPE html>
+<!-- <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -136,6 +136,292 @@
             
             html += '</tbody></table>';
             content.innerHTML = html;
+        }
+    </script>
+</body>
+</html> -->
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}} 'unsafe-inline';">
+    <title>IVD Dashboard</title>
+    
+    <link rel="stylesheet" href="{{cssUri}}">
+
+    <style>
+        /* --- BLUE THEME OVERRIDES --- */
+        body { border-top: 4px solid #007ACC; background-color: #1e1e1e; color: #ddd; }
+        .app-header { border-left: 5px solid #007ACC; margin-bottom: 20px; }
+        .app-header h1 { color: #4FC1FF; }
+
+        /* --- DASHBOARD GRID --- */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        /* --- KPI CARDS --- */
+        .kpi-card {
+            background: #252526;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-left: 4px solid #007ACC;
+        }
+        .kpi-title { font-size: 0.9em; color: #aaa; text-transform: uppercase; letter-spacing: 0.5px; }
+        .kpi-value { font-size: 2em; font-weight: bold; color: #fff; }
+        .kpi-icon { font-size: 2em; opacity: 0.2; }
+
+        .kpi-critical { border-left-color: #FF4444; }
+        .kpi-critical .kpi-value { color: #FF4444; }
+
+        /* --- CHARTS --- */
+        .chart-card {
+            background: #252526;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 15px;
+        }
+        .chart-header {
+            font-size: 14px;
+            font-weight: 600;
+            color: #4FC1FF;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 8px;
+        }
+        canvas {
+            width: 100% !important;
+            height: 200px !important;
+        }
+
+        /* --- TABLE STYLES --- */
+        th { border-bottom: 2px solid #007ACC; color: #4FC1FF; }
+        .severity-critical { color: #FF4444; font-weight: 800; }
+        .severity-high { color: #FF9900; font-weight: bold; }
+        .severity-medium { color: #CCA700; }
+        
+        .empty-state { 
+            padding: 50px; text-align: center; color: #888; 
+            border: 2px dashed #444; border-radius: 8px; margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <header class="app-header">
+        <div class="titles">
+            <h1>🛡️ Input Validation Dashboard</h1>
+            <p>AST Analysis & Logic Vulnerability Insights</p>
+        </div>
+    </header>
+
+    <main class="container">
+        
+        <div class="dashboard-grid" id="kpi-section" style="display:none;">
+            <div class="kpi-card">
+                <div>
+                    <div class="kpi-title">Total Issues</div>
+                    <div class="kpi-value" id="total-count">0</div>
+                </div>
+                <div class="kpi-icon">🛡️</div>
+            </div>
+            <div class="kpi-card kpi-critical">
+                <div>
+                    <div class="kpi-title">Critical / High</div>
+                    <div class="kpi-value" id="critical-count">0</div>
+                </div>
+                <div class="kpi-icon">⚠️</div>
+            </div>
+        </div>
+
+        <div class="dashboard-grid" id="charts-section" style="display:none;">
+            <div class="chart-card">
+                <div class="chart-header">Top Vulnerability Types</div>
+                <canvas id="chartRules"></canvas>
+            </div>
+            <div class="chart-card">
+                <div class="chart-header">Hotspots by File</div>
+                <canvas id="chartFiles"></canvas>
+            </div>
+        </div>
+
+        <section class="section">
+            <div class="card">
+                <div class="chart-header">Detailed Findings</div>
+                <div id="content">Loading IVD findings...</div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const vscode = acquireVsCodeApi();
+
+        window.addEventListener('message', event => {
+            const message = event.data;
+            if (message.command === 'loadFindings') {
+                const findings = message.data || [];
+                updateDashboard(findings);
+            }
+        });
+
+        function updateDashboard(findings) {
+            // 1. Update KPI Cards
+            const total = findings.length;
+            const criticalHigh = findings.filter(f => 
+                (f.severity || '').toLowerCase().includes('critical') || 
+                (f.severity || '').toLowerCase().includes('high')
+            ).length;
+
+            document.getElementById('total-count').innerText = total;
+            document.getElementById('critical-count').innerText = criticalHigh;
+
+            const hasData = total > 0;
+            document.getElementById('kpi-section').style.display = hasData ? 'grid' : 'none';
+            document.getElementById('charts-section').style.display = hasData ? 'grid' : 'none';
+
+            // 2. Render Table
+            renderTable(findings);
+
+            // 3. Render Charts (only if data exists)
+            if (hasData) {
+                setTimeout(() => {
+                    renderCharts(findings);
+                }, 100);
+            }
+        }
+
+        function renderTable(findings) {
+            const content = document.getElementById('content');
+            
+            if (!findings || findings.length === 0) {
+                content.innerHTML = `
+                    <div class="empty-state">
+                        ✅ <strong>No Input Validation vulnerabilities found.</strong><br><br>
+                        Run <em>'Flusec: Scan File'</em> on a Dart file to check for issues.
+                    </div>`;
+                return;
+            }
+
+            let html = `
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 100px;">Severity</th>
+                        <th style="width: 180px;">Rule ID</th>
+                        <th>File Location</th>
+                        <th>Message</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+            
+            findings.forEach(f => {
+                const sevRaw = f.severity || 'medium';
+                const sevClass = 'severity-' + sevRaw.toLowerCase();
+                const shortFile = f.file ? f.file.split(/[\\/]/).pop() : 'unknown';
+                const shortRule = f.ruleId ? f.ruleId.replace('FLUSEC.IVD.', '') : 'UNKNOWN';
+
+                html += `
+                <tr>
+                    <td class="${sevClass}">${sevRaw.toUpperCase()}</td>
+                    <td><strong>${shortRule}</strong></td>
+                    <td title="${f.file}">
+                        📄 ${shortFile} <span style="color:#666">:${f.line}</span>
+                    </td>
+                    <td>${f.message}</td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            content.innerHTML = html;
+        }
+
+        // --- SIMPLE CANVAS CHART RENDERER (Dependency Free) ---
+        function renderCharts(findings) {
+            // Aggregation: Rules
+            const ruleCounts = {};
+            findings.forEach(f => {
+                const name = f.ruleId.replace('FLUSEC.IVD.', '');
+                ruleCounts[name] = (ruleCounts[name] || 0) + 1;
+            });
+
+            // Aggregation: Files
+            const fileCounts = {};
+            findings.forEach(f => {
+                const name = f.file.split(/[\\/]/).pop();
+                fileCounts[name] = (fileCounts[name] || 0) + 1;
+            });
+
+            drawBarChart('chartRules', ruleCounts, '#007ACC');
+            drawBarChart('chartFiles', fileCounts, '#FF9900');
+        }
+
+        function drawBarChart(canvasId, dataMap, color) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            
+            // Handle Retina/High-DPI displays
+            const dpr = window.devicePixelRatio || 1;
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * dpr;
+            canvas.height = rect.height * dpr;
+            ctx.scale(dpr, dpr);
+
+            const labels = Object.keys(dataMap);
+            const values = Object.values(dataMap);
+            const maxVal = Math.max(...values, 1);
+            
+            const padding = 40;
+            const chartWidth = rect.width - (padding * 2);
+            const chartHeight = rect.height - (padding * 2);
+            const barSpacing = 20;
+            const barWidth = (chartWidth / labels.length) - barSpacing;
+
+            ctx.clearRect(0, 0, rect.width, rect.height);
+
+            // Draw Bars
+            labels.forEach((label, i) => {
+                const val = values[i];
+                const barHeight = (val / maxVal) * chartHeight;
+                const x = padding + (i * (barWidth + barSpacing)) + (barSpacing/2);
+                const y = padding + chartHeight - barHeight;
+
+                // Bar
+                ctx.fillStyle = color;
+                ctx.fillRect(x, y, barWidth, barHeight);
+
+                // Value Label (Top of bar)
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 12px Segoe UI';
+                ctx.textAlign = 'center';
+                ctx.fillText(val, x + barWidth/2, y - 5);
+
+                // X-Axis Label (Bottom)
+                ctx.fillStyle = '#aaa';
+                ctx.font = '10px Segoe UI';
+                
+                // Truncate long labels
+                let displayLabel = label.length > 10 ? label.substring(0,8)+'..' : label;
+                ctx.fillText(displayLabel, x + barWidth/2, padding + chartHeight + 15);
+            });
+
+            // Draw Base Line
+            ctx.strokeStyle = '#444';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(padding, padding + chartHeight);
+            ctx.lineTo(padding + chartWidth, padding + chartHeight);
+            ctx.stroke();
         }
     </script>
 </body>
