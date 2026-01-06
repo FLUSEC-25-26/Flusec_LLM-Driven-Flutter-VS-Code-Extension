@@ -21,19 +21,21 @@ class OutputWriter {
   /// This preserves your current VS Code behavior.
   static void printStdout(List<Issue> issues) {
     final out = issues
-        .map((i) => {
-              'file': i.filePath,
-              'ruleId': i.ruleId,
-              'severity': i.severity,
-              'message': i.message,
-              'line': i.line,
-              'column': i.column,
-              // Your extra metadata:
-              'functionName': i.functionName,
-              'complexity': i.complexity,
-              'nestingDepth': i.nestingDepth,
-              'functionLoc': i.functionLoc,
-            })
+        .map(
+          (i) => {
+            'file': i.filePath,
+            'ruleId': i.ruleId,
+            'severity': i.severity,
+            'message': i.message,
+            'line': i.line,
+            'column': i.column,
+            // Your extra metadata:
+            'functionName': i.functionName,
+            'complexity': i.complexity,
+            'nestingDepth': i.nestingDepth,
+            'functionLoc': i.functionLoc,
+          },
+        )
         .toList();
 
     stdout.writeln(jsonEncode(out));
@@ -94,7 +96,9 @@ class OutputWriter {
         const JsonEncoder.withIndent('  ').convert(findings),
       );
 
-      stderr.writeln('📝 Wrote ${findings.length} finding(s) to ${outFile.path}');
+      stderr.writeln(
+        '📝 Wrote ${findings.length} finding(s) to ${outFile.path}',
+      );
     } catch (e, st) {
       stderr.writeln('⚠️ Failed to write .out/findings.json: $e\n$st');
     }

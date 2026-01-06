@@ -22,12 +22,14 @@ class RulesPathResolver {
     final localRules = File(path.join(currentDir, 'data', fileName));
 
     // Packaged/installed run: <scriptDir>/../data/<fileName>
-    final extensionRules = File(path.join(
-      path.dirname(Platform.script.toFilePath()),
-      '..',
-      'data',
-      fileName,
-    ));
+    final extensionRules = File(
+      path.join(
+        path.dirname(Platform.script.toFilePath()),
+        '..',
+        'data',
+        fileName,
+      ),
+    );
 
     return localRules.existsSync() ? localRules : extensionRules;
   }
