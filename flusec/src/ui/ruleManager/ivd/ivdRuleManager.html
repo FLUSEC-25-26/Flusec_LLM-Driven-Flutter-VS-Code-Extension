@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline';"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IVD Rule Manager</title>
+    <style>
+      body {
+        font-family: "Segoe UI", sans-serif;
+        padding: 1rem 2rem;
+        background: #1e1e1e;
+        color: #ddd;
+      }
+      h2 { margin-top: 0; color: #4FC1FF; border-bottom: 2px solid #007ACC; padding-bottom: 10px; }
+
+      /* Buttons */
+      button {
+        margin-right: 8px;
+        padding: 6px 12px;
+        background: #007acc;
+        border: none;
+        border-radius: 4px;
+        color: #fff;
+        cursor: pointer;
+        font-size: 13px;
+      }
+      button:hover { background: #005fa3; }
+      
+      .btn-danger { background: #d32f2f; }
+      .btn-danger:hover { background: #b71c1c; }
+
+      /* Table */
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1rem;
+        font-size: 13px;
+      }
+      th, td {
+        border: 1px solid #444;
+        padding: 8px 10px;
+        text-align: left;
+        vertical-align: top;
+      }
+      th { background: #2d2d2d; color: #4FC1FF; }
+
+      /* Actions cell */
+      .action-cell {
+        display: flex;
+        flex-direction: row;
+        gap: 6px;
+      }
+      .action-cell button {
+        background: #444;
+        padding: 4px 8px;
+        flex: 1;
+      }
+      .action-cell button:hover { background: #666; }
+
+      /* Form */
+      #form {
+        margin-top: 1.5rem;
+        border: 1px solid #007ACC;
+        padding: 1rem;
+        border-radius: 8px;
+        background: #252526;
+        display: none; /* Hidden by default */
+      }
+      #form h3 { margin-top: 0; color: #fff; }
+      
+      label {
+        display: block;
+        margin-top: 10px;
+        margin-bottom: 4px;
+        color: #ccc;
+        font-weight: 500;
+        font-size: 14px;
+      }
+      input, textarea, select {
+        width: 100%;
+        background: #333;
+        color: #fff;
+        border: 1px solid #555;
+        border-radius: 4px;
+        padding: 6px 8px;
+        font-size: 13px;
+      }
+      textarea { resize: vertical; min-height: 60px; }
+      
+      .tag {
+        display: inline-block;
+        background: #0e639c;
+        color: white;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 11px;
+        margin-right: 4px;
+        margin-bottom: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>🛡️ Input Validation Rules</h2>
+    <div style="margin-bottom: 10px;">
+        <button id="addRule">➕ Add Rule</button>
+        <button id="saveAll">💾 Save All Changes</button>
+    </div>
+
+    <table id="rulesTable">
+      <thead>
+        <tr>
+          <th style="width: 150px;">ID</th>
+          <th style="width: 180px;">Name</th>
+          <th>Target Functions</th>
+          <th style="width: 100px;">Severity</th>
+          <th style="width: 140px;">Actions</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <div id="form">
+      <h3 id="formTitle">➕ Add Rule</h3>
+
+      <label for="ruleId">Rule ID</label>
+      <input id="ruleId" placeholder="e.g. FLUSEC.IVD.XSS" />
+
+      <label for="ruleName">Rule Name</label>
+      <input id="ruleName" placeholder="e.g. Cross Site Scripting" />
+
+      <label for="targetFunctions">Target Functions (comma separated)</label>
+      <input id="targetFunctions" placeholder="e.g. eval, dangerouslySetInnerHTML, exec" />
+      <small style="color:#888;">List the function names that trigger this vulnerability.</small>
+
+      <label for="ruleSeverity">Severity</label>
+      <select id="ruleSeverity">
+        <option value="critical">Critical</option>
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+      </select>
+
+      <label for="ruleDescription">Description</label>
+      <textarea id="ruleDescription" placeholder="Explain why this input is dangerous..."></textarea>
+
+      <div style="margin-top: 15px;">
+          <button id="saveForm">✅ Save to List</button>
+          <button id="cancelForm" style="background: #555;">❌ Cancel</button>
+      </div>
+    </div>
+
+    <script>
+      const vscode = acquireVsCodeApi();
+      let rules = [];
+      let editIndex = -1;
+
+      window.addEventListener("message", (event) => {
+        const msg = event.data;
+        if (msg.command === "loadRules") {
+          rules = Array.isArray(msg.rules) ? msg.rules : [];
+          renderTable();
+        }
+      });
+
+      function renderTable() {
+        const tbody = document.querySelector("#rulesTable tbody");
+        tbody.innerHTML = "";
+        
+        if (rules.length === 0) {
+            tbody.innerHTML = "<tr><td colspan='5' style='text-align:center; padding: 20px; color: #888;'>No rules found. Add one to get started.</td></tr>";
+            return;
+        }
+
+        for (let i = 0; i < rules.length; i++) {
+          const r = rules[i];
+          
+          // Format target functions as tags
+          let targetsHtml = "";
+          if (Array.isArray(r.targetFunctions)) {
+              targetsHtml = r.targetFunctions.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join("");
+          }
+
+          const row = document.createElement("tr");
+          row.innerHTML = `
+            <td>${escapeHtml(r.id || "")}</td>
+            <td><strong>${escapeHtml(r.name || "")}</strong></td>
+            <td>${targetsHtml}</td>
+            <td style="color:${getSevColor(r.severity)}">${escapeHtml((r.severity || "").toUpperCase())}</td>
+            <td>
+              <div class="action-cell">
+                <button onclick="editRule(${i})">✏️ Edit</button>
+                <button onclick="deleteInWebview(${i})" class="btn-danger">🗑️</button>
+              </div>
+            </td>`;
+          tbody.appendChild(row);
+        }
+      }
+
+      function getSevColor(sev) {
+          switch(sev?.toLowerCase()) {
+              case 'critical': return '#FF4444';
+              case 'high': return '#FF9900';
+              case 'medium': return '#CCA700';
+              default: return '#ccc';
+          }
+      }
+
+      function escapeHtml(s) {
+        return String(s)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function clearForm() {
+        document.getElementById("ruleId").value = "";
+        document.getElementById("ruleName").value = "";
+        document.getElementById("targetFunctions").value = "";
+        document.getElementById("ruleSeverity").value = "medium";
+        document.getElementById("ruleDescription").value = "";
+        editIndex = -1;
+      }
+
+      function showForm(show) {
+          document.getElementById("form").style.display = show ? "block" : "none";
+          if (show) document.getElementById("form").scrollIntoView({ behavior: "smooth" });
+      }
+
+      function fillForm(r) {
+        document.getElementById("ruleId").value = r.id || "";
+        document.getElementById("ruleName").value = r.name || "";
+        // Join array back to comma string
+        document.getElementById("targetFunctions").value = Array.isArray(r.targetFunctions) ? r.targetFunctions.join(", ") : "";
+        document.getElementById("ruleSeverity").value = r.severity || "medium";
+        document.getElementById("ruleDescription").value = r.description || "";
+      }
+
+      function editRule(i) {
+        editIndex = i;
+        fillForm(rules[i]);
+        document.getElementById("formTitle").textContent = "✏️ Edit Rule";
+        showForm(true);
+      }
+
+      function deleteInWebview(i) {
+        if (!confirm("Are you sure you want to delete this rule?")) return;
+        
+        const removed = rules.splice(i, 1);
+        renderTable();
+        // Auto-save on delete
+        vscode.postMessage({
+          command: "saveRules",
+          rules,
+          action: "delete",
+          deletedId: removed?.[0]?.id || ""
+        });
+      }
+
+      document.getElementById("addRule").onclick = () => {
+        clearForm();
+        document.getElementById("formTitle").textContent = "➕ Add Rule";
+        showForm(true);
+      };
+
+      document.getElementById("cancelForm").onclick = () => {
+          showForm(false);
+      };
+
+      document.getElementById("saveForm").onclick = () => {
+        const id = document.getElementById("ruleId").value.trim();
+        const targetsStr = document.getElementById("targetFunctions").value.trim();
+        
+        if (!id || !targetsStr) {
+           // Simple validation
+           alert("Rule ID and Target Functions are required.");
+           return;
+        }
+
+        // Convert comma string to array
+        const targets = targetsStr.split(",").map(s => s.trim()).filter(s => s.length > 0);
+
+        const newRule = {
+          id: id,
+          name: document.getElementById("ruleName").value.trim(),
+          targetFunctions: targets,
+          severity: document.getElementById("ruleSeverity").value.trim(),
+          description: document.getElementById("ruleDescription").value.trim(),
+        };
+
+        if (editIndex >= 0) {
+          rules[editIndex] = newRule;
+        } else {
+          rules.push(newRule);
+        }
+        
+        showForm(false);
+        renderTable();
+        // Optional: Auto-save immediately
+        // vscode.postMessage({ command: "saveRules", rules });
+      };
+
+      document.getElementById("saveAll").onclick = () => {
+        vscode.postMessage({ command: "saveRules", rules });
+      };
+
+      // Expose globally
+      window.editRule = editRule;
+      window.deleteInWebview = deleteInWebview;
+    </script>
+  </body>
+</html>

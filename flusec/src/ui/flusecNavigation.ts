@@ -409,6 +409,20 @@ class FlusecNavigationProvider
               },
             }
           ),
+          new FlusecNavItem(
+            "IVD Rule Manager",
+            vscode.TreeItemCollapsibleState.None,
+            {
+              nodeType: "action",
+              componentId,
+              tooltip: "Manage Dynamic IVD Rules",
+              icon: new vscode.ThemeIcon("settings-gear"),
+              command: {
+                command: "flusec.manageIvdRules",
+                title: "Open IVD Rule Manager",
+              },
+            }
+          ),
         ];
       }
     }

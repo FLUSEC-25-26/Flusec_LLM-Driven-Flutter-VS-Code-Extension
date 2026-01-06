@@ -1,4 +1,4 @@
-<script src="{{jsUri}}"></script>
+<!-- <script src="{{jsUri}}"></script>
 <script>
     // Overwrite the listener slightly to filter for IVD only
     const originalListener = window.onmessage; 
@@ -12,5 +12,131 @@
         }
     });
 </script>
+</body>
+</html> -->
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{cspSource}} 'unsafe-inline'; script-src {{cspSource}} 'unsafe-inline';">
+    <title>IVD Dashboard</title>
+    
+    <link rel="stylesheet" href="{{cssUri}}">
+
+    <style>
+        /* --- IVD SPECIFIC OVERRIDES (BLUE THEME) --- */
+        body { border-top: 4px solid #007ACC; }
+        
+        .app-header { border-left: 5px solid #007ACC; }
+        .app-header h1 { color: #4FC1FF; }
+        
+        /* Table Headers */
+        th { border-bottom: 2px solid #007ACC; color: #4FC1FF; }
+
+        /* Severity Colors */
+        .severity-critical { color: #FF4444; font-weight: 800; }
+        .severity-high { color: #FF9900; font-weight: bold; }
+        .severity-medium { color: #CCA700; }
+        
+        /* Empty State */
+        .empty-state { 
+            padding: 50px; 
+            text-align: center; 
+            color: #888; 
+            font-size: 1.1em;
+            border: 2px dashed #444;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <header class="app-header">
+        <div class="titles">
+            <h1>🛡️ Input Validation Dashboard</h1>
+            <p>Logic vulnerabilities & AST Analysis Findings</p>
+        </div>
+        <div class="actions">
+            </div>
+    </header>
+
+    <main class="container">
+        <section class="section">
+            <div class="card">
+                <div class="header-row">
+                    <strong>Vulnerability Findings</strong>
+                </div>
+                
+                <div id="content">Loading IVD findings...</div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const vscode = acquireVsCodeApi();
+
+        // Listen for data from extension
+        window.addEventListener('message', event => {
+            const message = event.data;
+            if (message.command === 'loadFindings') {
+                renderTable(message.data);
+            }
+        });
+
+        function renderTable(findings) {
+            const content = document.getElementById('content');
+            
+            if (!findings || findings.length === 0) {
+                content.innerHTML = `
+                    <div class="empty-state">
+                        ✅ <strong>No Input Validation vulnerabilities found.</strong><br><br>
+                        Run <em>'Flusec: Scan File'</em> on a Dart file to check for issues.
+                    </div>`;
+                return;
+            }
+
+            let html = `
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 100px;">Severity</th>
+                        <th style="width: 150px;">Rule ID</th>
+                        <th>File Location</th>
+                        <th>Issue Message</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+            
+            findings.forEach(f => {
+                // Ensure severity fallback
+                const sevRaw = f.severity || 'medium';
+                const sevClass = 'severity-' + sevRaw.toLowerCase();
+                
+                // Clean up File Path (show only filename)
+                const shortFile = f.file ? f.file.split(/[\\/]/).pop() : 'unknown';
+                
+                // Remove prefix for cleaner display
+                const shortRule = f.ruleId ? f.ruleId.replace('FLUSEC.IVD.', '') : 'UNKNOWN';
+
+                html += `
+                <tr>
+                    <td class="${sevClass}">${sevRaw.toUpperCase()}</td>
+                    <td><strong>${shortRule}</strong></td>
+                    <td title="${f.file}">
+                        📄 ${shortFile} <span style="color:#666">:${f.line}</span>
+                    </td>
+                    <td>${f.message}</td>
+                </tr>`;
+            });
+            
+            html += '</tbody></table>';
+            content.innerHTML = html;
+        }
+    </script>
 </body>
 </html>
