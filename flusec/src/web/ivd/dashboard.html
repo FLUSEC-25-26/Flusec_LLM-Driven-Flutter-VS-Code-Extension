@@ -1,0 +1,16 @@
+<script src="{{jsUri}}"></script>
+<script>
+    // Overwrite the listener slightly to filter for IVD only
+    const originalListener = window.onmessage; 
+    window.addEventListener("message", (e) => {
+        const { command, data } = e.data || {};
+        if (command === "loadFindings" && Array.isArray(data)) {
+            // FILTER FOR IVD FINDINGS ONLY
+            // We check if ruleId starts with FLUSEC.IVD
+            findings = data.filter(f => f.ruleId && f.ruleId.includes("IVD"));
+            render(); // render comes from dashboard.js
+        }
+    });
+</script>
+</body>
+</html>

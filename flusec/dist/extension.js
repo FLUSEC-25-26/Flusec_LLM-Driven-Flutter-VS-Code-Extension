@@ -3045,8 +3045,8 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
-var vscode7 = __toESM(require("vscode"));
-var fs5 = __toESM(require("fs"));
+var vscode8 = __toESM(require("vscode"));
+var fs6 = __toESM(require("fs"));
 var path4 = __toESM(require("path"));
 
 // src/analyzer/runAnalyzer.ts
@@ -3169,6 +3169,27 @@ function extractJsonObject(raw) {
 }
 async function getLLMFeedback(issueMessage, codeSnippet) {
   try {
+    const isIVD = issueMessage.includes("Injection") || issueMessage.includes("Validation") || issueMessage.includes("Upload") || issueMessage.includes("Deep Link");
+    let promptInstructions = "";
+    if (isIVD) {
+      promptInstructions = `
+        Context: Flutter/Dart Security (Input Validation).
+        The user has a code vulnerability: ${issueMessage}.
+        
+        Guidelines:
+        - Explain why this input is dangerous (SQLi, Command Injection, XSS, etc).
+        - Suggest sanitization or parameterized queries.
+        - DO NOT talk about "rotating secrets" here. Talk about validating input.
+      `;
+    } else {
+      promptInstructions = `
+        Context: Flutter/Dart Security (Hardcoded Secrets).
+        If it looks like an API key/token:
+        - Say real secrets must live on backend.
+        - Mention attackers can extract strings from APK/IPA.
+        - DO NOT suggest hardcoding secrets anywhere.
+      `;
+    }
     const res = await fetch("http://localhost:11434/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -3176,69 +3197,36 @@ async function getLLMFeedback(issueMessage, codeSnippet) {
         model: "llama3.2:latest",
         stream: false,
         keep_alive: "30m",
-        // Ask Ollama to produce strict JSON output.
         format: "json",
-        // Prompt kept tight to avoid long responses.
         prompt: `
-        You are a Flutter/Dart security assistant integrated into a VS Code extension for hardcoded secret detection.
+        You are a Flutter/Dart security assistant.
+        ${promptInstructions}
 
-        Return ONLY a single JSON object with these fields:
-
+        Return ONLY a single JSON object:
         {
-          "why": "2 short sentences explaining the security problem and 1 short sentence on impact.",
-          "fix": ["3 very short, practical Flutter/Dart fixes as separate items."],
-          "maintainability": "1 sentence starting with: 'Because complexity is X, nesting is Y, and size is Z, ...'",
-          "example": "Very short best security practice Flutter/Dart example related to this issue"
+          "why": "2 sentences explaining the vulnerability.",
+          "fix": ["3 short, practical Dart code steps to fix it."],
+          "maintainability": "1 sentence starting with 'Because complexity is X...' based on provided metrics.",
+          "example": "Short, secure Dart code snippet fixing this specific issue"
         }
 
-        Guidelines:
-        - Context: This is Flutter/Dart mobile app code (APK/IPA can be reverse-engineered).
-        - If it looks like an API key / token / credential / backend secret:
-          - Say real secrets must live on the server or a secure backend config, not in the client.
-          - Mention attackers can extract client-side secrets from APK/IPA.
-        - DO NOT suggest hardcoding secrets anywhere (even in another file).
-        - DO NOT suggest client-side encryption as the main solution.
-
-        For maintainability:
-        - Read X, Y, Z from the text in Issue details like:
-          "Function complexity: medium, nesting: high, size: small".
-        - Use those exact words.
-        - Write exactly ONE sentence that starts with:
-          "Because complexity is X, nesting is Y, and size is Z, "
-          and then briefly say how hard or risky it is to refactor.
-
-        Issue details:
-        ${issueMessage}
-
-        Code (Dart):
-        ${codeSnippet || "// (no code snippet provided)"}
-         `.trim(),
-        // Balanced generation controls: short, deterministic, fast.
+        Issue: ${issueMessage}
+        Code: ${codeSnippet || "// no code"}
+        `.trim(),
         options: {
           num_ctx: 2048,
-          num_predict: 220,
-          // enough for the 4 fields, but not huge
-          temperature: 0.1,
-          // low = more deterministic, better JSON
-          top_p: 0.9,
-          repeat_penalty: 1.05
+          num_predict: 250,
+          temperature: 0.1
         }
       })
     });
     if (!res.ok) {
-      console.error("Ollama response not OK:", res.status, res.statusText);
       return "Could not get LLM feedback.";
     }
     const data = await res.json();
     const raw = (data.response || "").trim();
-    if (!raw) {
-      return "No feedback returned by LLM.";
-    }
     const jsonCandidate = extractJsonObject(raw);
-    if (jsonCandidate) {
-      return jsonCandidate;
-    }
-    return raw;
+    return jsonCandidate || raw;
   } catch (err) {
     console.error("Error fetching LLM feedback:", err);
     return "Error getting LLM feedback.";
@@ -3255,6 +3243,7 @@ function makeKey(uri, range) {
 function enqueueLLMRequest(key, message, codeSnippet, uri, range) {
   llmQueue.push(async () => {
     try {
+      console.log(`[FLUSEC] Requesting LLM for: ${message}`);
       const feedback = await getLLMFeedback(message, codeSnippet);
       feedbackCache.set(key, feedback);
       const editor = vscode2.window.visibleTextEditors.find(
@@ -3262,14 +3251,9 @@ function enqueueLLMRequest(key, message, codeSnippet, uri, range) {
       );
       if (editor) {
         const pos = range.start;
-        editor.selection = new vscode2.Selection(pos, pos);
-        editor.revealRange(
-          range,
-          vscode2.TextEditorRevealType.InCenterIfOutsideViewport
-        );
         setTimeout(() => {
           vscode2.commands.executeCommand("editor.action.showHover");
-        }, 50);
+        }, 500);
       }
       vscode2.window.setStatusBarMessage("\u2705 FLUSEC: LLM feedback ready", 2e3);
     } catch (err) {
@@ -3296,19 +3280,20 @@ async function processQueue() {
 }
 function formatFeedbackForHover(raw) {
   const md = new vscode2.MarkdownString();
-  md.isTrusted = false;
+  md.isTrusted = true;
   try {
     const obj = JSON.parse(raw);
-    md.appendMarkdown(`### \u{1F4A1} Educational feedback
+    md.appendMarkdown(`### \u{1F4A1} **Flusec Security Insight**
 
 `);
     if (obj.why) {
-      md.appendMarkdown(`**Why**: ${obj.why}
+      md.appendMarkdown(`**\u26A0\uFE0F Why is this dangerous?**
+${obj.why}
 
 `);
     }
     if (Array.isArray(obj.fix) && obj.fix.length > 0) {
-      md.appendMarkdown(`**Fix**:
+      md.appendMarkdown(`**\u{1F6E1}\uFE0F How to Fix:**
 `);
       for (const step of obj.fix.slice(0, 3)) {
         md.appendMarkdown(`- ${String(step).replace(/^\d+\.\s*/, "")}
@@ -3318,20 +3303,19 @@ function formatFeedbackForHover(raw) {
 `);
     }
     if (obj.maintainability) {
-      md.appendMarkdown(`**Maintainability**: ${obj.maintainability}
+      md.appendMarkdown(`**\u{1F4CA} Maintainability**: ${obj.maintainability}
 
 `);
     }
     if (obj.example && String(obj.example).trim()) {
-      md.appendMarkdown(`**Example**:
+      md.appendMarkdown(`**\u{1F4DD} Secure Example**:
 
 `);
       md.appendCodeblock(String(obj.example), "dart");
     }
     return md;
   } catch {
-    console.log("[FLUSEC] JSON parse failed. Raw:", raw);
-    md.appendMarkdown(`### \u{1F4A1} Educational feedback
+    md.appendMarkdown(`### \u{1F4A1} **Flusec Insight**
 
 `);
     md.appendMarkdown(raw);
@@ -3344,6 +3328,9 @@ function registerHoverProvider(context) {
       const diags = vscode2.languages.getDiagnostics(document.uri);
       for (const diag of diags) {
         if (diag.range.contains(position)) {
+          if (diag.source !== "flusec") {
+            continue;
+          }
           const key = makeKey(document.uri, diag.range);
           if (feedbackCache.has(key)) {
             return new vscode2.Hover(
@@ -3369,7 +3356,7 @@ function registerHoverProvider(context) {
             document.uri,
             diag.range
           );
-          return new vscode2.Hover("\u{1F4A1} Loading feedback from FLUSEC LLM...");
+          return new vscode2.Hover("\u{1F4A1} **Flusec AI**: Analyzing vulnerability... please wait.");
         }
       }
       return void 0;
@@ -3400,84 +3387,47 @@ async function runAnalyzer(doc, _context) {
   resetLLMState();
   clearFeedbackForDocument(doc.uri);
   const folder = findWorkspaceFolderForDoc(doc);
-  if (!folder) {
-    vscode3.window.showErrorMessage(
-      "No workspace folder found for this document."
-    );
-    return;
-  }
+  if (!folder) return;
   const findingsFile = findingsPathForFolder(folder);
-  const analyzerPath = path2.join(
+  const analyzerScript = path2.join(
     __dirname,
     "..",
     "dart-analyzer",
     "bin",
-    "analyzer.exe"
+    "analyzer.dart"
   );
-  if (!fs2.existsSync(analyzerPath)) {
-    vscode3.window.showErrorMessage(
-      `Analyzer not found at path: ${analyzerPath}`
-    );
+  if (!fs2.existsSync(analyzerScript)) {
+    vscode3.window.showErrorMessage(`Analyzer script not found: ${analyzerScript}`);
     return;
   }
+  const command = `dart run "${analyzerScript}" "${doc.fileName}"`;
   const stdout = await new Promise((resolve, reject) => {
-    (0, import_child_process.execFile)(
-      analyzerPath,
-      [doc.fileName],
-      { shell: true },
-      (err, stdout2, stderr) => {
-        if (err) {
-          console.error("Analyzer execution error:", err);
-          vscode3.window.showErrorMessage(
-            "FLUSEC analyzer failed. See console for details."
-          );
-          return reject(err);
+    (0, import_child_process.exec)(command, (err, stdout2, stderr) => {
+      if (err) {
+        console.error("Analyzer Error:", stderr);
+        if (stderr.includes("'dart' is not recognized")) {
+          vscode3.window.showErrorMessage("Dart SDK not found. Is Flutter/Dart installed and in PATH?");
         }
-        if (stderr) {
-          console.error("Analyzer stderr:", stderr);
-        }
-        resolve(stdout2);
+        return resolve("[]");
       }
-    );
+      resolve(stdout2);
+    });
   });
   let findings = [];
   try {
     findings = JSON.parse(stdout);
-    if (!Array.isArray(findings)) {
-      findings = [];
-    }
+    if (!Array.isArray(findings)) findings = [];
   } catch (e) {
-    console.error("Failed to parse analyzer output as JSON:", e);
-    vscode3.window.showErrorMessage(
-      "FLUSEC: Failed to parse analyzer output. See console for details."
-    );
+    console.error("Failed to parse JSON:", e);
     return;
   }
   const diags = [];
   for (const f of findings) {
     const lineIdx = Math.max(0, (f.line ?? 1) - 1);
-    let range;
-    try {
-      const textLine = doc.lineAt(lineIdx);
-      range = new vscode3.Range(lineIdx, 0, lineIdx, textLine.text.length);
-    } catch {
-      range = new vscode3.Range(lineIdx, 0, lineIdx, 0);
-    }
-    const metricParts = [];
-    if (typeof f.complexity === "number") {
-      metricParts.push(`Cx=${f.complexity}`);
-    }
-    if (typeof f.nestingDepth === "number") {
-      metricParts.push(`Depth=${f.nestingDepth}`);
-    }
-    if (typeof f.functionLoc === "number") {
-      metricParts.push(`Size=${f.functionLoc} LOC`);
-    }
-    const metricSuffix = metricParts.length > 0 ? ` [${metricParts.join(", ")}]` : "";
-    const message = `${f.message ?? ""}${metricSuffix}`;
+    const range = new vscode3.Range(lineIdx, 0, lineIdx, 999);
     const diag = new vscode3.Diagnostic(
       range,
-      message,
+      f.message || "Security Issue",
       severityToVS(f.severity || "warning")
     );
     diag.source = "flusec";
@@ -3705,32 +3655,19 @@ var FlusecNavItem = class extends vscode6.TreeItem {
 var FlusecNavigationProvider = class {
   _onDidChangeTreeData = new vscode6.EventEmitter();
   onDidChangeTreeData = this._onDidChangeTreeData.event;
-  //  Only HSD for now (your component)
+  // 1. Register both Components here
   components = [
     {
       id: "hsd",
       label: "Hardcoded Secrets (HSD)",
       icon: new vscode6.ThemeIcon("shield")
+    },
+    {
+      id: "ivd",
+      // <--- NEW: Register IVD Component
+      label: "Input Validation (IVD)",
+      icon: new vscode6.ThemeIcon("checklist")
     }
-    // Uncomment later when you add other components
-    // {
-    //   id: "network",
-    //   label: " Network Security",
-    //   description: "Future component",
-    //   icon: new vscode.ThemeIcon("rss"),
-    // },
-    // {
-    //   id: "storage",
-    //   label: " Secure Storage",
-    //   description: "Future component",
-    //   icon: new vscode.ThemeIcon("database"),
-    // },
-    // {
-    //   id: "inputValidation",
-    //   label: "Input Validation",
-    //   description: "Future component",
-    //   icon: new vscode.ThemeIcon("checklist"),
-    // },
   ];
   getTreeItem(element) {
     return element;
@@ -3744,9 +3681,9 @@ var FlusecNavigationProvider = class {
           {
             nodeType: "component",
             componentId: c.id,
-            tooltip: "Your module: Hardcoded Secrets Detection (HSD)",
+            tooltip: `Manage ${c.label}`,
             icon: c.icon,
-            contextValue: "component-hsd"
+            contextValue: `component-${c.id}`
           }
         )
       );
@@ -3761,58 +3698,73 @@ var FlusecNavigationProvider = class {
     return Promise.resolve([]);
   }
   extractComponentId(element) {
-    if (!element.id) {
-      return null;
-    }
+    if (!element.id) return null;
     const parts = element.id.split(":");
-    if (parts.length < 2) {
-      return null;
-    }
+    if (parts.length < 2) return null;
     const candidate = parts[1];
-    if (candidate === "hsd") {
+    if (candidate === "hsd" || candidate === "ivd") {
       return candidate;
     }
     return null;
   }
+  // 2. Define the Buttons for each Component
   getActionsForComponent(componentId) {
     switch (componentId) {
-      //
-      //  component: HSD
-      //
+      // --- HSD BUTTONS ---
       case "hsd": {
-        const dashboard = new FlusecNavItem(
-          "HSD Dashboard",
-          vscode6.TreeItemCollapsibleState.None,
-          {
-            nodeType: "action",
-            componentId,
-            tooltip: "Open the Hardcoded Secrets (HSD) dashboard \u2013 shows findings for your component.",
-            icon: new vscode6.ThemeIcon("graph"),
-            command: {
-              command: "flusec.openFindings",
-              title: "Open HSD Dashboard"
-            },
-            contextValue: "hsd-dashboard"
-          }
-        );
-        const ruleManager = new FlusecNavItem(
-          "HSD Rule Manager",
-          vscode6.TreeItemCollapsibleState.None,
-          {
-            nodeType: "action",
-            componentId,
-            tooltip: "Open the HSD Rule Manager \u2013 add, edit, or delete dynamic rules for hardcoded secrets.",
-            icon: new vscode6.ThemeIcon("wrench"),
-            command: {
-              command: "flusec.manageRules",
-              title: "Open HSD Rule Manager"
-            },
-            contextValue: "hsd-rule-manager"
-          }
-        );
-        return [dashboard, ruleManager];
+        return [
+          new FlusecNavItem(
+            "HSD Dashboard",
+            vscode6.TreeItemCollapsibleState.None,
+            {
+              nodeType: "action",
+              componentId,
+              tooltip: "View Hardcoded Secrets Findings",
+              icon: new vscode6.ThemeIcon("graph"),
+              command: {
+                command: "flusec.openFindings",
+                title: "Open HSD Dashboard"
+              }
+            }
+          ),
+          new FlusecNavItem(
+            "HSD Rule Manager",
+            vscode6.TreeItemCollapsibleState.None,
+            {
+              nodeType: "action",
+              componentId,
+              tooltip: "Manage HSD Regex Rules",
+              icon: new vscode6.ThemeIcon("wrench"),
+              command: {
+                command: "flusec.manageRules",
+                title: "Open HSD Rule Manager"
+              }
+            }
+          )
+        ];
+      }
+      // --- IVD BUTTONS (This was missing!) ---
+      case "ivd": {
+        return [
+          new FlusecNavItem(
+            "IVD Dashboard",
+            vscode6.TreeItemCollapsibleState.None,
+            {
+              nodeType: "action",
+              componentId,
+              tooltip: "View Input Validation Findings",
+              icon: new vscode6.ThemeIcon("dashboard"),
+              command: {
+                command: "flusec.openIvdFindings",
+                // Matches extension.ts
+                title: "Open IVD Dashboard"
+              }
+            }
+          )
+        ];
       }
     }
+    return [];
   }
   refresh() {
     this._onDidChangeTreeData.fire();
@@ -3820,11 +3772,53 @@ var FlusecNavigationProvider = class {
 };
 function registerFlusecNavigationView(context) {
   const provider = new FlusecNavigationProvider();
-  const treeView = vscode6.window.createTreeView("flusecNavView", {
+  vscode6.window.createTreeView("flusecNavView", {
     treeDataProvider: provider,
     showCollapseAll: false
   });
-  context.subscriptions.push(treeView);
+}
+
+// src/web/ivd/dashboard.ts
+var vscode7 = __toESM(require("vscode"));
+var fs5 = __toESM(require("fs"));
+function openIvdDashboard(context) {
+  const panel = vscode7.window.createWebviewPanel(
+    "flusecIvdDashboard",
+    "Flusec: Input Validation",
+    vscode7.ViewColumn.Beside,
+    { enableScripts: true, retainContextWhenHidden: true }
+  );
+  const webview = panel.webview;
+  const ivdRoot = vscode7.Uri.joinPath(context.extensionUri, "src", "web", "ivd");
+  const styleRoot = vscode7.Uri.joinPath(context.extensionUri, "src", "web");
+  const htmlPath = vscode7.Uri.joinPath(ivdRoot, "dashboard.html");
+  const cssPath = vscode7.Uri.joinPath(styleRoot, "css", "dashboard.css");
+  const jsPath = vscode7.Uri.joinPath(styleRoot, "js", "dashboard.js");
+  const cssUri = webview.asWebviewUri(cssPath);
+  const jsUri = webview.asWebviewUri(jsPath);
+  let html = "";
+  if (fs5.existsSync(htmlPath.fsPath)) {
+    const raw = fs5.readFileSync(htmlPath.fsPath, "utf8");
+    html = raw.replace(/{{cssUri}}/g, cssUri.toString()).replace(/{{jsUri}}/g, jsUri.toString()).replace(/{{cspSource}}/g, webview.cspSource);
+  }
+  panel.webview.html = html;
+  const folder = vscode7.workspace.workspaceFolders?.[0];
+  const findingsPath = folder ? findingsPathForFolder(folder) : "";
+  const sendFindings = () => {
+    let data = [];
+    if (fs5.existsSync(findingsPath)) {
+      try {
+        data = JSON.parse(fs5.readFileSync(findingsPath, "utf8"));
+        if (!Array.isArray(data)) {
+          data = [];
+        }
+      } catch {
+        data = [];
+      }
+    }
+    panel.webview.postMessage({ command: "loadFindings", data });
+  };
+  sendFindings();
 }
 
 // src/extension.ts
@@ -3834,25 +3828,25 @@ function clearFindingsForAllWorkspaceFoldersOnce() {
   if (clearedFindingsThisSession) {
     return;
   }
-  const folders = vscode7.workspace.workspaceFolders ?? [];
+  const folders = vscode8.workspace.workspaceFolders ?? [];
   if (!folders.length) {
     return;
   }
   try {
     for (const folder of folders) {
       const findingsPath = findingsPathForFolder(folder);
-      if (fs5.existsSync(findingsPath)) {
-        fs5.unlinkSync(findingsPath);
+      if (fs6.existsSync(findingsPath)) {
+        fs6.unlinkSync(findingsPath);
         console.log("FLUSEC: deleted", findingsPath);
       }
       const outDir = path4.dirname(findingsPath);
       const analyzerDir = path4.dirname(outDir);
-      if (fs5.existsSync(outDir) && fs5.readdirSync(outDir).length === 0) {
-        fs5.rmdirSync(outDir);
+      if (fs6.existsSync(outDir) && fs6.readdirSync(outDir).length === 0) {
+        fs6.rmdirSync(outDir);
         console.log("FLUSEC: deleted empty dir", outDir);
       }
-      if (fs5.existsSync(analyzerDir) && fs5.readdirSync(analyzerDir).length === 0) {
-        fs5.rmdirSync(analyzerDir);
+      if (fs6.existsSync(analyzerDir) && fs6.readdirSync(analyzerDir).length === 0) {
+        fs6.rmdirSync(analyzerDir);
         console.log("FLUSEC: deleted empty dir", analyzerDir);
       }
     }
@@ -3865,27 +3859,33 @@ function activate(context) {
   context.subscriptions.push(diagCollection);
   clearFindingsForAllWorkspaceFoldersOnce();
   context.subscriptions.push(
-    vscode7.workspace.onDidChangeWorkspaceFolders(() => {
+    vscode8.workspace.onDidChangeWorkspaceFolders(() => {
       clearFindingsForAllWorkspaceFoldersOnce();
     })
   );
   context.subscriptions.push(
-    vscode7.workspace.onDidOpenTextDocument((doc) => {
+    vscode8.workspace.onDidOpenTextDocument((doc) => {
       if (doc.languageId === "dart") {
         lastDartDoc = doc;
       }
     })
   );
   context.subscriptions.push(
-    vscode7.commands.registerCommand("flusec.scanFile", async () => {
-      const active = vscode7.window.activeTextEditor;
+    vscode8.commands.registerCommand(
+      "flusec.openIvdFindings",
+      () => openIvdDashboard(context)
+    )
+  );
+  context.subscriptions.push(
+    vscode8.commands.registerCommand("flusec.scanFile", async () => {
+      const active = vscode8.window.activeTextEditor;
       let target;
       if (active && active.document.languageId === "dart") {
         target = active.document;
       } else if (lastDartDoc) {
         target = lastDartDoc;
       } else {
-        const dartDocs = vscode7.workspace.textDocuments.filter(
+        const dartDocs = vscode8.workspace.textDocuments.filter(
           (d) => d.languageId === "dart"
         );
         if (dartDocs.length > 0) {
@@ -3893,38 +3893,38 @@ function activate(context) {
         }
       }
       if (!target) {
-        vscode7.window.showInformationMessage(
+        vscode8.window.showInformationMessage(
           "FLUSEC: No Dart file available to scan. Open a Dart file first."
         );
         return;
       }
       try {
         await runAnalyzer(target, context);
-        vscode7.window.setStatusBarMessage(
+        vscode8.window.setStatusBarMessage(
           `FLUSEC: Scan completed for ${target.fileName}`,
           3e3
         );
       } catch (e) {
-        vscode7.window.showErrorMessage(
+        vscode8.window.showErrorMessage(
           "FLUSEC: Scan failed: " + String(e)
         );
       }
     })
   );
   context.subscriptions.push(
-    vscode7.commands.registerCommand(
+    vscode8.commands.registerCommand(
       "flusec.manageRules",
       () => openRuleManager(context)
     )
   );
   context.subscriptions.push(
-    vscode7.commands.registerCommand(
+    vscode8.commands.registerCommand(
       "flusec.openFindings",
       () => openDashboard(context)
     )
   );
   context.subscriptions.push(
-    vscode7.workspace.onDidSaveTextDocument(async (doc) => {
+    vscode8.workspace.onDidSaveTextDocument(async (doc) => {
       if (doc.languageId === "dart") {
         lastDartDoc = doc;
         await runAnalyzer(doc, context);
@@ -3933,7 +3933,7 @@ function activate(context) {
   );
   let typingTimeout;
   context.subscriptions.push(
-    vscode7.workspace.onDidChangeTextDocument((event) => {
+    vscode8.workspace.onDidChangeTextDocument((event) => {
       const doc = event.document;
       if (doc.languageId !== "dart") {
         return;

@@ -1,110 +1,125 @@
-// bin/analyzer.dart
-//
-// This is the ONLY entry point -> build ONE analyzer.exe from this.
-// It runs your HSD scanner today, and is designed so that later
-// other components can be plugged in and merged into one output.
-//
-// Future integration idea (teammates):
-// - Add lib/network/..., lib/storage/..., lib/validation/...
-// - Each will return List<Issue>
-// - Merge all lists into one `allIssues` and output once.
+// import 'dart:convert';
+// import 'dart:io';
+
+// import 'package:analyzer/dart/analysis/utilities.dart';
+
+// import 'package:dart_analyzer/core/output.dart';
+// import 'package:dart_analyzer/core/paths.dart';
+// // Import both modules
+// import 'package:dart_analyzer/hsd/index.dart';
+// import 'package:dart_analyzer/ivd/index.dart';
+
+// void main(List<String> args) {
+//   if (args.isEmpty) {
+//     stderr.writeln('Usage: dart run bin/analyzer.dart <path-to-dart-file>');
+//     exitCode = 2;
+//     return;
+//   }
+
+//   final filePath = args.first;
+//   final file = File(filePath);
+
+//   if (!file.existsSync()) {
+//     stderr.writeln(
+//       "PathNotFoundException: Cannot open file, path = '$filePath'",
+//     );
+//     exitCode = 2;
+//     return;
+//   }
+
+//   // 1. Setup HSD Rules
+//   final rulesFile = RulesPathResolver.resolveRulesFile(
+//     'hardcoded_secrets_rules.json',
+//   );
+//   List<Map<String, dynamic>> rawRules = const [];
+//   if (rulesFile.existsSync()) {
+//     try {
+//       rawRules = (jsonDecode(rulesFile.readAsStringSync()) as List)
+//           .cast<Map<String, dynamic>>();
+//     } catch (e) {
+//       stderr.writeln('⚠️ Failed to parse rules.json: $e');
+//     }
+//   }
+//   final hsdEngine = RulesEngine();
+//   hsdEngine.loadDynamicRules(rawRules);
+
+//   // 2. Parse Code
+//   final content = file.readAsStringSync();
+//   final result = parseString(content: content, path: filePath);
+//   final unit = result.unit;
+
+//   // 3. Run HSD Visitor
+//   final secretVisitor = SecretVisitor(hsdEngine, content, filePath);
+//   unit.accept(secretVisitor);
+
+//   // 4. Run IVD Visitor (NEW)
+//   final ivdVisitor = IvdVisitor(filePath);
+//   unit.accept(ivdVisitor);
+
+//   // 5. Combine Issues
+//   final allIssues = [...secretVisitor.issues, ...ivdVisitor.issues];
+
+//   // 6. Output
+//   OutputWriter.printStdout(allIssues);
+
+//   // Optional: Write findings.json for dashboard
+//   OutputWriter.writeFindingsJson(
+//     filePath: filePath,
+//     content: content,
+//     issues: allIssues,
+//   );
+// }
+
+// dart-analyzer/bin/analyzer.dart
 
 import 'dart:convert';
 import 'dart:io';
-
 import 'package:analyzer/dart/analysis/utilities.dart';
-
 import 'package:dart_analyzer/core/output.dart';
 import 'package:dart_analyzer/core/paths.dart';
-import 'package:dart_analyzer/hsd/index.dart';
+import 'package:dart_analyzer/hsd/index.dart'; // HSD Module
+import 'package:dart_analyzer/ivd/index.dart'; // IVD Module
 
 void main(List<String> args) {
-  // ---------------------------
-  // 1) Validate CLI args
-  // ---------------------------
-  if (args.isEmpty) {
-    stderr.writeln('Usage: dart run bin/analyzer.dart <path-to-dart-file>');
-    exitCode = 2;
-    return;
-  }
+  if (args.isEmpty) return;
 
   final filePath = args.first;
   final file = File(filePath);
+  if (!file.existsSync()) return;
 
-  if (!file.existsSync()) {
-    stderr.writeln("PathNotFoundException: Cannot open file, path = '$filePath'");
-    exitCode = 2;
-    return;
-  }
-
-  // ---------------------------
-  // 2) Load dynamic rules JSON
-  // ---------------------------
-  final rulesFile = RulesPathResolver.resolveRulesFile('hardcoded_secrets_rules.json');
-
-  // Reload fresh every analyzer run (same as your original behavior)
+  // 1. Load HSD Rules
+  final rulesFile = RulesPathResolver.resolveRulesFile(
+    'hardcoded_secrets_rules.json',
+  );
   List<Map<String, dynamic>> rawRules = const [];
-
   if (rulesFile.existsSync()) {
     try {
       rawRules = (jsonDecode(rulesFile.readAsStringSync()) as List)
           .cast<Map<String, dynamic>>();
-
-      stderr.writeln('♻️ Reloaded ${rawRules.length} rule(s) from ${rulesFile.path}');
-    } catch (e) {
-      stderr.writeln('⚠️ Failed to parse rules.json: $e');
-    }
-  } else {
-    stderr.writeln('⚠️ rules.json not found – continuing with built-in rules.');
+    } catch (_) {}
   }
+  final hsdEngine = RulesEngine();
+  hsdEngine.loadDynamicRules(rawRules);
 
-  final engine = RulesEngine();
-  engine.loadDynamicRules(rawRules);
-
-  // ---------------------------
-  // 3) Parse Dart file -> AST
-  // ---------------------------
+  // 2. Parse Code
   final content = file.readAsStringSync();
   final result = parseString(content: content, path: filePath);
   final unit = result.unit;
 
-  // ---------------------------
-  // 4) Run your HSD module (visitor)
-  // ---------------------------
-  final visitor = SecretVisitor(engine, content, filePath);
-  unit.accept(visitor);
+  // 3. Run HSD Visitor (Secrets)
+  final secretVisitor = SecretVisitor(hsdEngine, content, filePath);
+  unit.accept(secretVisitor);
 
-  // If you later add other components, you will do:
-  //
-  // final netIssues = NetworkVisitor(...).run(unit);
-  // final storageIssues = StorageVisitor(...).run(unit);
-  // final validationIssues = ValidationVisitor(...).run(unit);
-  //
-  // final allIssues = [
-  //   ...visitor.issues,
-  //   ...netIssues,
-  //   ...storageIssues,
-  //   ...validationIssues,
-  // ];
-  //
-  // And output using allIssues.
+  // 4. Run IVD Visitor (Input Validation) <-- CRITICAL STEP
+  final ivdVisitor = IvdVisitor(filePath);
+  unit.accept(ivdVisitor);
 
-  final allIssues = visitor.issues;
-
-  // ---------------------------
-  // 5) Output (same behavior as before)
-  // ---------------------------
-
-  // Minimal stdout payload for VS Code extension
+  // 5. Merge & Output
+  final allIssues = [...secretVisitor.issues, ...ivdVisitor.issues];
   OutputWriter.printStdout(allIssues);
-
-/*
-  // Rich findings.json for dashboard/diagnostics
   OutputWriter.writeFindingsJson(
     filePath: filePath,
     content: content,
     issues: allIssues,
   );
-  */
 }
-

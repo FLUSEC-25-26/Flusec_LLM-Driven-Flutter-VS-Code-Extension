@@ -18,6 +18,8 @@ import { openRuleManager } from "./ui/ruleManager/hardcoded_secrets/ruleManager.
 import { openDashboard } from "./web/hsd/dashboard.js";
 import { registerFlusecNavigationView } from "./ui/flusecNavigation.js";
 
+import { openIvdDashboard } from "./web/ivd/dashboard";
+
 let lastDartDoc: vscode.TextDocument | undefined;
 
 // We only want to clear findings.json once per VS Code session.
@@ -92,6 +94,12 @@ export function activate(context: vscode.ExtensionContext) {
         lastDartDoc = doc;
       }
     })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("flusec.openIvdFindings", () =>
+      openIvdDashboard(context)
+    )
   );
 
   // -----------------------------
