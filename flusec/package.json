@@ -1,3 +1,4 @@
+
 {
   "name": "flusec",
   "displayName": "flusec",
@@ -13,22 +14,31 @@
     "onLanguage:dart",
     "onCommand:flusec.scanFile",
     "onCommand:flusec.manageRules",
-    "onCommand:flusec.openFindings"
+    "onCommand:flusec.openFindings",
+    "onCommand:flusec.openIvdFindings"
   ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
         "command": "flusec.scanFile",
-        "title": "Flusec: Scan current file for secrets"
+        "title": "Flusec: Scan current file"
       },
       {
         "command": "flusec.manageRules",
-        "title": "Open HSD Rule Manager"
+        "title": "Flusec: Manage HSD Rules"
       },
       {
         "command": "flusec.openFindings",
-        "title": "Open HSD Dashboard"
+        "title": "Flusec: Open HSD Dashboard"
+      },
+      {
+        "command": "flusec.openIvdFindings",
+        "title": "Flusec: Open IVD Dashboard"
+      },
+      {
+      "command": "flusec.manageIvdRules",
+      "title": "Flusec: Manage IVD Rules"
       }
     ],
     "viewsContainers": {
@@ -44,7 +54,7 @@
       "flusec": [
         {
           "id": "flusecNavView",
-          "name": "FLUSEC Navigation"
+          "name": "FLUSEC NAVIGATION"
         }
       ]
     }
@@ -82,6 +92,5 @@
   },
   "dependencies": {
     "node-fetch": "^2.7.0"
-    
   }
 }

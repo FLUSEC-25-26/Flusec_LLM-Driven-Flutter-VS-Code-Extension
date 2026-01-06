@@ -762,14 +762,14 @@ var require_url_state_machine = __commonJS({
       return url.replace(/\u0009|\u000A|\u000D/g, "");
     }
     function shortenPath(url) {
-      const path5 = url.path;
-      if (path5.length === 0) {
+      const path6 = url.path;
+      if (path6.length === 0) {
         return;
       }
-      if (url.scheme === "file" && path5.length === 1 && isNormalizedWindowsDriveLetter(path5[0])) {
+      if (url.scheme === "file" && path6.length === 1 && isNormalizedWindowsDriveLetter(path6[0])) {
         return;
       }
-      path5.pop();
+      path6.pop();
     }
     function includesCredentials(url) {
       return url.username !== "" || url.password !== "";
@@ -3045,9 +3045,9 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
-var vscode8 = __toESM(require("vscode"));
-var fs6 = __toESM(require("fs"));
-var path4 = __toESM(require("path"));
+var vscode9 = __toESM(require("vscode"));
+var fs7 = __toESM(require("fs"));
+var path5 = __toESM(require("path"));
 
 // src/analyzer/runAnalyzer.ts
 var vscode3 = __toESM(require("vscode"));
@@ -3532,112 +3532,9 @@ function openRuleManager(context) {
   });
 }
 
-// src/web/hsd/dashboard.ts
-var vscode5 = __toESM(require("vscode"));
-var fs4 = __toESM(require("fs"));
-function openDashboard(context) {
-  const panel = vscode5.window.createWebviewPanel(
-    "flusecDashboard",
-    "Flusec Findings",
-    vscode5.ViewColumn.Beside,
-    {
-      enableScripts: true,
-      retainContextWhenHidden: true
-    }
-  );
-  const webview = panel.webview;
-  const hsdRoot = vscode5.Uri.joinPath(
-    context.extensionUri,
-    "src",
-    "web",
-    "hsd"
-  );
-  const styleRoot = vscode5.Uri.joinPath(context.extensionUri, "src", "web");
-  const htmlPath = vscode5.Uri.joinPath(hsdRoot, "dashboard.html");
-  const cssPath = vscode5.Uri.joinPath(styleRoot, "css", "dashboard.css");
-  const jsPath = vscode5.Uri.joinPath(styleRoot, "js", "dashboard.js");
-  const cssUri = webview.asWebviewUri(cssPath);
-  const jsUri = webview.asWebviewUri(jsPath);
-  let html = "<html><body>Dashboard not found</body></html>";
-  if (fs4.existsSync(htmlPath.fsPath)) {
-    try {
-      const raw = fs4.readFileSync(htmlPath.fsPath, "utf8");
-      html = raw.replace(/{{cssUri}}/g, cssUri.toString()).replace(/{{jsUri}}/g, jsUri.toString()).replace(/{{cspSource}}/g, webview.cspSource);
-    } catch {
-      html = "<html><body>Failed to load dashboard template</body></html>";
-    }
-  }
-  panel.webview.html = html;
-  const folder = vscode5.workspace.workspaceFolders?.[0];
-  if (!folder) {
-    panel.webview.postMessage({ command: "loadFindings", data: [] });
-    return;
-  }
-  const findingsPath = findingsPathForFolder(folder);
-  const sendFindings = () => {
-    let data = [];
-    if (fs4.existsSync(findingsPath)) {
-      try {
-        data = JSON.parse(fs4.readFileSync(findingsPath, "utf8"));
-        if (!Array.isArray(data)) {
-          data = [];
-        }
-      } catch {
-        data = [];
-      }
-    }
-    panel.webview.postMessage({ command: "loadFindings", data });
-  };
-  sendFindings();
-  panel.onDidChangeViewState(() => {
-    if (panel.visible) {
-      sendFindings();
-    }
-  });
-  panel.webview.onDidReceiveMessage(async (msg) => {
-    const cmd = msg?.command;
-    if (cmd === "reveal") {
-      const file = String(msg.file || "");
-      const line = Math.max(0, (msg.line ?? 1) - 1);
-      const col = Math.max(0, (msg.column ?? 1) - 1);
-      try {
-        const doc = await vscode5.workspace.openTextDocument(
-          vscode5.Uri.file(file)
-        );
-        const editor = await vscode5.window.showTextDocument(doc, {
-          preview: false
-        });
-        const pos = new vscode5.Position(line, col);
-        editor.selection = new vscode5.Selection(pos, pos);
-        editor.revealRange(
-          new vscode5.Range(pos, pos),
-          vscode5.TextEditorRevealType.InCenter
-        );
-      } catch (e) {
-        vscode5.window.showErrorMessage(
-          "Failed to open file from dashboard: " + String(e)
-        );
-      }
-    } else if (cmd === "refresh") {
-      sendFindings();
-    } else if (cmd === "rescanActiveFile") {
-      vscode5.commands.executeCommand("flusec.scanFile").then(
-        () => {
-          sendFindings();
-        },
-        (err) => {
-          vscode5.window.showErrorMessage(
-            "Failed to trigger rescan: " + String(err)
-          );
-        }
-      );
-    }
-  });
-}
-
 // src/ui/flusecNavigation.ts
-var vscode6 = __toESM(require("vscode"));
-var FlusecNavItem = class extends vscode6.TreeItem {
+var vscode5 = __toESM(require("vscode"));
+var FlusecNavItem = class extends vscode5.TreeItem {
   constructor(label, collapsibleState, options = { nodeType: "component" }) {
     super(label, collapsibleState);
     this.contextValue = options.contextValue ?? options.nodeType;
@@ -3653,20 +3550,20 @@ var FlusecNavItem = class extends vscode6.TreeItem {
   }
 };
 var FlusecNavigationProvider = class {
-  _onDidChangeTreeData = new vscode6.EventEmitter();
+  _onDidChangeTreeData = new vscode5.EventEmitter();
   onDidChangeTreeData = this._onDidChangeTreeData.event;
   // 1. Register both Components here
   components = [
     {
       id: "hsd",
       label: "Hardcoded Secrets (HSD)",
-      icon: new vscode6.ThemeIcon("shield")
+      icon: new vscode5.ThemeIcon("shield")
     },
     {
       id: "ivd",
       // <--- NEW: Register IVD Component
       label: "Input Validation (IVD)",
-      icon: new vscode6.ThemeIcon("checklist")
+      icon: new vscode5.ThemeIcon("checklist")
     }
   ];
   getTreeItem(element) {
@@ -3677,7 +3574,7 @@ var FlusecNavigationProvider = class {
       const items = this.components.map(
         (c) => new FlusecNavItem(
           c.label,
-          vscode6.TreeItemCollapsibleState.Collapsed,
+          vscode5.TreeItemCollapsibleState.Collapsed,
           {
             nodeType: "component",
             componentId: c.id,
@@ -3715,12 +3612,12 @@ var FlusecNavigationProvider = class {
         return [
           new FlusecNavItem(
             "HSD Dashboard",
-            vscode6.TreeItemCollapsibleState.None,
+            vscode5.TreeItemCollapsibleState.None,
             {
               nodeType: "action",
               componentId,
               tooltip: "View Hardcoded Secrets Findings",
-              icon: new vscode6.ThemeIcon("graph"),
+              icon: new vscode5.ThemeIcon("graph"),
               command: {
                 command: "flusec.openFindings",
                 title: "Open HSD Dashboard"
@@ -3729,12 +3626,12 @@ var FlusecNavigationProvider = class {
           ),
           new FlusecNavItem(
             "HSD Rule Manager",
-            vscode6.TreeItemCollapsibleState.None,
+            vscode5.TreeItemCollapsibleState.None,
             {
               nodeType: "action",
               componentId,
               tooltip: "Manage HSD Regex Rules",
-              icon: new vscode6.ThemeIcon("wrench"),
+              icon: new vscode5.ThemeIcon("wrench"),
               command: {
                 command: "flusec.manageRules",
                 title: "Open HSD Rule Manager"
@@ -3748,16 +3645,30 @@ var FlusecNavigationProvider = class {
         return [
           new FlusecNavItem(
             "IVD Dashboard",
-            vscode6.TreeItemCollapsibleState.None,
+            vscode5.TreeItemCollapsibleState.None,
             {
               nodeType: "action",
               componentId,
               tooltip: "View Input Validation Findings",
-              icon: new vscode6.ThemeIcon("dashboard"),
+              icon: new vscode5.ThemeIcon("dashboard"),
               command: {
                 command: "flusec.openIvdFindings",
                 // Matches extension.ts
                 title: "Open IVD Dashboard"
+              }
+            }
+          ),
+          new FlusecNavItem(
+            "IVD Rule Manager",
+            vscode5.TreeItemCollapsibleState.None,
+            {
+              nodeType: "action",
+              componentId,
+              tooltip: "Manage Dynamic IVD Rules",
+              icon: new vscode5.ThemeIcon("settings-gear"),
+              command: {
+                command: "flusec.manageIvdRules",
+                title: "Open IVD Rule Manager"
               }
             }
           )
@@ -3772,45 +3683,47 @@ var FlusecNavigationProvider = class {
 };
 function registerFlusecNavigationView(context) {
   const provider = new FlusecNavigationProvider();
-  vscode6.window.createTreeView("flusecNavView", {
+  vscode5.window.createTreeView("flusecNavView", {
     treeDataProvider: provider,
     showCollapseAll: false
   });
 }
 
-// src/web/ivd/dashboard.ts
-var vscode7 = __toESM(require("vscode"));
-var fs5 = __toESM(require("fs"));
-function openIvdDashboard(context) {
-  const panel = vscode7.window.createWebviewPanel(
-    "flusecIvdDashboard",
-    "Flusec: Input Validation",
-    vscode7.ViewColumn.Beside,
+// src/web/hsd/dashboard.ts
+var vscode6 = __toESM(require("vscode"));
+var fs4 = __toESM(require("fs"));
+function openDashboard(context) {
+  const panel = vscode6.window.createWebviewPanel(
+    "flusecHsdDashboard",
+    // Unique ID
+    "\u{1F511} Flusec: Secrets",
+    // Title
+    vscode6.ViewColumn.Beside,
     { enableScripts: true, retainContextWhenHidden: true }
   );
   const webview = panel.webview;
-  const ivdRoot = vscode7.Uri.joinPath(context.extensionUri, "src", "web", "ivd");
-  const styleRoot = vscode7.Uri.joinPath(context.extensionUri, "src", "web");
-  const htmlPath = vscode7.Uri.joinPath(ivdRoot, "dashboard.html");
-  const cssPath = vscode7.Uri.joinPath(styleRoot, "css", "dashboard.css");
-  const jsPath = vscode7.Uri.joinPath(styleRoot, "js", "dashboard.js");
+  const hsdRoot = vscode6.Uri.joinPath(context.extensionUri, "src", "web", "hsd");
+  const styleRoot = vscode6.Uri.joinPath(context.extensionUri, "src", "web");
+  const htmlPath = vscode6.Uri.joinPath(hsdRoot, "dashboard.html");
+  const cssPath = vscode6.Uri.joinPath(styleRoot, "css", "dashboard.css");
+  const jsPath = vscode6.Uri.joinPath(styleRoot, "js", "dashboard.js");
   const cssUri = webview.asWebviewUri(cssPath);
   const jsUri = webview.asWebviewUri(jsPath);
-  let html = "";
-  if (fs5.existsSync(htmlPath.fsPath)) {
-    const raw = fs5.readFileSync(htmlPath.fsPath, "utf8");
+  let html = "<html><body>Dashboard not found</body></html>";
+  if (fs4.existsSync(htmlPath.fsPath)) {
+    const raw = fs4.readFileSync(htmlPath.fsPath, "utf8");
     html = raw.replace(/{{cssUri}}/g, cssUri.toString()).replace(/{{jsUri}}/g, jsUri.toString()).replace(/{{cspSource}}/g, webview.cspSource);
   }
   panel.webview.html = html;
-  const folder = vscode7.workspace.workspaceFolders?.[0];
+  const folder = vscode6.workspace.workspaceFolders?.[0];
   const findingsPath = folder ? findingsPathForFolder(folder) : "";
   const sendFindings = () => {
     let data = [];
-    if (fs5.existsSync(findingsPath)) {
+    if (fs4.existsSync(findingsPath)) {
       try {
-        data = JSON.parse(fs5.readFileSync(findingsPath, "utf8"));
-        if (!Array.isArray(data)) {
-          data = [];
+        const raw = JSON.parse(fs4.readFileSync(findingsPath, "utf8"));
+        if (Array.isArray(raw)) {
+          data = raw.filter((f) => !f.ruleId || !f.ruleId.includes("IVD"));
         }
       } catch {
         data = [];
@@ -3819,36 +3732,128 @@ function openIvdDashboard(context) {
     panel.webview.postMessage({ command: "loadFindings", data });
   };
   sendFindings();
+  panel.onDidChangeViewState(() => {
+    if (panel.visible) sendFindings();
+  });
+  panel.webview.onDidReceiveMessage(async (msg) => {
+    if (msg.command === "refresh") sendFindings();
+  });
+}
+
+// src/web/ivd/dashboard.ts
+var vscode7 = __toESM(require("vscode"));
+var fs5 = __toESM(require("fs"));
+var currentPanel = void 0;
+function openIvdDashboard(context) {
+  const column = vscode7.window.activeTextEditor ? vscode7.window.activeTextEditor.viewColumn : void 0;
+  if (currentPanel) {
+    currentPanel.reveal(column);
+    return;
+  }
+  currentPanel = vscode7.window.createWebviewPanel(
+    "flusecIvdDashboard",
+    "\u{1F6E1}\uFE0F Input Validation",
+    column || vscode7.ViewColumn.One,
+    { enableScripts: true, retainContextWhenHidden: true }
+  );
+  const webview = currentPanel.webview;
+  const ivdRoot = vscode7.Uri.joinPath(context.extensionUri, "src", "web", "ivd");
+  const styleRoot = vscode7.Uri.joinPath(context.extensionUri, "src", "web");
+  const htmlPath = vscode7.Uri.joinPath(ivdRoot, "dashboard.html");
+  const cssPath = vscode7.Uri.joinPath(styleRoot, "css", "dashboard.css");
+  const cssUri = webview.asWebviewUri(cssPath);
+  let htmlContent = "<html><body>Error: Could not find dashboard.html</body></html>";
+  if (fs5.existsSync(htmlPath.fsPath)) {
+    htmlContent = fs5.readFileSync(htmlPath.fsPath, "utf8").replace(/{{cssUri}}/g, cssUri.toString()).replace(/{{cspSource}}/g, webview.cspSource);
+  }
+  currentPanel.webview.html = htmlContent;
+  const folder = vscode7.workspace.workspaceFolders?.[0];
+  const findingsPath = folder ? findingsPathForFolder(folder) : "";
+  const sendFindings = () => {
+    let data = [];
+    if (fs5.existsSync(findingsPath)) {
+      try {
+        const raw = JSON.parse(fs5.readFileSync(findingsPath, "utf8"));
+        data = raw.filter((f) => f.ruleId && f.ruleId.includes("IVD"));
+        console.log("IVD Dashboard found items:", data.length);
+      } catch (e) {
+        console.error("Error reading findings.json", e);
+      }
+    }
+    currentPanel?.webview.postMessage({ command: "loadFindings", data });
+  };
+  sendFindings();
+  currentPanel.onDidChangeViewState((e) => {
+    if (e.webviewPanel.visible) sendFindings();
+  });
+  currentPanel.onDidDispose(() => {
+    currentPanel = void 0;
+  }, null, context.subscriptions);
+}
+
+// src/ui/ruleManager/ivd/ivdRuleManager.ts
+var vscode8 = __toESM(require("vscode"));
+var fs6 = __toESM(require("fs"));
+var path4 = __toESM(require("path"));
+function openIvdRuleManager(context) {
+  const panel = vscode8.window.createWebviewPanel(
+    "ivdRuleManager",
+    "IVD Rule Manager",
+    vscode8.ViewColumn.One,
+    { enableScripts: true, retainContextWhenHidden: true }
+  );
+  const extensionRoot = context.extensionUri.fsPath;
+  const rulesPath = path4.join(extensionRoot, "dart-analyzer", "data", "input_validation_rules.json");
+  const htmlFile = path4.join(extensionRoot, "src", "ui", "ruleManager", "ivd", "ivdRuleManager.html");
+  if (fs6.existsSync(htmlFile)) {
+    panel.webview.html = fs6.readFileSync(htmlFile, "utf8");
+  } else {
+    panel.webview.html = `<h1>Error: HTML file not found at ${htmlFile}</h1>`;
+  }
+  function readRules() {
+    try {
+      if (!fs6.existsSync(rulesPath)) return [];
+      const txt = fs6.readFileSync(rulesPath, "utf8");
+      const json = JSON.parse(txt);
+      return Array.isArray(json) ? json : [];
+    } catch {
+      return [];
+    }
+  }
+  const data = readRules();
+  panel.webview.postMessage({ command: "loadRules", rules: data });
+  panel.webview.onDidReceiveMessage(async (msg) => {
+    if (msg.command === "saveRules") {
+      try {
+        const dir = path4.dirname(rulesPath);
+        if (!fs6.existsSync(dir)) fs6.mkdirSync(dir, { recursive: true });
+        fs6.writeFileSync(rulesPath, JSON.stringify(msg.rules, null, 2), "utf8");
+        const action = msg.action === "delete" ? "deleted" : "saved";
+        vscode8.window.showInformationMessage(`\u2705 IVD Rules ${action} successfully!`);
+        const newData = readRules();
+        panel.webview.postMessage({ command: "loadRules", rules: newData });
+      } catch (e) {
+        vscode8.window.showErrorMessage("Failed to save IVD rules: " + e);
+      }
+    }
+  });
 }
 
 // src/extension.ts
 var lastDartDoc;
 var clearedFindingsThisSession = false;
 function clearFindingsForAllWorkspaceFoldersOnce() {
-  if (clearedFindingsThisSession) {
-    return;
-  }
-  const folders = vscode8.workspace.workspaceFolders ?? [];
-  if (!folders.length) {
-    return;
-  }
+  if (clearedFindingsThisSession) return;
+  const folders = vscode9.workspace.workspaceFolders ?? [];
+  if (!folders.length) return;
   try {
     for (const folder of folders) {
       const findingsPath = findingsPathForFolder(folder);
-      if (fs6.existsSync(findingsPath)) {
-        fs6.unlinkSync(findingsPath);
-        console.log("FLUSEC: deleted", findingsPath);
-      }
-      const outDir = path4.dirname(findingsPath);
-      const analyzerDir = path4.dirname(outDir);
-      if (fs6.existsSync(outDir) && fs6.readdirSync(outDir).length === 0) {
-        fs6.rmdirSync(outDir);
-        console.log("FLUSEC: deleted empty dir", outDir);
-      }
-      if (fs6.existsSync(analyzerDir) && fs6.readdirSync(analyzerDir).length === 0) {
-        fs6.rmdirSync(analyzerDir);
-        console.log("FLUSEC: deleted empty dir", analyzerDir);
-      }
+      if (fs7.existsSync(findingsPath)) fs7.unlinkSync(findingsPath);
+      const outDir = path5.dirname(findingsPath);
+      if (fs7.existsSync(outDir) && fs7.readdirSync(outDir).length === 0) fs7.rmdirSync(outDir);
+      const analyzerDir = path5.dirname(outDir);
+      if (fs7.existsSync(analyzerDir) && fs7.readdirSync(analyzerDir).length === 0) fs7.rmdirSync(analyzerDir);
     }
   } catch (e) {
     console.warn("FLUSEC: Cleanup warning:", e);
@@ -3858,73 +3863,47 @@ function clearFindingsForAllWorkspaceFoldersOnce() {
 function activate(context) {
   context.subscriptions.push(diagCollection);
   clearFindingsForAllWorkspaceFoldersOnce();
+  context.subscriptions.push(vscode9.workspace.onDidChangeWorkspaceFolders(() => {
+    clearFindingsForAllWorkspaceFoldersOnce();
+  }));
+  context.subscriptions.push(vscode9.workspace.onDidOpenTextDocument((doc) => {
+    if (doc.languageId === "dart") lastDartDoc = doc;
+  }));
+  registerFlusecNavigationView(context);
   context.subscriptions.push(
-    vscode8.workspace.onDidChangeWorkspaceFolders(() => {
-      clearFindingsForAllWorkspaceFoldersOnce();
-    })
+    vscode9.commands.registerCommand("flusec.openFindings", () => openDashboard(context))
   );
   context.subscriptions.push(
-    vscode8.workspace.onDidOpenTextDocument((doc) => {
-      if (doc.languageId === "dart") {
-        lastDartDoc = doc;
-      }
-    })
+    vscode9.commands.registerCommand("flusec.openIvdFindings", () => openIvdDashboard(context))
   );
   context.subscriptions.push(
-    vscode8.commands.registerCommand(
-      "flusec.openIvdFindings",
-      () => openIvdDashboard(context)
-    )
+    vscode9.commands.registerCommand("flusec.manageRules", () => openRuleManager(context))
   );
   context.subscriptions.push(
-    vscode8.commands.registerCommand("flusec.scanFile", async () => {
-      const active = vscode8.window.activeTextEditor;
-      let target;
-      if (active && active.document.languageId === "dart") {
-        target = active.document;
-      } else if (lastDartDoc) {
-        target = lastDartDoc;
-      } else {
-        const dartDocs = vscode8.workspace.textDocuments.filter(
-          (d) => d.languageId === "dart"
-        );
-        if (dartDocs.length > 0) {
-          target = dartDocs[0];
-        }
+    vscode9.commands.registerCommand("flusec.manageIvdRules", () => openIvdRuleManager(context))
+  );
+  context.subscriptions.push(
+    vscode9.commands.registerCommand("flusec.scanFile", async () => {
+      const active = vscode9.window.activeTextEditor;
+      let target = active && active.document.languageId === "dart" ? active.document : lastDartDoc;
+      if (!target) {
+        const dartDocs = vscode9.workspace.textDocuments.filter((d) => d.languageId === "dart");
+        if (dartDocs.length > 0) target = dartDocs[0];
       }
       if (!target) {
-        vscode8.window.showInformationMessage(
-          "FLUSEC: No Dart file available to scan. Open a Dart file first."
-        );
+        vscode9.window.showInformationMessage("FLUSEC: No Dart file available to scan.");
         return;
       }
       try {
         await runAnalyzer(target, context);
-        vscode8.window.setStatusBarMessage(
-          `FLUSEC: Scan completed for ${target.fileName}`,
-          3e3
-        );
+        vscode9.window.setStatusBarMessage(`FLUSEC: Scan completed for ${target.fileName}`, 3e3);
       } catch (e) {
-        vscode8.window.showErrorMessage(
-          "FLUSEC: Scan failed: " + String(e)
-        );
+        vscode9.window.showErrorMessage("FLUSEC: Scan failed: " + String(e));
       }
     })
   );
   context.subscriptions.push(
-    vscode8.commands.registerCommand(
-      "flusec.manageRules",
-      () => openRuleManager(context)
-    )
-  );
-  context.subscriptions.push(
-    vscode8.commands.registerCommand(
-      "flusec.openFindings",
-      () => openDashboard(context)
-    )
-  );
-  context.subscriptions.push(
-    vscode8.workspace.onDidSaveTextDocument(async (doc) => {
+    vscode9.workspace.onDidSaveTextDocument(async (doc) => {
       if (doc.languageId === "dart") {
         lastDartDoc = doc;
         await runAnalyzer(doc, context);
@@ -3933,11 +3912,9 @@ function activate(context) {
   );
   let typingTimeout;
   context.subscriptions.push(
-    vscode8.workspace.onDidChangeTextDocument((event) => {
+    vscode9.workspace.onDidChangeTextDocument((event) => {
       const doc = event.document;
-      if (doc.languageId !== "dart") {
-        return;
-      }
+      if (doc.languageId !== "dart") return;
       lastDartDoc = doc;
       clearTimeout(typingTimeout);
       typingTimeout = setTimeout(() => {
@@ -3946,7 +3923,6 @@ function activate(context) {
     })
   );
   registerHoverProvider(context);
-  registerFlusecNavigationView(context);
 }
 function deactivate() {
   diagCollection.clear();
