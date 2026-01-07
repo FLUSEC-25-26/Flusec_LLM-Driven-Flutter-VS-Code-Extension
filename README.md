@@ -54,7 +54,7 @@ VS Code → extension.ts
 ### 🖼 System Architecture Diagram (Temporary Path)
 
 
-![System Architecture](assets/sys_archi.png)
+![System Architecture](assert/sys_archi.png)
 
 
 
