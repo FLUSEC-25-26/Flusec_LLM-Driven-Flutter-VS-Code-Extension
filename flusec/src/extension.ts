@@ -38,7 +38,7 @@ function clearFindingsForAllWorkspaceFoldersOnce() {
     for (const folder of folders) {
       const findingsPath = findingsPathForFolder(folder);
 
-      // 1️⃣ delete findings.json
+      // delete findings.json
       if (fs.existsSync(findingsPath)) {
         fs.unlinkSync(findingsPath);
         console.log("FLUSEC: deleted", findingsPath);
