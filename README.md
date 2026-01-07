@@ -1,36 +1,42 @@
-# FluSec – LLM-Driven Flutter Security Extension for VS Code
+# FLUSEC – LLM-Driven Flutter Security Extension for VS Code
 
-**FluSec** is a VS Code extension that performs **static security analysis** on Flutter/Dart projects.
-It detects multiple classes of security vulnerabilities and provides **educational, privacy-preserving feedback** powered by a local LLM (via Ollama or compatible runtimes).
+**FLUSEC** is a VS Code extension that performs **static security analysis** on Flutter/Dart projects.
+It detects multiple classes of security vulnerabilities and provides **educational, privacy-preserving guidance** powered by a **local LLM** (via Ollama or compatible runtimes).
 
 ---
 
 ## ⚙️ Features
 
-FluSec includes four detection modules, each targeting a different category of common mobile app security risks:
+FLUSECc currently includes **four specialized detection advisors**, each targeting a major mobile-app security risk area:
 
-| Module                                      | Description                                                                                             |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| 🔐 **Hardcoded Secrets Detection (HSD)**    | Detects API keys, tokens, and credentials embedded in code using regex, entropy, and heuristic methods. |
-| 🌐 **Insecure Network Communication (INC)** | Flags unsafe HTTP usage, unencrypted data transmission, and insecure SSL configurations.                |
-| 💾 **Insecure Data Storage (IDS)**          | Identifies sensitive data stored in plaintext or weakly protected local storage.                        |
-| 🧮 **Insufficient Input Validation (IIV)**  | Detects missing or weak input validation that can lead to code injection or logic flaws.                |
+| Module                                               | Description                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🔐 **Hardcoded Secrets Advisor (HSD)**               | Detects API keys, tokens, credentials and sensitive constants embedded in source code using **AST-analysis, regex heuristics, and entropy scoring**, enriched with **context indicators such as complexity, nesting depth, and code size** to estimate maintainability and remediation effort. |
+| 🌐 **Secure Network Communication Advisor (SNC)**    | Identifies insecure HTTP usage, weak TLS validation, plaintext transmission patterns, and risky SSL overrides using **pattern-driven and structural analysis with contextual insights**.                                                                                                       |
+| 💾 **Secure Data Storage Advisor (SDS)**             | Detects storage of sensitive data in plaintext, improper key handling, and weak storage decisions across preferences, files and local storage APIs — supported by **code-context awareness**.                                                                                                  |
+| 🧮 **Input Validation & Sanitization Advisor (IVS)** | Flags missing or weak input validation that can cause logic flaws or injection risks, combining **rules + AST reasoning + contextual metadata**.                                                                                                                                               |
 
-Each module supports:
+Each advisor supports:
 
-* **AST-based analysis** (via the Dart Analyzer)
-* **Pattern and heuristic rules**
-* **Context-aware LLM feedback** for educational explanations and remediation guidance
+ **AST-based static analysis (Dart Analyzer runtime)**
+ **Heuristic & pattern-driven rule detection**
+ **Context-aware metadata (complexity, nesting, size, etc.)**
+ **Local-LLM-powered educational guidance (privacy-preserving)**
 
 ---
 
 ## 🧩 Architecture Overview
 
-FluSec uses a **hybrid architecture**:
+FluSec follows a **hybrid detection + local-LLM explanation model**:
 
-1. The **VS Code Extension (TypeScript)** handles UI, commands, diagnostics, and LLM feedback.
-2. The **Dart Analyzer Runtime** performs the actual static analysis (AST + regex + heuristics).
-3. Results are saved as JSON and visualized in the **Findings Dashboard** within VS Code.
+1. **VS Code Extension (TypeScript)**
+   – Handles UI, commands, diagnostics & LLM prompts
+2. **Dart Analyzer Runtime**
+   – Performs AST + heuristic static analysis deterministically
+3. **Result Processing Layer**
+   – Outputs structured JSON
+4. **Developer Feedback Layer**
+   – Diagnostics panel + interactive dashboard + hover help
 
 ```
 VS Code → extension.ts
@@ -45,6 +51,15 @@ VS Code → extension.ts
           └── Dashboard (webview)
 ```
 
+### 🖼 System Architecture Diagram
+
+
+![System Architecture](assert/sys_archi.png)
+
+
+
+> Replace later with the final diagram file.
+
 ---
 
 ## 📁 Folder Structure
@@ -53,65 +68,72 @@ VS Code → extension.ts
 flusec/
 ├── dart-analyzer/
 │   ├── bin/
-│   │   ├── analyzer.dart       # Analyzer entrypoint
-│   │   └── analyzer.exe        # Compiled executable
+│   │   ├── analyzer.dart
+│   │   └── analyzer.exe
 │   ├── lib/
-│   │   └── rules.dart          # Rule engine and detection logic
+│   │   └── rules.dart
 │   ├── data/
-│   │   └── rules.json          # Dynamic rule definitions
-│   └── pubspec.yaml            # Dart dependencies
+│   │   └── rules.json
+│   └── pubspec.yaml
 │
 ├── src/
-│   ├── extension.ts            # VS Code extension entrypoint
-│   ├── llm.ts                  # Local LLM (Ollama) API integration
-│   ├── diagnostics.ts          # Shared diagnostics handler
-│   ├── features/               # Detection modules integration layer
+│   ├── extension.ts
+│   ├── llm.ts
+│   ├── diagnostics.ts
+│   ├── features/
 │   │   ├── hardcoded_secrets.ts
 │   │   ├── insecure_network.ts
 │   │   ├── insecure_storage.ts
 │   │   └── input_validation.ts
 │   └── ui/
-│       ├── ruleManager/        # Future rule management interfaces
+│       ├── ruleManager/
 │       └── web/
-│           └── dashboard.html  # Unified visualization dashboard
+│           └── dashboard.html
 │
-├── web/         # Temporary location for dashboard.html
+├── web/
 │   └── dashboard.html
 │
-├── dist/                       # Compiled JS output for VS Code runtime
-├── esbuild.js                  # Build bundler
-├── package.json                # VS Code extension metadata
-├── tsconfig.json               # TypeScript configuration
-└── README.md                   # This file
+├── assets/
+│   ├── architecture/
+│   │   └── flusec-system-architecture.png   # placeholder
+│   └── ui/
+│       ├── dashboard-preview.png            # placeholder
+│       ├── rule-manager-preview.png         # placeholder
+│       └── advisor-feedback-preview.png     # placeholder
+│
+├── dist/
+├── esbuild.js
+├── package.json
+├── tsconfig.json
+└── README.md
 ```
 
-> 💡 *In PP1, `web/dashboard.html` is kept at root for simplicity.
-> In PP2, it will move to `src/ui/web/dashboard.html` to unify all UI components.*
+> In PP2 all UI assets will move fully under `src/ui`.
 
 ---
 
 ## 📦 Installation & Setup
 
-### 1. Clone the Repository
+### 1. Clone
 
 ```bash
 git clone https://github.com/<your-org>/flusec.git
 cd flusec
 ```
 
-### 2. Install VS Code Extension Dependencies
+### 2. Install Dependencies
 
 ```bash
 npm install
 ```
 
-### 3. Compile the TypeScript Extension
+### 3. Build Extension
 
 ```bash
 npm run compile
 ```
 
-### 4. Compile the Dart Analyzer to Executable
+### 4. Build Dart Analyzer
 
 ```bash
 cd dart-analyzer
@@ -119,53 +141,84 @@ dart pub get
 dart compile exe bin/analyzer.dart -o bin/analyzer.exe
 ```
 
-### 5. Launch Extension for Debug
+### 5. Debug Run
 
-In VS Code, press **F5** → opens new “Extension Development Host”.
+Open in VS Code → Press **F5**
 
 ---
 
-## 🧠 Key Commands (as defined in `package.json`)
+## 🧠 Key Commands
 
-| Command                                         | Description                                                    |
-| ----------------------------------------------- | -------------------------------------------------------------- |
-| `Flusec: Scan current file for vulnerabilities` | Runs the analyzer on the active Dart file and reports results. |
-| `Flusec: Manage Rules`                          | Opens the Rule Manager UI (for editing detection rules).       |
-| `Flusec: Open Findings Dashboard`               | Opens the unified dashboard to view results visually.          |
+| Command                           | Description                                   |
+| --------------------------------- | --------------------------------------------- |
+| `Flusec: Scan current file`       | Runs static security scan on active Dart file |
+| `Flusec: Manage Rules`            | Opens the Rule Manager UI (dynamic rules)     |
+| `Flusec: Open Findings Dashboard` | Opens visualization dashboard                 |
+
+---
+
+## 📊 Dashboard & UI 
+
+### Finding Dashboard
+
+![Finding Dashboard](assert/ds1.png)
+
+![Finding Dashboard](assert/ds2.png)
+
+![Finding Dashboard](assert/ds3.png)
+
+### Rule Manager
+
+![Rule Manager](assert/rm1.png)
+
+![Rule Manager](assert/rm2.png)
+
+
+### Ollama LLM Feedback popup
+
+![LLM Feedback](assert/llm1.png)
+
+
+
+> These will later include real screenshots.
 
 ---
 
 ## 🧰 Dependencies
 
-### TypeScript / Extension
+### Extension
 
-* `vscode` – VS Code API
-* `esbuild` – Bundling
-* `node-fetch` – HTTP requests to Ollama
-* `typescript`, `eslint` – Development & linting
+* VS Code API
+* esbuild
+* node-fetch
+* TypeScript / ESLint
 
-### Dart / Analyzer
+### Analyzer
 
-* `analyzer` – Dart AST parsing
-* `crypto` – Entropy & hashing utilities
-* `path` – File path handling
-
----
-
-## 🧠 Future Enhancements (PP2 and Beyond)
-
-* Integrate all four components with shared rule sets
-* Add dynamic rule management via Rule Manager UI
-* Extend dashboard with analytics and LLM-powered summaries
-* Support offline local LLMs (Phi-3, Mistral, Qwen, etc.) through Ollama
+* Dart analyzer
+* crypto
+* path
 
 ---
 
-## 👥 Team Roles
+## 🚀 Future Enhancements (PP2+)
 
-| Module                         | Responsibility                           |
-| ------------------------------ | ---------------------------------------- |
-| Hardcoded Secrets              | Detection & LLM remediation logic        |
-| Insecure Network Communication | HTTP/SSL security scanning               |
-| Insecure Data Storage          | Sensitive data handling analysis         |
-| Insufficient Input Validation  | Input sanitization & validation analysis |
+✔ Unified rule repository
+✔ Advanced rule-tuning UI
+✔ Analytics & trends dashboard
+✔ Broader local-LLM support
+
+---
+
+## 👥 TEAM
+
+| NAME                     | ROLE                                 |
+| ------------------------ | ------------------------------------ |
+| **KUMARAGE D.C.K.**      | HARD-CODED SECRETS ADVISOR           |
+| **GUNAWARDANA T.G.H.M.** | SECURE DATA STORAGE MODULE           |
+| **AYANAJA H.P.M.G.**     | SECURE NETWORK COMMUNICATION ADVISOR |
+| **RUPASINGHE W.A.L.P.**  | INPUT VALIDATION ADVISOR             |
+
+---
+
+

@@ -37,7 +37,7 @@
         <div class="row">
           <!-- Summary counters -->
           <div class="card kpi-card">
-            <h3 class="card-title">Findings &amp; Complexity</h3>
+            <h3 class="card-title">Findings &amp; Metrics</h3>
             <div id="counters">Loading…</div>
           </div>
 
@@ -58,14 +58,17 @@
         </div>
       </section>
 
-      <!-- CHARTS -->
+      <!-- CHARTS: SECRETS -->
       <section class="section charts">
         <h2 class="section-title">Secrets Distribution</h2>
         <div class="row">
           <!-- Top rules chart -->
           <div class="card">
             <h3 class="card-title">Top Rules</h3>
-            <canvas id="chartRules" aria-label="Bar chart of findings per rule"></canvas>
+            <canvas
+              id="chartRules"
+              aria-label="Bar chart of findings per rule"
+            ></canvas>
             <p class="small-note">
               Shows which <code>HSD rules</code> trigger most often
               (e.g., API keys, tokens, Firebase keys, etc.).
@@ -75,10 +78,49 @@
           <!-- Top files chart -->
           <div class="card">
             <h3 class="card-title">Top Files</h3>
-            <canvas id="chartFiles" aria-label="Bar chart of findings per file"></canvas>
+            <canvas
+              id="chartFiles"
+              aria-label="Bar chart of findings per file"
+            ></canvas>
             <p class="small-note">
               Highlights files where secret findings accumulate,
               helping you prioritize secure refactoring.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- CHARTS: MAINTAINABILITY -->
+      <section class="section charts">
+        <h2 class="section-title">Maintainability Metrics</h2>
+        <div class="row">
+          <div class="card">
+            <h3 class="card-title">Complexity Buckets (Cx)</h3>
+            <canvas
+              id="chartCxBuckets"
+              aria-label="Bar chart of secrets by complexity"
+            ></canvas>
+            <p class="small-note">
+              Counts of secrets inside low, medium, and high cyclomatic
+              complexity functions.
+            </p>
+          </div>
+
+          <div class="card">
+            <h3 class="card-title">Nesting Depth &amp; Size</h3>
+            <div class="mini-chart-row">
+              <canvas
+                id="chartDepthBuckets"
+                aria-label="Bar chart of nesting depth buckets"
+              ></canvas>
+              <canvas
+                id="chartSizeBuckets"
+                aria-label="Bar chart of function size buckets"
+              ></canvas>
+            </div>
+            <p class="small-note">
+              Distribution of secrets across shallow vs deeply nested and
+              small vs large functions.
             </p>
           </div>
         </div>
@@ -119,11 +161,13 @@
         <div class="card">
           <div class="header-row">
             <strong>Hardcoded Secrets – Detailed View</strong>
-            <!--
-            <div class="actions">
-              <button class="btn" id="exportPdf">Export PDF</button>
+            <div class="filter-tabs" id="findingsFilters">
+              <button class="filter-tab active" data-filter="all">All</button>
+              <button class="filter-tab" data-filter="highCx">High Cx</button>
+              <button class="filter-tab" data-filter="mediumCx">Medium Cx</button>
+              <button class="filter-tab" data-filter="lowCx">Low Cx</button>
+              <button class="filter-tab" data-filter="tests">Test files</button>
             </div>
-            -->
           </div>
 
           <table id="tbl">

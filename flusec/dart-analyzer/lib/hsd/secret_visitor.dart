@@ -124,6 +124,11 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
       if (exec != null) {
         fnName = FunctionUtils.executableName(exec);
 
+        // Treat "<anonymous>" as "no name" for the user-facing message
+      if (fnName == '<anonymous>') {
+        fnName = null;
+      }
+
         // numeric complexity score
         final score = Complexity.computeCyclomaticComplexity(exec);
         complexity = score;
