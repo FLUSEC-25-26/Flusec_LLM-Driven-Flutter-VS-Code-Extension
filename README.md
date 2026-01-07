@@ -51,7 +51,7 @@ VS Code → extension.ts
           └── Dashboard (webview)
 ```
 
-### 🖼 System Architecture Diagram (Temporary Path)
+### 🖼 System Architecture Diagram
 
 
 ![System Architecture](assert/sys_archi.png)
@@ -157,13 +157,28 @@ Open in VS Code → Press **F5**
 
 ---
 
-## 📊 Dashboard & UI (Temporary Image Paths)
+## 📊 Dashboard & UI 
 
-| UI View                | Temporary Path                           |
-| ---------------------- | ---------------------------------------- |
-| Findings Dashboard     | `assets/ui/dashboard-preview.png`        |
-| Rule Manager           | `assets/ui/rule-manager-preview.png`     |
-| Advisor Feedback Popup | `assets/ui/advisor-feedback-preview.png` |
+### Finding Dashboard
+
+![Finding Dashboard](assert/ds1.png)
+
+![Finding Dashboard](assert/ds2.png)
+
+![Finding Dashboard](assert/ds3.png)
+
+### Rule Manager
+
+![Rule Manager](assert/rm1.png)
+
+![Rule Manager](assert/rm2.png)
+
+
+### Ollama LLM Feedback popup
+
+![LLM Feedback](assert/llm1.png)
+
+
 
 > These will later include real screenshots.
 
