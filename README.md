@@ -54,7 +54,8 @@ VS Code → extension.ts
 ### 🖼 System Architecture Diagram (Temporary Path)
 
 ```
-assets/sys_archi.png
+![System Architecture](assets/sys_archi.png)
+
 ```
 
 > Replace later with the final diagram file.
