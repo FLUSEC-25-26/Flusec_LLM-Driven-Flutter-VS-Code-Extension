@@ -7,6 +7,7 @@
 // - creating diagnostics for the current document
 // - updating findings.json via findingsStore
 // - resetting LLM hover state for this document
+// - (NEW) sync rulepack + write effective workspace rule files
 
 import * as vscode from "vscode";
 import { execFile } from "child_process";
@@ -18,10 +19,17 @@ import {
   severityToVS,
   upsertFindingsForDoc,
 } from "./findingsStore.js";
+
 import {
   resetLLMState,
   clearFeedbackForDocument,
 } from "../diagnostics/hoverllm.js";
+
+// NEW: rule pack sync + workspace effective rule generation
+import {
+  syncHsdRulePack,
+  writeHsdWorkspaceData,
+} from "../rules/hsdRulePack.js";
 
 /**
  * Return workspace folder for a document.
@@ -48,24 +56,22 @@ export function findingsPathForFolder(
 
 /**
  * Run the external Dart analyzer.exe against a document.
- * This function is called by extension.ts on:
+ * Called by extension.ts on:
  * - manual scan
  * - save
  * - debounced typing
  *
  * IMPORTANT:
- * We now return a Promise that resolves ONLY AFTER:
- * - analyzer.exe has finished
- * - findings.json has been updated via upsertFindingsForDoc
- *
- * This guarantees the dashboard can safely refresh immediately after
- * awaiting runAnalyzer / flusec.scanFile.
+ * Resolves ONLY AFTER:
+ * - analyzer.exe finished
+ * - diagnostics updated
+ * - findings.json updated
  */
 export async function runAnalyzer(
   doc: vscode.TextDocument,
-  _context: vscode.ExtensionContext
+  context: vscode.ExtensionContext
 ): Promise<void> {
-  // Clear LLM queue / state and feedback cache for this document.
+  // Clear LLM queue/state and feedback cache for this document.
   resetLLMState();
   clearFeedbackForDocument(doc.uri);
 
@@ -77,9 +83,15 @@ export async function runAnalyzer(
     return;
   }
 
+  // NEW: sync rulepack + write effective workspace rule files
+  // Safe if offline: it just keeps cached/globalStorage values
+  await syncHsdRulePack(context).catch(() => {});
+  writeHsdWorkspaceData(context, folder.uri.fsPath);
+
   const findingsFile = findingsPathForFolder(folder);
 
   // analyzer.exe is under <extension>/dart-analyzer/bin/analyzer.exe
+  // (Keep your old __dirname approach)
   const analyzerPath = path.join(
     __dirname,
     "..",
@@ -95,12 +107,19 @@ export async function runAnalyzer(
     return;
   }
 
-  // Core fix: wrap execFile in a Promise and await it.
+  // IMPORTANT NEW: set cwd = <workspace>/dart-analyzer
+  // so your Dart resolver loads: <cwd>/data/hardcoded_secrets_rules.json
+  const analyzerCwd = path.join(folder.uri.fsPath, "dart-analyzer");
+
+  // Ensure output folder exists (because upsertFindingsForDoc writes findings.json)
+  fs.mkdirSync(path.dirname(findingsFile), { recursive: true });
+
+  // Wrap execFile in a Promise and await it.
   const stdout = await new Promise<string>((resolve, reject) => {
     execFile(
       analyzerPath,
       [doc.fileName],
-      { shell: true },
+      { shell: true, cwd: analyzerCwd, maxBuffer: 10 * 1024 * 1024 },
       (err, stdout, stderr) => {
         if (err) {
           console.error("Analyzer execution error:", err);
@@ -121,9 +140,7 @@ export async function runAnalyzer(
   let findings: any[] = [];
   try {
     findings = JSON.parse(stdout);
-    if (!Array.isArray(findings)) {
-      findings = [];
-    }
+    if (!Array.isArray(findings)) {findings = [];}
   } catch (e) {
     console.error("Failed to parse analyzer output as JSON:", e);
     vscode.window.showErrorMessage(
@@ -142,27 +159,16 @@ export async function runAnalyzer(
       const textLine = doc.lineAt(lineIdx);
       range = new vscode.Range(lineIdx, 0, lineIdx, textLine.text.length);
     } catch {
-      // If line index is out of range, fall back to a safe zero-length range.
       range = new vscode.Range(lineIdx, 0, lineIdx, 0);
     }
 
-    // 🔹 Build numeric metric suffix: Cx, Depth, Size
+    // numeric metric suffix: Cx, Depth, Size
     const metricParts: string[] = [];
-    if (typeof f.complexity === "number") {
-      metricParts.push(`Cx=${f.complexity}`);
-    }
-    if (typeof f.nestingDepth === "number") {
-      metricParts.push(`Depth=${f.nestingDepth}`);
-    }
-    if (typeof f.functionLoc === "number") {
-      metricParts.push(`Size=${f.functionLoc} LOC`);
-    }
-    const metricSuffix =
-      metricParts.length > 0 ? ` [${metricParts.join(", ")}]` : "";
+    if (typeof f.complexity === "number") {metricParts.push(`Cx=${f.complexity}`);}
+    if (typeof f.nestingDepth === "number") {metricParts.push(`Depth=${f.nestingDepth}`);}
+    if (typeof f.functionLoc === "number") {metricParts.push(`Size=${f.functionLoc} LOC`);}
 
-    // f.message is already enriched in Dart:
-    // e.g. "Hardcoded API key in function loginUser
-    //       (Function complexity: high, nesting: medium, size: medium)"
+    const metricSuffix = metricParts.length ? ` [${metricParts.join(", ")}]` : "";
     const message = `${f.message ?? ""}${metricSuffix}`;
 
     const diag = new vscode.Diagnostic(
@@ -175,7 +181,7 @@ export async function runAnalyzer(
     diags.push(diag);
   }
 
-  // Update diagnostics and findings.json (synchronous write inside upsert)
+  // Update diagnostics and findings.json
   diagCollection.set(doc.uri, diags);
   upsertFindingsForDoc(findingsFile, doc, findings);
 }

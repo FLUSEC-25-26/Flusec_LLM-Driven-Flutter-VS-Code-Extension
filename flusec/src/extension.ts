@@ -1,13 +1,3 @@
-// src/extension.ts
-//
-// Main entry point for the VS Code extension.
-// Wires up:
-// - activation / deactivation
-// - commands
-// - auto-scan triggers
-// - hover provider
-// - one-time cleanup of old findings.json
-
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
@@ -17,48 +7,38 @@ import { registerHoverProvider } from "./diagnostics/hoverllm.js";
 import { openRuleManager } from "./ui/ruleManager/hardcoded_secrets/ruleManager.js";
 import { openDashboard } from "./web/hsd/dashboard.js";
 import { registerFlusecNavigationView } from "./ui/flusecNavigation.js";
+import { syncHsdRulePack, writeHsdWorkspaceData } from "./rules/hsdRulePack.js";
 
 let lastDartDoc: vscode.TextDocument | undefined;
 
 // We only want to clear findings.json once per VS Code session.
 let clearedFindingsThisSession = false;
 
-//  Delete findings.json for all workspace folders ONCE per session
+// Delete findings.json for all workspace folders ONCE per session
 function clearFindingsForAllWorkspaceFoldersOnce() {
-  if (clearedFindingsThisSession) {
-    return;
-  }
+  if (clearedFindingsThisSession) {return;}
 
   const folders = vscode.workspace.workspaceFolders ?? [];
-  if (!folders.length) {
-    return;
-  }
+  if (!folders.length) {return;}
 
   try {
     for (const folder of folders) {
       const findingsPath = findingsPathForFolder(folder);
 
-      // delete findings.json
       if (fs.existsSync(findingsPath)) {
         fs.unlinkSync(findingsPath);
         console.log("FLUSEC: deleted", findingsPath);
       }
 
-      // 2️⃣ compute directories
       const outDir = path.dirname(findingsPath);
       const analyzerDir = path.dirname(outDir);
 
-      // 3️⃣ delete .out if empty
       if (fs.existsSync(outDir) && fs.readdirSync(outDir).length === 0) {
         fs.rmdirSync(outDir);
         console.log("FLUSEC: deleted empty dir", outDir);
       }
 
-      // 4️⃣ delete dart-analyzer if empty
-      if (
-        fs.existsSync(analyzerDir) &&
-        fs.readdirSync(analyzerDir).length === 0
-      ) {
+      if (fs.existsSync(analyzerDir) && fs.readdirSync(analyzerDir).length === 0) {
         fs.rmdirSync(analyzerDir);
         console.log("FLUSEC: deleted empty dir", analyzerDir);
       }
@@ -70,49 +50,61 @@ function clearFindingsForAllWorkspaceFoldersOnce() {
   clearedFindingsThisSession = true;
 }
 
-
 export function activate(context: vscode.ExtensionContext) {
   // Ensure diagnostics collection is disposed when extension is deactivated.
   context.subscriptions.push(diagCollection);
 
-  // Try to clear immediately if a workspace is already open when extension activates.
+  // ---- keep your old cleanup behavior ----
   clearFindingsForAllWorkspaceFoldersOnce();
 
-  // Also clear once when folders are added later (Dev Host starts empty, then you open folder).
+  // ---- NEW: sync rulepack on startup (safe offline) ----
+  syncHsdRulePack(context).catch(() => {});
+
+  // ---- NEW: generate workspace data files (rules + heuristics) ----
+  for (const f of vscode.workspace.workspaceFolders ?? []) {
+    writeHsdWorkspaceData(context, f.uri.fsPath);
+  }
+
+  // If folders added later
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       clearFindingsForAllWorkspaceFoldersOnce();
-    })
-  );
 
-  // Track last Dart document when opened.
-  context.subscriptions.push(
-    vscode.workspace.onDidOpenTextDocument((doc) => {
-      if (doc.languageId === "dart") {
-        lastDartDoc = doc;
+      for (const f of vscode.workspace.workspaceFolders ?? []) {
+        writeHsdWorkspaceData(context, f.uri.fsPath);
       }
     })
   );
 
-  // -----------------------------
-  // Manual scan command
-  // -----------------------------
+  // Track last Dart doc
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument((doc) => {
+      if (doc.languageId === "dart") {lastDartDoc = doc;}
+    })
+  );
+
+  // ---- NEW: force update rulepacks ----
+  context.subscriptions.push(
+    vscode.commands.registerCommand("flusec.updateRulePacks", async () => {
+      await syncHsdRulePack(context, { force: true }).catch(() => {});
+      for (const f of vscode.workspace.workspaceFolders ?? []) {
+        writeHsdWorkspaceData(context, f.uri.fsPath);
+      }
+      vscode.window.showInformationMessage("FLUSEC: Rule packs updated.");
+    })
+  );
+
+  // Manual scan
   context.subscriptions.push(
     vscode.commands.registerCommand("flusec.scanFile", async () => {
       const active = vscode.window.activeTextEditor;
       let target: vscode.TextDocument | undefined;
 
-      if (active && active.document.languageId === "dart") {
-        target = active.document;
-      } else if (lastDartDoc) {
-        target = lastDartDoc;
-      } else {
-        const dartDocs = vscode.workspace.textDocuments.filter(
-          (d) => d.languageId === "dart"
-        );
-        if (dartDocs.length > 0) {
-          target = dartDocs[0];
-        }
+      if (active && active.document.languageId === "dart") {target = active.document;}
+      else if (lastDartDoc) {target = lastDartDoc;}
+      else {
+        const dartDocs = vscode.workspace.textDocuments.filter((d) => d.languageId === "dart");
+        if (dartDocs.length > 0) {target = dartDocs[0];}
       }
 
       if (!target) {
@@ -124,39 +116,24 @@ export function activate(context: vscode.ExtensionContext) {
 
       try {
         await runAnalyzer(target, context);
-        vscode.window.setStatusBarMessage(
-          `FLUSEC: Scan completed for ${target.fileName}`,
-          3000
-        );
+        vscode.window.setStatusBarMessage(`FLUSEC: Scan completed for ${target.fileName}`, 3000);
       } catch (e) {
-        vscode.window.showErrorMessage(
-          "FLUSEC: Scan failed: " + String(e)
-        );
+        vscode.window.showErrorMessage("FLUSEC: Scan failed: " + String(e));
       }
     })
   );
 
-  // -----------------------------
-  // Rule manager (dynamic rules UI)
-  // -----------------------------
+  // Rule manager
   context.subscriptions.push(
-    vscode.commands.registerCommand("flusec.manageRules", () =>
-      openRuleManager(context)
-    )
+    vscode.commands.registerCommand("flusec.manageRules", () => openRuleManager(context))
   );
 
-  // -----------------------------
-  // Findings dashboard
-  // -----------------------------
+  // Dashboard
   context.subscriptions.push(
-    vscode.commands.registerCommand("flusec.openFindings", () =>
-      openDashboard(context)
-    )
+    vscode.commands.registerCommand("flusec.openFindings", () => openDashboard(context))
   );
 
-  // -----------------------------
   // Auto scan on SAVE
-  // -----------------------------
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument(async (doc) => {
       if (doc.languageId === "dart") {
@@ -166,17 +143,13 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // -----------------------------
   // Auto scan while TYPING (debounced)
-  // -----------------------------
   let typingTimeout: NodeJS.Timeout | undefined;
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((event) => {
       const doc = event.document;
-      if (doc.languageId !== "dart") {
-        return;
-      }
+      if (doc.languageId !== "dart") {return;}
 
       lastDartDoc = doc;
 
@@ -187,11 +160,10 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // -----------------------------
   // Hover provider (LLM feedback)
-  // -----------------------------
   registerHoverProvider(context);
 
+  // Navigation view
   registerFlusecNavigationView(context);
 }
 

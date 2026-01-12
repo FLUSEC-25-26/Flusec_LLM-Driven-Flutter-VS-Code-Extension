@@ -1,19 +1,5 @@
-// lib/hsd/hardcoded_secrets_rules.dart
-//
-// This file contains ONLY the "rules + detection engine" for your component (HSD).
-// It is NOT in core because it is specific to hardcoded secrets detection.
-//
-// Other components idea (future):
-// - insecure_network will have its own engine (TLS rules, http usage rules, etc.)
-// - insecure_storage will have its own engine (SharedPreferences/File/DB storage rules)
-// - input_validation will have its own engine (regex patterns, sanitization rules, etc.)
-
 import 'dart:io';
 import 'dart:math';
-
-/// ------------------------------
-/// Models & engine (your original code, preserved)
-/// ------------------------------
 
 class DynamicRule {
   final String id;
@@ -35,9 +21,42 @@ class DynamicRule {
     required this.messageTemplate,
     required this.regex,
   });
+
+  static DynamicRule? tryFromJson(Map<String, dynamic> r) {
+    try {
+      final enabled = (r['enabled'] as bool?) ?? true;
+      final pat = (r['pattern'] as String?)?.trim() ?? '';
+      if (!enabled || pat.isEmpty) return null;
+
+      final id = (r['id'] ?? '').toString().trim();
+      final name = (r['name'] ?? id).toString().trim();
+
+      if (id.isEmpty) return null;
+
+      stderr.writeln('🧠 Compiled pattern for rule "$id": $pat');
+
+      return DynamicRule(
+        id: id,
+        name: name.isEmpty ? id : name,
+        pattern: pat,
+        severity: (r['severity'] as String?) ?? 'warning',
+        description: (r['description'] as String?) ?? '',
+        enabled: enabled,
+        messageTemplate: r['messageTemplate'] as String?,
+        regex: RegExp(
+          pat,
+          caseSensitive: false,
+          dotAll: true,
+          multiLine: true,
+        ),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
-enum MatchSource { dynamicRule, builtinRule, heuristic }
+enum MatchSource { rule, heuristic }
 
 class MatchHit {
   final MatchSource source;
@@ -48,76 +67,92 @@ class MatchHit {
   MatchHit(this.source, this.ruleId, this.message, this.severity);
 }
 
+class HeuristicsCfg {
+  int minLength;
+  double minEntropy;
+  List<String> sensitiveKeywords;
+  List<String> benignMarkers;
+
+  HeuristicsCfg({
+    required this.minLength,
+    required this.minEntropy,
+    required this.sensitiveKeywords,
+    required this.benignMarkers,
+  });
+
+  // Fallback only if heuristics.json missing/empty
+  factory HeuristicsCfg.defaults() => HeuristicsCfg(
+        minLength: 14,
+        minEntropy: 3.2,
+        sensitiveKeywords: const [
+          'password',
+          'passwd',
+          'pwd',
+          'secret',
+          'token',
+          'apikey',
+          'api_key',
+          'auth',
+          'authorization',
+          'bearer',
+          'private',
+          'key',
+        ],
+        benignMarkers: const [
+          'test',
+          'dummy',
+          'sample',
+          'example',
+          'fake',
+          'placeholder',
+          'changeme',
+        ],
+      );
+
+  factory HeuristicsCfg.fromJson(Map<String, dynamic> json) {
+    final d = HeuristicsCfg.defaults();
+
+    final ml = json['minLength'];
+    final me = json['minEntropy'];
+    final sk = json['sensitiveKeywords'];
+    final bm = json['benignMarkers'];
+
+    return HeuristicsCfg(
+      minLength: ml is int ? ml : d.minLength,
+      minEntropy: me is num ? me.toDouble() : d.minEntropy,
+      sensitiveKeywords: sk is List
+          ? sk.map((e) => e.toString()).toList()
+          : d.sensitiveKeywords,
+      benignMarkers: bm is List
+          ? bm.map((e) => e.toString()).toList()
+          : d.benignMarkers,
+    );
+  }
+}
+
 class RulesEngine {
-  final List<DynamicRule> _dynamic = [];
-  final Set<String> _dynamicPatternSet = {};
+  final List<DynamicRule> _rules = [];
+  HeuristicsCfg _cfg = HeuristicsCfg.defaults();
 
-  final RegExp _googleKey = RegExp(r'^AIza[0-9A-Za-z\-_]{35}$');
-  final RegExp _awsAccessKey = RegExp(r'^AKIA[0-9A-Z]{16}$');
-  final RegExp _stripeLive = RegExp(r'^sk_live_[0-9A-Za-z]{16,}$');
-  final RegExp _jwt =
-      RegExp(r'eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+');
-
-  final List<String> _sensitiveKeywords = const [
-    'password',
-    'passwd',
-    'pwd',
-    'secret',
-    'token',
-    'apikey',
-    'api_key',
-    'auth',
-    'authorization',
-    'bearer',
-    'private',
-    'key',
-  ];
-
-  final List<String> _benignMarkers = const [
-    'test',
-    'dummy',
-    'sample',
-    'example',
-    'fake',
-    'placeholder',
-    'changeme',
-  ];
-
-  final int _globalMinLen = 10;
-  final double _globalMinEntropy = 3.3;
-
+  /// rules = merged list already (user first + base next) produced by extension
   void loadDynamicRules(List<Map<String, dynamic>> raw) {
-    _dynamic
+    _rules
       ..clear()
-      ..addAll(raw.map((r) {
-        final enabled = (r['enabled'] as bool?) ?? true;
-        final pat = (r['pattern'] as String).trim();
+      ..addAll(
+        raw.map(DynamicRule.tryFromJson).whereType<DynamicRule>(),
+      );
 
-        // Keeping your debug output exactly:
-        stderr.writeln('🧠 Compiled pattern for rule "${r['id']}": $pat');
+    stderr.writeln('✅ Loaded ${_rules.length} rule(s) from merged rule list.');
+  }
 
-        return DynamicRule(
-          id: r['id'] as String,
-          name: (r['name'] as String?) ?? (r['id'] as String),
-          pattern: pat,
-          severity: (r['severity'] as String?) ?? 'warning',
-          description: (r['description'] as String?) ?? '',
-          enabled: enabled,
-          messageTemplate: r['messageTemplate'] as String?,
-          regex: RegExp(
-            pat,
-            caseSensitive: false,
-            dotAll: true,
-            multiLine: true,
-          ),
-        );
-      }).where((r) => r.enabled));
-
-    _dynamicPatternSet
-      ..clear()
-      ..addAll(_dynamic.map((r) => r.pattern));
-
-    stderr.writeln('✅ Loaded ${_dynamic.length} dynamic rules.');
+  void loadHeuristics(Map<String, dynamic> json) {
+    if (json.isEmpty) {
+      _cfg = HeuristicsCfg.defaults();
+      stderr.writeln('⚠️ Heuristics config missing/empty → using defaults.');
+      return;
+    }
+    _cfg = HeuristicsCfg.fromJson(json);
+    stderr.writeln('✅ Loaded heuristics config from JSON.');
   }
 
   MatchHit? detect(String value, String contextName, String nodeKind) {
@@ -125,124 +160,63 @@ class RulesEngine {
     if (trimmed.isEmpty || trimmed.length < 3) return null;
 
     final lc = trimmed.toLowerCase();
-    if (lc.contains('dummy') || lc.contains('example') || lc.contains('sample')) {
+    final ctxLower = contextName.toLowerCase();
+
+    // Skip obvious URLs (avoid false positives)
+    if (lc.startsWith('http://') || lc.startsWith('https://')) {
       return null;
     }
 
-    final bool isHttp =
-        trimmed.startsWith('http://') || trimmed.startsWith('https://');
+    // Benign markers (from heuristics.json)
+    for (final m in _cfg.benignMarkers) {
+      final mm = m.toLowerCase().trim();
+      if (mm.isEmpty) continue;
+      if (lc.contains(mm) || ctxLower.contains(mm)) return null;
+    }
 
-    // 1️⃣ dynamic
-    for (final r in _dynamic) {
+    // 1) RULE MATCHING (this is the main detection now)
+    for (final r in _rules) {
       if (r.regex.hasMatch(trimmed)) {
-        final msg =
+        final msg = r.messageTemplate ??
             '${r.name} hardcoded in $nodeKind${contextName.isNotEmpty ? ' in "$contextName"' : ''}';
-        return MatchHit(MatchSource.dynamicRule, r.id, msg, r.severity);
+        return MatchHit(MatchSource.rule, r.id, msg, r.severity);
       }
     }
 
-    // 2️⃣ built-in
-    MatchHit? builtIn;
+    // 2) HEURISTIC (entropy + keyword hint)
+    if (trimmed.length < _cfg.minLength) return null;
 
-    if (!_dynamicPatternSet.contains(_googleKey.pattern) &&
-        _googleKey.hasMatch(trimmed)) {
-      builtIn = MatchHit(
-        MatchSource.builtinRule,
-        'FLUSEC.GOOGLE_API_KEY',
-        'Google API Key hardcoded in $nodeKind',
-        'warning',
-      );
-    } else if (!_dynamicPatternSet.contains(_awsAccessKey.pattern) &&
-        _awsAccessKey.hasMatch(trimmed)) {
-      builtIn = MatchHit(
-        MatchSource.builtinRule,
-        'FLUSEC.AWS_ACCESS_KEY',
-        'AWS Access Key hardcoded in $nodeKind',
-        'warning',
-      );
-    } else if (!_dynamicPatternSet.contains(_stripeLive.pattern) &&
-        _stripeLive.hasMatch(trimmed)) {
-      builtIn = MatchHit(
-        MatchSource.builtinRule,
-        'FLUSEC.STRIPE_LIVE_KEY',
-        'Stripe Live Secret Key hardcoded in $nodeKind',
-        'warning',
-      );
-    } else if (!_dynamicPatternSet.contains(_jwt.pattern) &&
-        _jwt.hasMatch(trimmed)) {
-      builtIn = MatchHit(
-        MatchSource.builtinRule,
-        'FLUSEC.JWT',
-        'JWT Token hardcoded in $nodeKind',
-        'warning',
-      );
-    }
+    final hasKeyword = _cfg.sensitiveKeywords.any((kw) {
+      final k = kw.toLowerCase().trim();
+      if (k.isEmpty) return false;
+      return ctxLower.contains(k) || lc.contains(k);
+    });
 
-    if (builtIn != null) return builtIn;
+    if (!hasKeyword) return null;
 
-   // 3️⃣ heuristics (keyword + entropy, tuned to reduce false positives)
     final e = _entropy(trimmed);
-    final ctxLower = contextName.toLowerCase();
+    if (e < _cfg.minEntropy) return null;
 
-    // 🔹 Look for sensitive words in BOTH the context (var/function name)
-    //    and the actual string value.
-    final hasKeyword = _sensitiveKeywords.any(
-      (kw) => ctxLower.contains(kw) || lc.contains(kw),
+    return MatchHit(
+      MatchSource.heuristic,
+      'FLUSEC.SEC.H001',
+      'Possible hardcoded secret (entropy heuristic) in $nodeKind${contextName.isNotEmpty ? ' in "$contextName"' : ''}',
+      'warning',
     );
-
-    // 🔹 If we see obvious "dummy" markers, bail out early.
-    final hasBenignValueMarker = _benignMarkers.any((m) => lc.contains(m));
-    final hasBenignContextMarker =
-        _benignMarkers.any((m) => ctxLower.contains(m));
-    if (hasBenignValueMarker || hasBenignContextMarker) return null;
-
-    // 🔹 For HTTP values, only keep well-known sensitive webhook / signed URLs.
-    if (isHttp && !_isSensitiveUrl(trimmed)) return null;
-
-    // 🔹 Heuristic trigger:
-    //    - NOT HTTP (normal literals)
-    //    - some secret keyword (in context OR value)
-    //    - length >= 14 (so "XyP9wq8s7t6v5r4Q" is allowed)
-    //    - entropy decent enough to avoid "password123"
-    if (!isHttp && hasKeyword && trimmed.length >= 14 && e > 3.5) {
-      return MatchHit(
-        MatchSource.heuristic,
-        'FLUSEC.SEC_HEUR',
-        'Possible hardcoded secret in $nodeKind',
-        'warning',
-      );
-    }
-
-    return null;
   }
 
-  bool _isSensitiveUrl(String s) {
-    final slack = RegExp(
-      r'^https://hooks\.slack\.com/services/[A-Za-z0-9]{9,}/[A-Za-z0-9]{9,}/[A-Za-z0-9]{24,}$',
-    );
-    final discord = RegExp(
-      r'^https://discord(?:app)?\.com/api/webhooks/\d+/[A-Za-z0-9_\-]{30,}',
-    );
-    return slack.hasMatch(s) ||
-        discord.hasMatch(s) ||
-        (s.contains('?') && s.toLowerCase().contains('sig='));
-  }
-
-  double _entropy(String s) {
-    if (s.isEmpty) return 0;
-
+  double _entropy(String input) {
+    if (input.isEmpty) return 0;
     final freq = <int, int>{};
-    for (final code in s.codeUnits) {
-      freq.update(code, (v) => v + 1, ifAbsent: () => 1);
+    for (final code in input.codeUnits) {
+      freq[code] = (freq[code] ?? 0) + 1;
     }
-
-    final len = s.length;
+    final len = input.length.toDouble();
     double h = 0.0;
     freq.forEach((_, count) {
       final p = count / len;
-      h -= p * (log(p) / log(2));
+      h -= p * (log(p) / ln2);
     });
-
     return h;
   }
 }
