@@ -1,0 +1,27 @@
+{
+  "minLength": 10,
+  "minEntropy": 3.3,
+  "sensitiveKeywords": [
+    "password",
+    "passwd",
+    "pwd",
+    "secret",
+    "token",
+    "apikey",
+    "api_key",
+    "auth",
+    "authorization",
+    "bearer",
+    "private",
+    "key"
+  ],
+  "benignMarkers": [
+    "test",
+    "dummy",
+    "sample",
+    "example",
+    "fake",
+    "placeholder",
+    "changeme"
+  ]
+}
