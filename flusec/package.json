@@ -41,8 +41,9 @@
       "properties": {
         "flusec.ruleRepoBaseUrl": {
           "type": "string",
-          "default": "",
-          "description": "Base URL for flusec-rulepacks raw files (example: https://raw.githubusercontent.com/<ORG>/<REPO>/main)"
+          "default": "https://raw.githubusercontent.com/FLUSEC-25-26/flusec-rulepacks/main",
+          "description": "Base URL for flusec-rulepacks raw files...",
+          "scope": "application"
         }
       }
     },

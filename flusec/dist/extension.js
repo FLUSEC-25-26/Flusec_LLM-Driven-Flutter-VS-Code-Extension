@@ -3394,6 +3394,7 @@ var vscode3 = __toESM(require("vscode"));
 var fs2 = __toESM(require("fs"));
 var path2 = __toESM(require("path"));
 var https = __toESM(require("https"));
+var DEFAULT_RULEPACK_BASE_URL = "https://raw.githubusercontent.com/FLUSEC-25-26/flusec-rulepacks/main";
 function readJson(p) {
   try {
     if (!fs2.existsSync(p)) {
@@ -3425,8 +3426,9 @@ function httpsGetText(url) {
 }
 function repoBaseUrl() {
   const cfg = vscode3.workspace.getConfiguration("flusec");
-  const v = cfg.get("ruleRepoBaseUrl") ?? "";
-  return v.trim().replace(/\/+$/, "");
+  const v = (cfg.get("ruleRepoBaseUrl") ?? "").trim();
+  const base = v.length ? v : DEFAULT_RULEPACK_BASE_URL;
+  return base.replace(/\/+$/, "");
 }
 function hsdStoragePaths(context) {
   const root = path2.join(context.globalStorageUri.fsPath, "rulepacks", "hsd");
@@ -3439,26 +3441,55 @@ function hsdStoragePaths(context) {
     lastCheck: path2.join(root, ".lastCheck.json")
   };
 }
-function ensureUserRulesFile(p) {
+function ensureJsonArrayFile(p) {
   if (!fs2.existsSync(p)) {
     writeAtomic(p, "[]\n");
+  }
+}
+function bundledHsdPaths(context) {
+  const base = path2.join(context.extensionPath, "resources", "rulepacks", "hsd");
+  return {
+    baseRules: path2.join(base, "base_rules.json"),
+    heuristics: path2.join(base, "heuristics.json"),
+    manifest: path2.join(base, "manifest.json")
+  };
+}
+function bootstrapCacheFromBundled(context) {
+  const sp = hsdStoragePaths(context);
+  const bundled = bundledHsdPaths(context);
+  const cachedRules = readJson(sp.baseRules);
+  if (!cachedRules || cachedRules.length === 0) {
+    if (fs2.existsSync(bundled.baseRules)) {
+      const txt = fs2.readFileSync(bundled.baseRules, "utf8");
+      writeAtomic(sp.baseRules, txt);
+      console.log("[FLUSEC][rulepack] Bootstrapped cached base_rules from bundled baseline.");
+    } else {
+      console.warn("[FLUSEC][rulepack] Missing bundled base_rules.json:", bundled.baseRules);
+    }
+  }
+  const cachedHeur = readJson(sp.heuristics);
+  const isEmptyObj = !cachedHeur || typeof cachedHeur === "object" && Object.keys(cachedHeur).length === 0;
+  if (isEmptyObj) {
+    if (fs2.existsSync(bundled.heuristics)) {
+      const txt = fs2.readFileSync(bundled.heuristics, "utf8");
+      writeAtomic(sp.heuristics, txt);
+      console.log("[FLUSEC][rulepack] Bootstrapped cached heuristics from bundled baseline.");
+    } else {
+      console.warn("[FLUSEC][rulepack] Missing bundled heuristics.json:", bundled.heuristics);
+    }
   }
 }
 async function syncHsdRulePack(context, opts) {
   const sp = hsdStoragePaths(context);
   fs2.mkdirSync(sp.root, { recursive: true });
-  ensureUserRulesFile(sp.userRules);
+  ensureJsonArrayFile(sp.userRules);
+  bootstrapCacheFromBundled(context);
   const base = repoBaseUrl();
   console.log("[FLUSEC][rulepack] repoBaseUrl =", base || "<empty>");
   console.log("[FLUSEC][rulepack] storageRoot =", sp.root);
-  if (!base) {
-    console.log("[FLUSEC][rulepack] No base URL set -> skip download");
-    return;
-  }
   const now = Date.now();
   const last = readJson(sp.lastCheck)?.t ?? 0;
   const ageMs = now - last;
-  console.log("[FLUSEC][rulepack] lastCheckAgeMs =", ageMs, "force =", !!opts?.force);
   if (!opts?.force && ageMs < 12 * 60 * 60 * 1e3) {
     console.log("[FLUSEC][rulepack] Throttled (12h) -> skip");
     return;
@@ -3474,7 +3505,14 @@ async function syncHsdRulePack(context, opts) {
   }
   const local = readJson(sp.manifest);
   const needs = opts?.force || !local || local.version !== remote.version;
-  console.log("[FLUSEC][rulepack] localVersion =", local?.version, "remoteVersion =", remote?.version, "needs =", needs);
+  console.log(
+    "[FLUSEC][rulepack] localVersion =",
+    local?.version,
+    "remoteVersion =",
+    remote.version,
+    "needs =",
+    needs
+  );
   if (!needs) {
     return;
   }
@@ -3489,26 +3527,42 @@ async function syncHsdRulePack(context, opts) {
     writeAtomic(sp.heuristics, heuristicsTxt);
     writeAtomic(sp.manifest, JSON.stringify(remote, null, 2));
     writeAtomic(sp.lastCheck, JSON.stringify({ t: now }, null, 2));
-    console.log("[FLUSEC][rulepack] Download OK. Saved to:", sp.baseRules, sp.heuristics);
+    console.log("[FLUSEC][rulepack] Download OK. Cached updated files.");
   } catch (e) {
     console.error("[FLUSEC][rulepack] baseRules/heuristics download FAILED:", e);
   }
 }
+function hsdWorkspaceRoot(workspaceFolderFsPath) {
+  return path2.join(workspaceFolderFsPath, ".flusec");
+}
+function hsdWorkspaceUserRulesPath(workspaceFolderFsPath) {
+  return path2.join(hsdWorkspaceRoot(workspaceFolderFsPath), "user_rules.json");
+}
 function writeHsdWorkspaceData(context, workspaceFolderFsPath) {
   const sp = hsdStoragePaths(context);
-  ensureUserRulesFile(sp.userRules);
+  ensureJsonArrayFile(sp.userRules);
+  bootstrapCacheFromBundled(context);
   const baseRules = readJson(sp.baseRules) ?? [];
-  const userRules = readJson(sp.userRules) ?? [];
-  const heuristics = readJson(sp.heuristics) ?? null;
-  console.log("[FLUSEC][rules] baseRules =", baseRules.length, "userRules =", userRules.length);
-  console.log("[FLUSEC][rules] globalStorage paths:", sp.baseRules, sp.userRules, sp.heuristics);
-  const effectiveRules = [].concat(userRules, baseRules);
-  const dataDir = path2.join(workspaceFolderFsPath, "dart-analyzer", "data");
+  const globalUserRules = readJson(sp.userRules) ?? [];
+  const heuristics = readJson(sp.heuristics) ?? {};
+  const wsUserRulesPath = hsdWorkspaceUserRulesPath(workspaceFolderFsPath);
+  ensureJsonArrayFile(wsUserRulesPath);
+  const workspaceUserRules = readJson(wsUserRulesPath) ?? [];
+  console.log(
+    "[FLUSEC][rules] base=",
+    baseRules.length,
+    "workspaceUser=",
+    workspaceUserRules.length,
+    "globalUser=",
+    globalUserRules.length
+  );
+  const effectiveRules = [].concat(workspaceUserRules, globalUserRules, baseRules);
+  const dataDir = path2.join(hsdWorkspaceRoot(workspaceFolderFsPath), "data");
   fs2.mkdirSync(dataDir, { recursive: true });
   const rulesOut = path2.join(dataDir, "hardcoded_secrets_rules.json");
   const heurOut = path2.join(dataDir, "hardcoded_secrets_heuristics.json");
-  console.log("[FLUSEC][rules] writing workspace rules to:", rulesOut);
-  console.log("[FLUSEC][rules] writing workspace heuristics to:", heurOut);
+  console.log("[FLUSEC][rules] writing rules ->", rulesOut);
+  console.log("[FLUSEC][rules] writing heuristics ->", heurOut);
   writeAtomic(rulesOut, JSON.stringify(effectiveRules, null, 2));
   writeAtomic(heurOut, JSON.stringify(heuristics ?? {}, null, 2));
 }
@@ -3518,37 +3572,24 @@ function findWorkspaceFolderForDoc(doc) {
   return vscode4.workspace.getWorkspaceFolder(doc.uri) ?? vscode4.workspace.workspaceFolders?.[0];
 }
 function findingsPathForFolder(folder) {
-  return path3.join(folder.uri.fsPath, "dart-analyzer", ".out", "findings.json");
+  return path3.join(folder.uri.fsPath, ".flusec", ".out", "findings.json");
 }
 async function runAnalyzer(doc, context) {
   resetLLMState();
   clearFeedbackForDocument(doc.uri);
   const folder = findWorkspaceFolderForDoc(doc);
   if (!folder) {
-    vscode4.window.showErrorMessage(
-      "No workspace folder found for this document."
-    );
+    vscode4.window.showErrorMessage("No workspace folder found for this document.");
     return;
   }
-  await syncHsdRulePack(context).catch((e) => {
-    console.error("[FLUSEC] syncHsdRulePack (scan) failed:", e);
-  });
   writeHsdWorkspaceData(context, folder.uri.fsPath);
   const findingsFile = findingsPathForFolder(folder);
-  const analyzerPath = path3.join(
-    __dirname,
-    "..",
-    "dart-analyzer",
-    "bin",
-    "analyzer.exe"
-  );
+  const analyzerPath = path3.join(__dirname, "..", "dart-analyzer", "bin", "analyzer.exe");
   if (!fs3.existsSync(analyzerPath)) {
-    vscode4.window.showErrorMessage(
-      `Analyzer not found at path: ${analyzerPath}`
-    );
+    vscode4.window.showErrorMessage(`Analyzer not found at path: ${analyzerPath}`);
     return;
   }
-  const analyzerCwd = path3.join(folder.uri.fsPath, "dart-analyzer");
+  const analyzerCwd = path3.join(folder.uri.fsPath, ".flusec");
   fs3.mkdirSync(path3.dirname(findingsFile), { recursive: true });
   const stdout = await new Promise((resolve, reject) => {
     (0, import_child_process.execFile)(
@@ -3558,9 +3599,7 @@ async function runAnalyzer(doc, context) {
       (err, stdout2, stderr) => {
         if (err) {
           console.error("Analyzer execution error:", err);
-          vscode4.window.showErrorMessage(
-            "FLUSEC analyzer failed. See console for details."
-          );
+          vscode4.window.showErrorMessage("FLUSEC analyzer failed. See console for details.");
           return reject(err);
         }
         if (stderr) {
@@ -3605,11 +3644,7 @@ async function runAnalyzer(doc, context) {
     }
     const metricSuffix = metricParts.length ? ` [${metricParts.join(", ")}]` : "";
     const message = `${f.message ?? ""}${metricSuffix}`;
-    const diag = new vscode4.Diagnostic(
-      range,
-      message,
-      severityToVS(f.severity || "warning")
-    );
+    const diag = new vscode4.Diagnostic(range, message, severityToVS(f.severity || "warning"));
     diag.source = "flusec";
     diag.code = f.ruleId;
     diags.push(diag);
@@ -3647,8 +3682,9 @@ function openRuleManager(context) {
   );
   const htmlPath = fs4.existsSync(htmlFileWeb) ? htmlFileWeb : htmlFileSrc;
   panel.webview.html = fs4.existsSync(htmlPath) ? fs4.readFileSync(htmlPath, "utf8") : `<html><body><h3>Missing rule manager HTML:</h3><pre>${htmlPath}</pre></body></html>`;
-  const sp = hsdStoragePaths(context);
-  const userRulesPath = sp.userRules;
+  const active = vscode5.window.activeTextEditor?.document;
+  const wf = (active ? vscode5.workspace.getWorkspaceFolder(active.uri) : void 0) ?? vscode5.workspace.workspaceFolders?.[0];
+  const userRulesPath = wf ? path4.join(wf.uri.fsPath, ".flusec", "user_rules.json") : hsdStoragePaths(context).userRules;
   function ensureRulesFileExists() {
     try {
       if (!fs4.existsSync(userRulesPath)) {
@@ -3693,7 +3729,7 @@ function openRuleManager(context) {
         const action = typeof msg.action === "string" ? msg.action : "save";
         const deletedId = typeof msg.deletedId === "string" && msg.deletedId.trim().length > 0 ? msg.deletedId.trim() : "";
         console.log("[RuleManager] saveRules action =", action, "deletedId =", deletedId);
-        const toast = action === "delete" ? `\u{1F5D1}\uFE0F Rule deleted successfully${deletedId ? `: ${deletedId}` : ""}.` : "\u2705 Rules saved successfully!";
+        const toast = action === "delete" ? `Rule deleted successfully${deletedId ? `: ${deletedId}` : ""}.` : "Rules saved successfully.";
         vscode5.window.showInformationMessage(toast);
         loadRulesIntoWebview();
       } catch (e) {
@@ -3728,7 +3764,7 @@ function openRuleManager(context) {
           writeRules(rules);
           rebuildEffectiveRulesForAllWorkspaces();
           vscode5.window.showInformationMessage(
-            `\u{1F5D1}\uFE0F Deleted rule${removed[0]?.id ? ` "${removed[0].id}"` : ""}.`
+            `Deleted rule${removed[0]?.id ? ` "${removed[0].id}"` : ""}.`
           );
           loadRulesIntoWebview();
         } else {
@@ -4031,15 +4067,28 @@ function clearFindingsForAllWorkspaceFoldersOnce() {
   }
   clearedFindingsThisSession = true;
 }
-function activate(context) {
+async function activate(context) {
   context.subscriptions.push(diagCollection);
   clearFindingsForAllWorkspaceFoldersOnce();
-  syncHsdRulePack(context).catch((e) => {
+  try {
+    await syncHsdRulePack(context);
+  } catch (e) {
     console.error("[FLUSEC] syncHsdRulePack (startup) failed:", e);
-  });
+  }
   for (const f of vscode8.workspace.workspaceFolders ?? []) {
     writeHsdWorkspaceData(context, f.uri.fsPath);
   }
+  const timer = setInterval(async () => {
+    try {
+      await syncHsdRulePack(context);
+      for (const f of vscode8.workspace.workspaceFolders ?? []) {
+        writeHsdWorkspaceData(context, f.uri.fsPath);
+      }
+    } catch (e) {
+      console.error("[FLUSEC] periodic rulepack sync failed:", e);
+    }
+  }, 6 * 60 * 60 * 1e3);
+  context.subscriptions.push({ dispose: () => clearInterval(timer) });
   context.subscriptions.push(
     vscode8.workspace.onDidChangeWorkspaceFolders(() => {
       clearFindingsForAllWorkspaceFoldersOnce();
@@ -4057,12 +4106,16 @@ function activate(context) {
   );
   context.subscriptions.push(
     vscode8.commands.registerCommand("flusec.updateRulePacks", async () => {
-      await syncHsdRulePack(context, { force: true }).catch(() => {
-      });
-      for (const f of vscode8.workspace.workspaceFolders ?? []) {
-        writeHsdWorkspaceData(context, f.uri.fsPath);
+      try {
+        await syncHsdRulePack(context, { force: true });
+        for (const f of vscode8.workspace.workspaceFolders ?? []) {
+          writeHsdWorkspaceData(context, f.uri.fsPath);
+        }
+        vscode8.window.showInformationMessage("FLUSEC: Rule packs updated.");
+      } catch (e) {
+        console.error("[FLUSEC] updateRulePacks failed:", e);
+        vscode8.window.showErrorMessage("FLUSEC: Rule pack update failed. Check console.");
       }
-      vscode8.window.showInformationMessage("FLUSEC: Rule packs updated.");
     })
   );
   context.subscriptions.push(

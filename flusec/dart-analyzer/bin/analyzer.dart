@@ -51,7 +51,11 @@ void main(List<String> args) {
   if (rawRules.isNotEmpty) {
     stderr.writeln('♻️ Reloaded ${rawRules.length} rule(s) from ${rulesFile.path}');
   } else {
-    stderr.writeln('⚠️ rules.json not found – continuing with built-in rules.');
+    if (!rulesFile.existsSync()) {
+      stderr.writeln('⚠️ Dynamic rules file not found: ${rulesFile.path}. Rule-based detection may be limited.');
+    } else {
+      stderr.writeln('⚠️ Dynamic rules file is empty: ${rulesFile.path}. Rule-based detection may be limited.');
+    }
   }
 
   final heuristics = _readMap(heuristicsFile);

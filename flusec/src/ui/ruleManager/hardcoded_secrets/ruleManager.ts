@@ -3,17 +3,6 @@ import * as fs from "fs";
 import * as path from "path";
 import { hsdStoragePaths, writeHsdWorkspaceData } from "../../../rules/hsdRulePack.js";
 
-/**
- * Opens the Rule Manager UI as a VS Code Webview.
- * NOW:
- * - reads/writes USER rules to globalStorage (per developer machine)
- * - after any change, regenerates workspace effective rule files
- * Keeps ALL your old webview message commands:
- * - saveRules (with action/deletedId)
- * - confirmDelete (modal confirm)
- * - refresh
- * - debugPath
- */
 export function openRuleManager(context: vscode.ExtensionContext) {
   const panel = vscode.window.createWebviewPanel(
     "ruleManager",
@@ -24,8 +13,6 @@ export function openRuleManager(context: vscode.ExtensionContext) {
 
   const extensionRoot = context.extensionUri.fsPath;
 
-  // Packaged HTML is under web/ (because package.json files includes web/)
-  // Dev HTML is under src/
   const htmlFileWeb = path.join(
     extensionRoot,
     "web",
@@ -49,9 +36,15 @@ export function openRuleManager(context: vscode.ExtensionContext) {
     ? fs.readFileSync(htmlPath, "utf8")
     : `<html><body><h3>Missing rule manager HTML:</h3><pre>${htmlPath}</pre></body></html>`;
 
-  // USER rules stored locally (globalStorage)
-  const sp = hsdStoragePaths(context);
-  const userRulesPath = sp.userRules;
+  // Workspace-first rules path (.flusec/user_rules.json)
+  const active = vscode.window.activeTextEditor?.document;
+  const wf =
+    (active ? vscode.workspace.getWorkspaceFolder(active.uri) : undefined) ??
+    vscode.workspace.workspaceFolders?.[0];
+
+  const userRulesPath = wf
+    ? path.join(wf.uri.fsPath, ".flusec", "user_rules.json")
+    : hsdStoragePaths(context).userRules; // fallback if no workspace
 
   function ensureRulesFileExists() {
     try {
@@ -93,19 +86,14 @@ export function openRuleManager(context: vscode.ExtensionContext) {
     }
   }
 
-  // Initial load
   loadRulesIntoWebview();
 
   panel.webview.onDidReceiveMessage(async (msg) => {
-    // -------------------------
-    // SAVE (keeps old behavior)
-    // -------------------------
     if (msg.command === "saveRules") {
       try {
         const rules = Array.isArray(msg.rules) ? msg.rules : [];
         writeRules(rules);
 
-        // NEW: update workspace effective merged rules so analyzer uses latest
         rebuildEffectiveRulesForAllWorkspaces();
 
         const action = typeof msg.action === "string" ? msg.action : "save";
@@ -118,12 +106,11 @@ export function openRuleManager(context: vscode.ExtensionContext) {
 
         const toast =
           action === "delete"
-            ? `🗑️ Rule deleted successfully${deletedId ? `: ${deletedId}` : ""}.`
-            : "✅ Rules saved successfully!";
+            ? `Rule deleted successfully${deletedId ? `: ${deletedId}` : ""}.`
+            : "Rules saved successfully.";
 
         vscode.window.showInformationMessage(toast);
 
-        // reload and push back
         loadRulesIntoWebview();
       } catch (e: any) {
         vscode.window.showErrorMessage("Failed to save rules: " + (e?.message || e));
@@ -131,9 +118,6 @@ export function openRuleManager(context: vscode.ExtensionContext) {
       return;
     }
 
-    // -------------------------
-    // CONFIRM DELETE (keeps old)
-    // -------------------------
     if (msg.command === "confirmDelete") {
       const { id, index } = msg as { id?: string; index?: number };
 
@@ -149,11 +133,9 @@ export function openRuleManager(context: vscode.ExtensionContext) {
       try {
         const rules = readRules();
 
-        // Try by ID first
         let delIndex = -1;
         if (id) {delIndex = rules.findIndex((r) => r && r.id === id);}
 
-        // Fallback to index if needed
         if ((delIndex < 0 || delIndex >= rules.length) && typeof index === "number") {
           if (index >= 0 && index < rules.length) {delIndex = index;}
         }
@@ -162,11 +144,10 @@ export function openRuleManager(context: vscode.ExtensionContext) {
           const removed = rules.splice(delIndex, 1);
           writeRules(rules);
 
-          // NEW: update workspace effective merged rules
           rebuildEffectiveRulesForAllWorkspaces();
 
           vscode.window.showInformationMessage(
-            `🗑️ Deleted rule${removed[0]?.id ? ` "${removed[0].id}"` : ""}.`
+            `Deleted rule${removed[0]?.id ? ` "${removed[0].id}"` : ""}.`
           );
           loadRulesIntoWebview();
         } else {
@@ -180,17 +161,11 @@ export function openRuleManager(context: vscode.ExtensionContext) {
       return;
     }
 
-    // -------------------------
-    // REFRESH (keeps old)
-    // -------------------------
     if (msg.command === "refresh") {
       loadRulesIntoWebview();
       return;
     }
 
-    // -------------------------
-    // DEBUG PATH (keeps old)
-    // -------------------------
     if (msg.command === "debugPath") {
       vscode.window.showInformationMessage(`User rules path: ${userRulesPath}`);
       return;
