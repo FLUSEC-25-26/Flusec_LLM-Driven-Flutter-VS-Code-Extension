@@ -180,9 +180,7 @@ export function hsdWorkspaceRoot(workspaceFolderFsPath: string) {
   return path.join(workspaceFolderFsPath, ".flusec");
 }
 
-export function hsdWorkspaceUserRulesPath(workspaceFolderFsPath: string) {
-  return path.join(hsdWorkspaceRoot(workspaceFolderFsPath), "user_rules.json");
-}
+
 
 export function writeHsdWorkspaceData(
   context: vscode.ExtensionContext,
@@ -197,20 +195,16 @@ export function writeHsdWorkspaceData(
   const globalUserRules = readJson<any[]>(sp.userRules) ?? [];
   const heuristics = readJson<any>(sp.heuristics) ?? {};
 
-  const wsUserRulesPath = hsdWorkspaceUserRulesPath(workspaceFolderFsPath);
-  ensureJsonArrayFile(wsUserRulesPath);
-  const workspaceUserRules = readJson<any[]>(wsUserRulesPath) ?? [];
+  
 
   console.log(
     "[FLUSEC][rules] base=",
     baseRules.length,
-    "workspaceUser=",
-    workspaceUserRules.length,
     "globalUser=",
     globalUserRules.length
   );
 
-  const effectiveRules = ([] as any[]).concat(workspaceUserRules, globalUserRules, baseRules);
+  const effectiveRules = ([] as any[]).concat(globalUserRules, baseRules);
 
   const dataDir = path.join(hsdWorkspaceRoot(workspaceFolderFsPath), "data");
   fs.mkdirSync(dataDir, { recursive: true });

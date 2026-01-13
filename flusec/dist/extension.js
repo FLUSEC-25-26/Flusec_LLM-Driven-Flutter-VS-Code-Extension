@@ -3535,9 +3535,6 @@ async function syncHsdRulePack(context, opts) {
 function hsdWorkspaceRoot(workspaceFolderFsPath) {
   return path2.join(workspaceFolderFsPath, ".flusec");
 }
-function hsdWorkspaceUserRulesPath(workspaceFolderFsPath) {
-  return path2.join(hsdWorkspaceRoot(workspaceFolderFsPath), "user_rules.json");
-}
 function writeHsdWorkspaceData(context, workspaceFolderFsPath) {
   const sp = hsdStoragePaths(context);
   ensureJsonArrayFile(sp.userRules);
@@ -3545,18 +3542,13 @@ function writeHsdWorkspaceData(context, workspaceFolderFsPath) {
   const baseRules = readJson(sp.baseRules) ?? [];
   const globalUserRules = readJson(sp.userRules) ?? [];
   const heuristics = readJson(sp.heuristics) ?? {};
-  const wsUserRulesPath = hsdWorkspaceUserRulesPath(workspaceFolderFsPath);
-  ensureJsonArrayFile(wsUserRulesPath);
-  const workspaceUserRules = readJson(wsUserRulesPath) ?? [];
   console.log(
     "[FLUSEC][rules] base=",
     baseRules.length,
-    "workspaceUser=",
-    workspaceUserRules.length,
     "globalUser=",
     globalUserRules.length
   );
-  const effectiveRules = [].concat(workspaceUserRules, globalUserRules, baseRules);
+  const effectiveRules = [].concat(globalUserRules, baseRules);
   const dataDir = path2.join(hsdWorkspaceRoot(workspaceFolderFsPath), "data");
   fs2.mkdirSync(dataDir, { recursive: true });
   const rulesOut = path2.join(dataDir, "hardcoded_secrets_rules.json");
@@ -3682,9 +3674,8 @@ function openRuleManager(context) {
   );
   const htmlPath = fs4.existsSync(htmlFileWeb) ? htmlFileWeb : htmlFileSrc;
   panel.webview.html = fs4.existsSync(htmlPath) ? fs4.readFileSync(htmlPath, "utf8") : `<html><body><h3>Missing rule manager HTML:</h3><pre>${htmlPath}</pre></body></html>`;
-  const active = vscode5.window.activeTextEditor?.document;
-  const wf = (active ? vscode5.workspace.getWorkspaceFolder(active.uri) : void 0) ?? vscode5.workspace.workspaceFolders?.[0];
-  const userRulesPath = wf ? path4.join(wf.uri.fsPath, ".flusec", "user_rules.json") : hsdStoragePaths(context).userRules;
+  const userRulesPath = hsdStoragePaths(context).userRules;
+  console.log("[RuleManager] userRulesPath (globalStorage) =", userRulesPath);
   function ensureRulesFileExists() {
     try {
       if (!fs4.existsSync(userRulesPath)) {

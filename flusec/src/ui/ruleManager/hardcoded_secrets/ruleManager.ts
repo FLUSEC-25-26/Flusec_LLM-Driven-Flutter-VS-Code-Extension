@@ -36,15 +36,12 @@ export function openRuleManager(context: vscode.ExtensionContext) {
     ? fs.readFileSync(htmlPath, "utf8")
     : `<html><body><h3>Missing rule manager HTML:</h3><pre>${htmlPath}</pre></body></html>`;
 
-  // Workspace-first rules path (.flusec/user_rules.json)
-  const active = vscode.window.activeTextEditor?.document;
-  const wf =
-    (active ? vscode.workspace.getWorkspaceFolder(active.uri) : undefined) ??
-    vscode.workspace.workspaceFolders?.[0];
+  
+   //  Option A: Always store user rules in globalStorage (per machine)
+    const userRulesPath = hsdStoragePaths(context).userRules;
 
-  const userRulesPath = wf
-    ? path.join(wf.uri.fsPath, ".flusec", "user_rules.json")
-    : hsdStoragePaths(context).userRules; // fallback if no workspace
+    console.log("[RuleManager] userRulesPath (globalStorage) =", userRulesPath);
+
 
   function ensureRulesFileExists() {
     try {
