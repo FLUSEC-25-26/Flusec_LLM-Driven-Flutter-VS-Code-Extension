@@ -1,0 +1,9 @@
+{
+  "component": "hsd",
+  "version": "1.0.0",
+  "updated": "2026-01-12",
+  "files": {
+    "baseRules": "hsd/base_rules.json",
+    "heuristics": "hsd/heuristics.json"
+  }
+}

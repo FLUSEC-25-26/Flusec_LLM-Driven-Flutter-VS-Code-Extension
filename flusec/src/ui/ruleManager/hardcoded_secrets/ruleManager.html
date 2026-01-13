@@ -260,10 +260,13 @@
         } else {
           rules.push(newRule);
         }
-        // Optional immediate persist:
-        // vscode.postMessage({ command: "saveRules", rules });
-        clearForm();
+        
         renderTable();
+        
+        vscode.postMessage({ command: "saveRules", rules });
+
+        clearForm();
+        
       };
 
       document.getElementById("saveAll").onclick = () => {
