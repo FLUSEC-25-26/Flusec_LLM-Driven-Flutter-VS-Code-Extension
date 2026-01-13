@@ -30,7 +30,6 @@ class DynamicRule {
 
       final id = (r['id'] ?? '').toString().trim();
       final name = (r['name'] ?? id).toString().trim();
-
       if (id.isEmpty) return null;
 
       stderr.writeln('🧠 Compiled pattern for rule "$id": $pat');
@@ -68,91 +67,89 @@ class MatchHit {
 }
 
 class HeuristicsCfg {
-  int minLength;
-  double minEntropy;
-  List<String> sensitiveKeywords;
-  List<String> benignMarkers;
+  final int minLength;
+  final double minEntropy;
+  final List<String> sensitiveKeywords;
+  final List<String> benignMarkers;
 
-  HeuristicsCfg({
+  const HeuristicsCfg({
     required this.minLength,
     required this.minEntropy,
     required this.sensitiveKeywords,
     required this.benignMarkers,
   });
 
-  // Fallback only if heuristics.json missing/empty
-  factory HeuristicsCfg.defaults() => HeuristicsCfg(
-        minLength: 14,
-        minEntropy: 3.2,
-        sensitiveKeywords: const [
-          'password',
-          'passwd',
-          'pwd',
-          'secret',
-          'token',
-          'apikey',
-          'api_key',
-          'auth',
-          'authorization',
-          'bearer',
-          'private',
-          'key',
-        ],
-        benignMarkers: const [
-          'test',
-          'dummy',
-          'sample',
-          'example',
-          'fake',
-          'placeholder',
-          'changeme',
-        ],
+  /// Heuristics are disabled when config is missing/empty/invalid.
+  factory HeuristicsCfg.disabled() => const HeuristicsCfg(
+        minLength: 1 << 30,
+        minEntropy: double.infinity,
+        sensitiveKeywords: <String>[],
+        benignMarkers: <String>[],
       );
 
-  factory HeuristicsCfg.fromJson(Map<String, dynamic> json) {
-    final d = HeuristicsCfg.defaults();
-
+  /// STRICT parser: requires valid types in JSON.
+  /// Expected keys:
+  /// - minLength: int
+  /// - minEntropy: number
+  /// - sensitiveKeywords: List<String>
+  /// - benignMarkers: List<String>
+  factory HeuristicsCfg.fromJsonStrict(Map<String, dynamic> json) {
     final ml = json['minLength'];
     final me = json['minEntropy'];
     final sk = json['sensitiveKeywords'];
     final bm = json['benignMarkers'];
 
+    if (ml is! int) {
+      throw const FormatException('heuristics.minLength must be an int');
+    }
+    if (me is! num) {
+      throw const FormatException('heuristics.minEntropy must be a number');
+    }
+    if (sk is! List) {
+      throw const FormatException('heuristics.sensitiveKeywords must be a list');
+    }
+    if (bm is! List) {
+      throw const FormatException('heuristics.benignMarkers must be a list');
+    }
+
     return HeuristicsCfg(
-      minLength: ml is int ? ml : d.minLength,
-      minEntropy: me is num ? me.toDouble() : d.minEntropy,
-      sensitiveKeywords: sk is List
-          ? sk.map((e) => e.toString()).toList()
-          : d.sensitiveKeywords,
-      benignMarkers: bm is List
-          ? bm.map((e) => e.toString()).toList()
-          : d.benignMarkers,
+      minLength: ml,
+      minEntropy: me.toDouble(),
+      sensitiveKeywords: sk.map((e) => e.toString()).toList(),
+      benignMarkers: bm.map((e) => e.toString()).toList(),
     );
   }
 }
 
 class RulesEngine {
   final List<DynamicRule> _rules = [];
-  HeuristicsCfg _cfg = HeuristicsCfg.defaults();
+  HeuristicsCfg _cfg = HeuristicsCfg.disabled();
 
   /// rules = merged list already (user first + base next) produced by extension
   void loadDynamicRules(List<Map<String, dynamic>> raw) {
     _rules
       ..clear()
-      ..addAll(
-        raw.map(DynamicRule.tryFromJson).whereType<DynamicRule>(),
-      );
+      ..addAll(raw.map(DynamicRule.tryFromJson).whereType<DynamicRule>());
 
     stderr.writeln('✅ Loaded ${_rules.length} rule(s) from merged rule list.');
   }
 
+  /// NO FALLBACK:
+  /// - if json empty/invalid => heuristics disabled (so you can verify downloads)
   void loadHeuristics(Map<String, dynamic> json) {
     if (json.isEmpty) {
-      _cfg = HeuristicsCfg.defaults();
-      stderr.writeln('⚠️ Heuristics config missing/empty → using defaults.');
+      _cfg = HeuristicsCfg.disabled();
+      stderr.writeln('❌ Heuristics config missing/empty → heuristics DISABLED.');
       return;
     }
-    _cfg = HeuristicsCfg.fromJson(json);
-    stderr.writeln('✅ Loaded heuristics config from JSON.');
+
+    try {
+      _cfg = HeuristicsCfg.fromJsonStrict(json);
+      stderr.writeln('✅ Loaded heuristics config from JSON (strict).');
+    } catch (e) {
+      _cfg = HeuristicsCfg.disabled();
+      stderr.writeln('❌ Invalid heuristics JSON → heuristics DISABLED. Error: $e');
+    }
   }
 
   MatchHit? detect(String value, String contextName, String nodeKind) {
@@ -174,7 +171,7 @@ class RulesEngine {
       if (lc.contains(mm) || ctxLower.contains(mm)) return null;
     }
 
-    // 1) RULE MATCHING (this is the main detection now)
+    // 1) RULE MATCHING (main detection)
     for (final r in _rules) {
       if (r.regex.hasMatch(trimmed)) {
         final msg = r.messageTemplate ??
@@ -183,7 +180,7 @@ class RulesEngine {
       }
     }
 
-    // 2) HEURISTIC (entropy + keyword hint)
+    // 2) HEURISTIC (entropy + keyword hint) — disabled if config missing/invalid
     if (trimmed.length < _cfg.minLength) return null;
 
     final hasKeyword = _cfg.sensitiveKeywords.any((kw) {

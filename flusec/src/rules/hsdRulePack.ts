@@ -77,32 +77,63 @@ export async function syncHsdRulePack(
   fs.mkdirSync(sp.root, { recursive: true });
   ensureUserRulesFile(sp.userRules);
 
-  const now = Date.now();
-  const last = readJson<{ t: number }>(sp.lastCheck)?.t ?? 0;
-  if (!opts?.force && now - last < 12 * 60 * 60 * 1000) {return;}
-  writeAtomic(sp.lastCheck, JSON.stringify({ t: now }, null, 2));
-
   const base = repoBaseUrl();
-  if (!base) {return;}
+  console.log("[FLUSEC][rulepack] repoBaseUrl =", base || "<empty>");
+  console.log("[FLUSEC][rulepack] storageRoot =", sp.root);
 
-  let remote: HsdManifest;
-  try {
-    remote = JSON.parse(await httpsGetText(`${base}/hsd/manifest.json`)) as HsdManifest;
-  } catch {
-    return; // offline/bad URL -> ignore
+  if (!base) {
+    console.log("[FLUSEC][rulepack] No base URL set -> skip download");
+    return;
   }
 
-  const local = readJson<HsdManifest>(sp.manifest);
+  const now = Date.now();
+  const last = readJson<{ t: number }>(sp.lastCheck)?.t ?? 0;
+  const ageMs = now - last;
+  console.log("[FLUSEC][rulepack] lastCheckAgeMs =", ageMs, "force =", !!opts?.force);
+
+  if (!opts?.force && ageMs < 12 * 60 * 60 * 1000) {
+    console.log("[FLUSEC][rulepack] Throttled (12h) -> skip");
+    return;
+  }
+
+  let remote: any;
+  try {
+    const manifestUrl = `${base}/hsd/manifest.json`;
+    console.log("[FLUSEC][rulepack] manifestUrl =", manifestUrl);
+    remote = JSON.parse(await httpsGetText(manifestUrl));
+  } catch (e) {
+    console.error("[FLUSEC][rulepack] manifest download/parse FAILED:", e);
+    return;
+  }
+
+  const local = readJson<any>(sp.manifest);
   const needs = opts?.force || !local || local.version !== remote.version;
+  console.log("[FLUSEC][rulepack] localVersion =", local?.version, "remoteVersion =", remote?.version, "needs =", needs);
+
   if (!needs) {return;}
 
-  const baseRulesTxt = await httpsGetText(`${base}/${remote.files.baseRules}`);
-  const heuristicsTxt = await httpsGetText(`${base}/${remote.files.heuristics}`);
+  try {
+    const baseRulesUrl = `${base}/${remote.files.baseRules}`;
+    const heuristicsUrl = `${base}/${remote.files.heuristics}`;
+    console.log("[FLUSEC][rulepack] baseRulesUrl =", baseRulesUrl);
+    console.log("[FLUSEC][rulepack] heuristicsUrl =", heuristicsUrl);
 
-  writeAtomic(sp.baseRules, baseRulesTxt);
-  writeAtomic(sp.heuristics, heuristicsTxt);
-  writeAtomic(sp.manifest, JSON.stringify(remote, null, 2));
+    const baseRulesTxt = await httpsGetText(baseRulesUrl);
+    const heuristicsTxt = await httpsGetText(heuristicsUrl);
+
+    writeAtomic(sp.baseRules, baseRulesTxt);
+    writeAtomic(sp.heuristics, heuristicsTxt);
+    writeAtomic(sp.manifest, JSON.stringify(remote, null, 2));
+
+    // ✅ Write lastCheck ONLY after success
+    writeAtomic(sp.lastCheck, JSON.stringify({ t: now }, null, 2));
+
+    console.log("[FLUSEC][rulepack] Download OK. Saved to:", sp.baseRules, sp.heuristics);
+  } catch (e) {
+    console.error("[FLUSEC][rulepack] baseRules/heuristics download FAILED:", e);
+  }
 }
+
 
 /**
  * Writes effective files into:
@@ -120,19 +151,22 @@ export function writeHsdWorkspaceData(
   const userRules = readJson<any[]>(sp.userRules) ?? [];
   const heuristics = readJson<any>(sp.heuristics) ?? null;
 
+  console.log("[FLUSEC][rules] baseRules =", baseRules.length, "userRules =", userRules.length);
+  console.log("[FLUSEC][rules] globalStorage paths:", sp.baseRules, sp.userRules, sp.heuristics);
+
   // priority: user rules first, then base rules
   const effectiveRules = ([] as any[]).concat(userRules, baseRules);
 
   const dataDir = path.join(workspaceFolderFsPath, "dart-analyzer", "data");
   fs.mkdirSync(dataDir, { recursive: true });
 
-  writeAtomic(
-    path.join(dataDir, "hardcoded_secrets_rules.json"),
-    JSON.stringify(effectiveRules, null, 2)
-  );
+  const rulesOut = path.join(dataDir, "hardcoded_secrets_rules.json");
+  const heurOut  = path.join(dataDir, "hardcoded_secrets_heuristics.json");
 
-  writeAtomic(
-    path.join(dataDir, "hardcoded_secrets_heuristics.json"),
-    JSON.stringify(heuristics ?? {}, null, 2)
-  );
+  console.log("[FLUSEC][rules] writing workspace rules to:", rulesOut);
+  console.log("[FLUSEC][rules] writing workspace heuristics to:", heurOut);
+
+  writeAtomic(rulesOut, JSON.stringify(effectiveRules, null, 2));
+  writeAtomic(heurOut, JSON.stringify(heuristics ?? {}, null, 2));
 }
+

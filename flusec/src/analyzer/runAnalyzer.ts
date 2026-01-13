@@ -85,7 +85,9 @@ export async function runAnalyzer(
 
   // NEW: sync rulepack + write effective workspace rule files
   // Safe if offline: it just keeps cached/globalStorage values
-  await syncHsdRulePack(context).catch(() => {});
+  await syncHsdRulePack(context).catch((e) => {
+  console.error("[FLUSEC] syncHsdRulePack (scan) failed:", e);
+  });
   writeHsdWorkspaceData(context, folder.uri.fsPath);
 
   const findingsFile = findingsPathForFolder(folder);

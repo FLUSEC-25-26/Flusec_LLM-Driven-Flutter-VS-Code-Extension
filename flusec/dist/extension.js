@@ -3448,32 +3448,51 @@ async function syncHsdRulePack(context, opts) {
   const sp = hsdStoragePaths(context);
   fs2.mkdirSync(sp.root, { recursive: true });
   ensureUserRulesFile(sp.userRules);
-  const now = Date.now();
-  const last = readJson(sp.lastCheck)?.t ?? 0;
-  if (!opts?.force && now - last < 12 * 60 * 60 * 1e3) {
+  const base = repoBaseUrl();
+  console.log("[FLUSEC][rulepack] repoBaseUrl =", base || "<empty>");
+  console.log("[FLUSEC][rulepack] storageRoot =", sp.root);
+  if (!base) {
+    console.log("[FLUSEC][rulepack] No base URL set -> skip download");
     return;
   }
-  writeAtomic(sp.lastCheck, JSON.stringify({ t: now }, null, 2));
-  const base = repoBaseUrl();
-  if (!base) {
+  const now = Date.now();
+  const last = readJson(sp.lastCheck)?.t ?? 0;
+  const ageMs = now - last;
+  console.log("[FLUSEC][rulepack] lastCheckAgeMs =", ageMs, "force =", !!opts?.force);
+  if (!opts?.force && ageMs < 12 * 60 * 60 * 1e3) {
+    console.log("[FLUSEC][rulepack] Throttled (12h) -> skip");
     return;
   }
   let remote;
   try {
-    remote = JSON.parse(await httpsGetText(`${base}/hsd/manifest.json`));
-  } catch {
+    const manifestUrl = `${base}/hsd/manifest.json`;
+    console.log("[FLUSEC][rulepack] manifestUrl =", manifestUrl);
+    remote = JSON.parse(await httpsGetText(manifestUrl));
+  } catch (e) {
+    console.error("[FLUSEC][rulepack] manifest download/parse FAILED:", e);
     return;
   }
   const local = readJson(sp.manifest);
   const needs = opts?.force || !local || local.version !== remote.version;
+  console.log("[FLUSEC][rulepack] localVersion =", local?.version, "remoteVersion =", remote?.version, "needs =", needs);
   if (!needs) {
     return;
   }
-  const baseRulesTxt = await httpsGetText(`${base}/${remote.files.baseRules}`);
-  const heuristicsTxt = await httpsGetText(`${base}/${remote.files.heuristics}`);
-  writeAtomic(sp.baseRules, baseRulesTxt);
-  writeAtomic(sp.heuristics, heuristicsTxt);
-  writeAtomic(sp.manifest, JSON.stringify(remote, null, 2));
+  try {
+    const baseRulesUrl = `${base}/${remote.files.baseRules}`;
+    const heuristicsUrl = `${base}/${remote.files.heuristics}`;
+    console.log("[FLUSEC][rulepack] baseRulesUrl =", baseRulesUrl);
+    console.log("[FLUSEC][rulepack] heuristicsUrl =", heuristicsUrl);
+    const baseRulesTxt = await httpsGetText(baseRulesUrl);
+    const heuristicsTxt = await httpsGetText(heuristicsUrl);
+    writeAtomic(sp.baseRules, baseRulesTxt);
+    writeAtomic(sp.heuristics, heuristicsTxt);
+    writeAtomic(sp.manifest, JSON.stringify(remote, null, 2));
+    writeAtomic(sp.lastCheck, JSON.stringify({ t: now }, null, 2));
+    console.log("[FLUSEC][rulepack] Download OK. Saved to:", sp.baseRules, sp.heuristics);
+  } catch (e) {
+    console.error("[FLUSEC][rulepack] baseRules/heuristics download FAILED:", e);
+  }
 }
 function writeHsdWorkspaceData(context, workspaceFolderFsPath) {
   const sp = hsdStoragePaths(context);
@@ -3481,17 +3500,17 @@ function writeHsdWorkspaceData(context, workspaceFolderFsPath) {
   const baseRules = readJson(sp.baseRules) ?? [];
   const userRules = readJson(sp.userRules) ?? [];
   const heuristics = readJson(sp.heuristics) ?? null;
+  console.log("[FLUSEC][rules] baseRules =", baseRules.length, "userRules =", userRules.length);
+  console.log("[FLUSEC][rules] globalStorage paths:", sp.baseRules, sp.userRules, sp.heuristics);
   const effectiveRules = [].concat(userRules, baseRules);
   const dataDir = path2.join(workspaceFolderFsPath, "dart-analyzer", "data");
   fs2.mkdirSync(dataDir, { recursive: true });
-  writeAtomic(
-    path2.join(dataDir, "hardcoded_secrets_rules.json"),
-    JSON.stringify(effectiveRules, null, 2)
-  );
-  writeAtomic(
-    path2.join(dataDir, "hardcoded_secrets_heuristics.json"),
-    JSON.stringify(heuristics ?? {}, null, 2)
-  );
+  const rulesOut = path2.join(dataDir, "hardcoded_secrets_rules.json");
+  const heurOut = path2.join(dataDir, "hardcoded_secrets_heuristics.json");
+  console.log("[FLUSEC][rules] writing workspace rules to:", rulesOut);
+  console.log("[FLUSEC][rules] writing workspace heuristics to:", heurOut);
+  writeAtomic(rulesOut, JSON.stringify(effectiveRules, null, 2));
+  writeAtomic(heurOut, JSON.stringify(heuristics ?? {}, null, 2));
 }
 
 // src/analyzer/runAnalyzer.ts
@@ -3511,7 +3530,8 @@ async function runAnalyzer(doc, context) {
     );
     return;
   }
-  await syncHsdRulePack(context).catch(() => {
+  await syncHsdRulePack(context).catch((e) => {
+    console.error("[FLUSEC] syncHsdRulePack (scan) failed:", e);
   });
   writeHsdWorkspaceData(context, folder.uri.fsPath);
   const findingsFile = findingsPathForFolder(folder);
@@ -4014,7 +4034,8 @@ function clearFindingsForAllWorkspaceFoldersOnce() {
 function activate(context) {
   context.subscriptions.push(diagCollection);
   clearFindingsForAllWorkspaceFoldersOnce();
-  syncHsdRulePack(context).catch(() => {
+  syncHsdRulePack(context).catch((e) => {
+    console.error("[FLUSEC] syncHsdRulePack (startup) failed:", e);
   });
   for (const f of vscode8.workspace.workspaceFolders ?? []) {
     writeHsdWorkspaceData(context, f.uri.fsPath);

@@ -58,7 +58,9 @@ export function activate(context: vscode.ExtensionContext) {
   clearFindingsForAllWorkspaceFoldersOnce();
 
   // ---- NEW: sync rulepack on startup (safe offline) ----
-  syncHsdRulePack(context).catch(() => {});
+  syncHsdRulePack(context).catch((e) => {
+  console.error("[FLUSEC] syncHsdRulePack (startup) failed:", e);
+  });
 
   // ---- NEW: generate workspace data files (rules + heuristics) ----
   for (const f of vscode.workspace.workspaceFolders ?? []) {
