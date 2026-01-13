@@ -10,9 +10,6 @@ type HsdManifest = {
   files: { baseRules: string; heuristics: string };
 };
 
-const DEFAULT_RULEPACK_BASE_URL =
-  "https://raw.githubusercontent.com/FLUSEC-25-26/flusec-rulepacks/main";
-
 function readJson<T>(p: string): T | null {
   try {
     if (!fs.existsSync(p)) {return null;}
@@ -45,11 +42,20 @@ function httpsGetText(url: string): Promise<string> {
   });
 }
 
+/**
+ * Industry standard:
+ * - Default URL is defined in package.json contributes.configuration
+ * - Code only reads config value; no hardcoded fallback here
+ */
 function repoBaseUrl(): string {
   const cfg = vscode.workspace.getConfiguration("flusec");
+
+  // Optional debug (safe to keep while developing; remove later if you want)
+  const inspected = cfg.inspect<string>("ruleRepoBaseUrl");
+  console.log("[FLUSEC][cfg] ruleRepoBaseUrl inspect =", inspected);
+
   const v = (cfg.get<string>("ruleRepoBaseUrl") ?? "").trim();
-  const base = v.length ? v : DEFAULT_RULEPACK_BASE_URL;
-  return base.replace(/\/+$/, "");
+  return v.replace(/\/+$/, "");
 }
 
 export function hsdStoragePaths(context: vscode.ExtensionContext) {
@@ -107,6 +113,11 @@ function bootstrapCacheFromBundled(context: vscode.ExtensionContext) {
   }
 }
 
+/**
+ * Downloads base_rules.json + heuristics.json into globalStorage.
+ * - Throttled: once per 12h unless force
+ * - Safe offline: if download fails, keep cached copies
+ */
 export async function syncHsdRulePack(
   context: vscode.ExtensionContext,
   opts?: { force?: boolean }
@@ -115,11 +126,18 @@ export async function syncHsdRulePack(
   fs.mkdirSync(sp.root, { recursive: true });
   ensureJsonArrayFile(sp.userRules);
 
+  // Ensure we always have something usable even offline
   bootstrapCacheFromBundled(context);
 
   const base = repoBaseUrl();
   console.log("[FLUSEC][rulepack] repoBaseUrl =", base || "<empty>");
   console.log("[FLUSEC][rulepack] storageRoot =", sp.root);
+
+  // If config is truly empty (e.g., you removed default from package.json), skip download.
+  if (!base) {
+    console.log("[FLUSEC][rulepack] No base URL -> skip download");
+    return;
+  }
 
   const now = Date.now();
   const last = readJson<{ t: number }>(sp.lastCheck)?.t ?? 0;
@@ -167,7 +185,6 @@ export async function syncHsdRulePack(
     writeAtomic(sp.baseRules, baseRulesTxt);
     writeAtomic(sp.heuristics, heuristicsTxt);
     writeAtomic(sp.manifest, JSON.stringify(remote, null, 2));
-
     writeAtomic(sp.lastCheck, JSON.stringify({ t: now }, null, 2));
 
     console.log("[FLUSEC][rulepack] Download OK. Cached updated files.");
@@ -176,12 +193,18 @@ export async function syncHsdRulePack(
   }
 }
 
+// Workspace output location (required because Dart analyzer reads from cwd/data or scriptDir/../data)
 export function hsdWorkspaceRoot(workspaceFolderFsPath: string) {
   return path.join(workspaceFolderFsPath, ".flusec");
 }
 
-
-
+/**
+ * Writes effective files into:
+ * <workspace>/.flusec/data/
+ * so the Dart analyzer can load them via RulesPathResolver (cwd/data).
+ *
+ * Option A: only GLOBAL user rules + base rules (no workspace user_rules.json at all)
+ */
 export function writeHsdWorkspaceData(
   context: vscode.ExtensionContext,
   workspaceFolderFsPath: string
@@ -195,15 +218,9 @@ export function writeHsdWorkspaceData(
   const globalUserRules = readJson<any[]>(sp.userRules) ?? [];
   const heuristics = readJson<any>(sp.heuristics) ?? {};
 
-  
+  console.log("[FLUSEC][rules] base=", baseRules.length, "globalUser=", globalUserRules.length);
 
-  console.log(
-    "[FLUSEC][rules] base=",
-    baseRules.length,
-    "globalUser=",
-    globalUserRules.length
-  );
-
+  // Priority: global user rules first, then base rules
   const effectiveRules = ([] as any[]).concat(globalUserRules, baseRules);
 
   const dataDir = path.join(hsdWorkspaceRoot(workspaceFolderFsPath), "data");

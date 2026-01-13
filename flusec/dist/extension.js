@@ -3394,7 +3394,6 @@ var vscode3 = __toESM(require("vscode"));
 var fs2 = __toESM(require("fs"));
 var path2 = __toESM(require("path"));
 var https = __toESM(require("https"));
-var DEFAULT_RULEPACK_BASE_URL = "https://raw.githubusercontent.com/FLUSEC-25-26/flusec-rulepacks/main";
 function readJson(p) {
   try {
     if (!fs2.existsSync(p)) {
@@ -3426,9 +3425,10 @@ function httpsGetText(url) {
 }
 function repoBaseUrl() {
   const cfg = vscode3.workspace.getConfiguration("flusec");
+  const inspected = cfg.inspect("ruleRepoBaseUrl");
+  console.log("[FLUSEC][cfg] ruleRepoBaseUrl inspect =", inspected);
   const v = (cfg.get("ruleRepoBaseUrl") ?? "").trim();
-  const base = v.length ? v : DEFAULT_RULEPACK_BASE_URL;
-  return base.replace(/\/+$/, "");
+  return v.replace(/\/+$/, "");
 }
 function hsdStoragePaths(context) {
   const root = path2.join(context.globalStorageUri.fsPath, "rulepacks", "hsd");
@@ -3487,6 +3487,10 @@ async function syncHsdRulePack(context, opts) {
   const base = repoBaseUrl();
   console.log("[FLUSEC][rulepack] repoBaseUrl =", base || "<empty>");
   console.log("[FLUSEC][rulepack] storageRoot =", sp.root);
+  if (!base) {
+    console.log("[FLUSEC][rulepack] No base URL -> skip download");
+    return;
+  }
   const now = Date.now();
   const last = readJson(sp.lastCheck)?.t ?? 0;
   const ageMs = now - last;
@@ -3542,12 +3546,7 @@ function writeHsdWorkspaceData(context, workspaceFolderFsPath) {
   const baseRules = readJson(sp.baseRules) ?? [];
   const globalUserRules = readJson(sp.userRules) ?? [];
   const heuristics = readJson(sp.heuristics) ?? {};
-  console.log(
-    "[FLUSEC][rules] base=",
-    baseRules.length,
-    "globalUser=",
-    globalUserRules.length
-  );
+  console.log("[FLUSEC][rules] base=", baseRules.length, "globalUser=", globalUserRules.length);
   const effectiveRules = [].concat(globalUserRules, baseRules);
   const dataDir = path2.join(hsdWorkspaceRoot(workspaceFolderFsPath), "data");
   fs2.mkdirSync(dataDir, { recursive: true });
