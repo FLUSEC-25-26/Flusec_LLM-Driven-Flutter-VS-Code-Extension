@@ -8,6 +8,8 @@ import { openRuleManager } from "./ui/ruleManager/hardcoded_secrets/ruleManager.
 import { openDashboard } from "./web/hsd/dashboard.js";
 import { registerFlusecNavigationView } from "./ui/flusecNavigation.js";
 import { syncHsdRulePack, writeHsdWorkspaceData } from "./rules/hsdRulePack.js";
+import { uploadFindingsCommand } from "./cloud/uploadFindings.js";
+
 
 let lastDartDoc: vscode.TextDocument | undefined;
 
@@ -155,6 +157,17 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand("flusec.openFindings", () => openDashboard(context))
   );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("flusec.uploadFindings", async () => {
+      try {
+        await uploadFindingsCommand(context);
+      } catch (e) {
+        vscode.window.showErrorMessage("FLUSEC: Upload failed: " + String(e));
+      }
+    })
+  );
+
 
   // Auto scan on SAVE
   context.subscriptions.push(

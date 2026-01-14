@@ -762,14 +762,14 @@ var require_url_state_machine = __commonJS({
       return url.replace(/\u0009|\u000A|\u000D/g, "");
     }
     function shortenPath(url) {
-      const path6 = url.path;
-      if (path6.length === 0) {
+      const path7 = url.path;
+      if (path7.length === 0) {
         return;
       }
-      if (url.scheme === "file" && path6.length === 1 && isNormalizedWindowsDriveLetter(path6[0])) {
+      if (url.scheme === "file" && path7.length === 1 && isNormalizedWindowsDriveLetter(path7[0])) {
         return;
       }
-      path6.pop();
+      path7.pop();
     }
     function includesCredentials(url) {
       return url.username !== "" || url.password !== "";
@@ -2793,12 +2793,12 @@ var require_lib2 = __commonJS({
       const dest = new URL$1(destination).protocol;
       return orig === dest;
     };
-    function fetch2(url, opts) {
-      if (!fetch2.Promise) {
+    function fetch3(url, opts) {
+      if (!fetch3.Promise) {
         throw new Error("native promise missing, set fetch.Promise to your favorite alternative");
       }
-      Body.Promise = fetch2.Promise;
-      return new fetch2.Promise(function(resolve, reject) {
+      Body.Promise = fetch3.Promise;
+      return new fetch3.Promise(function(resolve, reject) {
         const request = new Request(url, opts);
         const options = getNodeRequestOptions(request);
         const send = (options.protocol === "https:" ? https2 : http).request;
@@ -2869,7 +2869,7 @@ var require_lib2 = __commonJS({
         req.on("response", function(res) {
           clearTimeout(reqTimeout);
           const headers = createHeadersLenient(res.headers);
-          if (fetch2.isRedirect(res.statusCode)) {
+          if (fetch3.isRedirect(res.statusCode)) {
             const location = headers.get("Location");
             let locationURL = null;
             try {
@@ -2931,7 +2931,7 @@ var require_lib2 = __commonJS({
                   requestOpts.body = void 0;
                   requestOpts.headers.delete("content-length");
                 }
-                resolve(fetch2(new Request(locationURL, requestOpts)));
+                resolve(fetch3(new Request(locationURL, requestOpts)));
                 finalize();
                 return;
             }
@@ -3023,11 +3023,11 @@ var require_lib2 = __commonJS({
         stream.end();
       }
     }
-    fetch2.isRedirect = function(code) {
+    fetch3.isRedirect = function(code) {
       return code === 301 || code === 302 || code === 303 || code === 307 || code === 308;
     };
-    fetch2.Promise = global.Promise;
-    module2.exports = exports2 = fetch2;
+    fetch3.Promise = global.Promise;
+    module2.exports = exports2 = fetch3;
     Object.defineProperty(exports2, "__esModule", { value: true });
     exports2.default = exports2;
     exports2.Headers = Headers;
@@ -3045,9 +3045,9 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
-var vscode8 = __toESM(require("vscode"));
-var fs6 = __toESM(require("fs"));
-var path5 = __toESM(require("path"));
+var vscode9 = __toESM(require("vscode"));
+var fs7 = __toESM(require("fs"));
+var path6 = __toESM(require("path"));
 
 // src/analyzer/runAnalyzer.ts
 var vscode4 = __toESM(require("vscode"));
@@ -4023,6 +4023,114 @@ function registerFlusecNavigationView(context) {
   context.subscriptions.push(treeView);
 }
 
+// src/cloud/uploadFindings.ts
+var vscode8 = __toESM(require("vscode"));
+var fs6 = __toESM(require("fs"));
+var path5 = __toESM(require("path"));
+var import_node_fetch = __toESM(require_lib2());
+function findingsPathForWorkspaceRoot(workspaceRoot) {
+  return path5.join(workspaceRoot, ".flusec", "out", "findings.json");
+}
+function readFindingsJson(fp) {
+  if (!fs6.existsSync(fp)) {
+    return [];
+  }
+  try {
+    const raw = JSON.parse(fs6.readFileSync(fp, "utf8"));
+    return Array.isArray(raw) ? raw : [];
+  } catch {
+    return [];
+  }
+}
+function toRelativeFindingPaths(findings, workspaceRoot) {
+  return findings.map((f) => {
+    const abs = String(f?.file || "");
+    let rel = abs;
+    try {
+      const candidate = path5.relative(workspaceRoot, abs);
+      if (candidate && !candidate.startsWith("..") && !path5.isAbsolute(candidate)) {
+        rel = candidate;
+      }
+    } catch {
+    }
+    return { ...f, file: rel };
+  });
+}
+function getCloudEndpoint() {
+  const cfg = vscode8.workspace.getConfiguration("flusec");
+  return String(cfg.get("cloudUploadEndpoint") || "").trim().replace(/\/+$/, "");
+}
+async function uploadFindingsCommand(context) {
+  const endpoint = getCloudEndpoint();
+  if (!endpoint) {
+    vscode8.window.showErrorMessage(
+      "FLUSEC: Set flusec.cloudUploadEndpoint in Settings first."
+    );
+    return;
+  }
+  const folders = vscode8.workspace.workspaceFolders ?? [];
+  if (!folders.length) {
+    vscode8.window.showErrorMessage("FLUSEC: No workspace folder open.");
+    return;
+  }
+  const session = await vscode8.authentication.getSession(
+    "github",
+    ["read:user"],
+    { createIfNone: true }
+  );
+  const token = session.accessToken;
+  const allPayloads = [];
+  for (const f of folders) {
+    const workspaceRoot = f.uri.fsPath;
+    const fp = findingsPathForWorkspaceRoot(workspaceRoot);
+    const findingsAbs = readFindingsJson(fp);
+    const findings = toRelativeFindingPaths(findingsAbs, workspaceRoot);
+    allPayloads.push({
+      workspaceName: f.name,
+      workspaceId: "",
+      // optional (add later if you want)
+      findingsFile: fp,
+      findingsCount: findings.length,
+      findings
+    });
+  }
+  const totalFindings = allPayloads.reduce((n, p) => n + (p.findingsCount || 0), 0);
+  if (totalFindings === 0) {
+    const ok = await vscode8.window.showWarningMessage(
+      "FLUSEC: No findings found. Upload anyway?",
+      "Upload",
+      "Cancel"
+    );
+    if (ok !== "Upload") {
+      return;
+    }
+  }
+  const body = {
+    extensionVersion: context.extension.packageJSON?.version ?? "",
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    workspaces: allPayloads
+  };
+  const res = await (0, import_node_fetch.default)(`${endpoint}/v1/findings`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`
+    },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    vscode8.window.showErrorMessage(
+      `FLUSEC: Upload failed (HTTP ${res.status}). ${text}`.trim()
+    );
+    return;
+  }
+  const json = await res.json().catch(() => ({}));
+  vscode8.window.showInformationMessage(
+    `FLUSEC: Uploaded ${totalFindings} finding(s) as GitHub user "${json.username || "unknown"}".`
+  );
+}
+
 // src/extension.ts
 var lastDartDoc;
 var clearedFindingsThisSession = false;
@@ -4030,25 +4138,25 @@ function clearFindingsForAllWorkspaceFoldersOnce() {
   if (clearedFindingsThisSession) {
     return;
   }
-  const folders = vscode8.workspace.workspaceFolders ?? [];
+  const folders = vscode9.workspace.workspaceFolders ?? [];
   if (!folders.length) {
     return;
   }
   try {
     for (const folder of folders) {
       const findingsPath = findingsPathForFolder(folder);
-      if (fs6.existsSync(findingsPath)) {
-        fs6.unlinkSync(findingsPath);
+      if (fs7.existsSync(findingsPath)) {
+        fs7.unlinkSync(findingsPath);
         console.log("FLUSEC: deleted", findingsPath);
       }
-      const outDir = path5.dirname(findingsPath);
-      const analyzerDir = path5.dirname(outDir);
-      if (fs6.existsSync(outDir) && fs6.readdirSync(outDir).length === 0) {
-        fs6.rmdirSync(outDir);
+      const outDir = path6.dirname(findingsPath);
+      const analyzerDir = path6.dirname(outDir);
+      if (fs7.existsSync(outDir) && fs7.readdirSync(outDir).length === 0) {
+        fs7.rmdirSync(outDir);
         console.log("FLUSEC: deleted empty dir", outDir);
       }
-      if (fs6.existsSync(analyzerDir) && fs6.readdirSync(analyzerDir).length === 0) {
-        fs6.rmdirSync(analyzerDir);
+      if (fs7.existsSync(analyzerDir) && fs7.readdirSync(analyzerDir).length === 0) {
+        fs7.rmdirSync(analyzerDir);
         console.log("FLUSEC: deleted empty dir", analyzerDir);
       }
     }
@@ -4065,13 +4173,13 @@ async function activate(context) {
   } catch (e) {
     console.error("[FLUSEC] syncHsdRulePack (startup) failed:", e);
   }
-  for (const f of vscode8.workspace.workspaceFolders ?? []) {
+  for (const f of vscode9.workspace.workspaceFolders ?? []) {
     writeHsdWorkspaceData(context, f.uri.fsPath);
   }
   const timer = setInterval(async () => {
     try {
       await syncHsdRulePack(context);
-      for (const f of vscode8.workspace.workspaceFolders ?? []) {
+      for (const f of vscode9.workspace.workspaceFolders ?? []) {
         writeHsdWorkspaceData(context, f.uri.fsPath);
       }
     } catch (e) {
@@ -4080,70 +4188,79 @@ async function activate(context) {
   }, 6 * 60 * 60 * 1e3);
   context.subscriptions.push({ dispose: () => clearInterval(timer) });
   context.subscriptions.push(
-    vscode8.workspace.onDidChangeWorkspaceFolders(() => {
+    vscode9.workspace.onDidChangeWorkspaceFolders(() => {
       clearFindingsForAllWorkspaceFoldersOnce();
-      for (const f of vscode8.workspace.workspaceFolders ?? []) {
+      for (const f of vscode9.workspace.workspaceFolders ?? []) {
         writeHsdWorkspaceData(context, f.uri.fsPath);
       }
     })
   );
   context.subscriptions.push(
-    vscode8.workspace.onDidOpenTextDocument((doc) => {
+    vscode9.workspace.onDidOpenTextDocument((doc) => {
       if (doc.languageId === "dart") {
         lastDartDoc = doc;
       }
     })
   );
   context.subscriptions.push(
-    vscode8.commands.registerCommand("flusec.updateRulePacks", async () => {
+    vscode9.commands.registerCommand("flusec.updateRulePacks", async () => {
       try {
         await syncHsdRulePack(context, { force: true });
-        for (const f of vscode8.workspace.workspaceFolders ?? []) {
+        for (const f of vscode9.workspace.workspaceFolders ?? []) {
           writeHsdWorkspaceData(context, f.uri.fsPath);
         }
-        vscode8.window.showInformationMessage("FLUSEC: Rule packs updated.");
+        vscode9.window.showInformationMessage("FLUSEC: Rule packs updated.");
       } catch (e) {
         console.error("[FLUSEC] updateRulePacks failed:", e);
-        vscode8.window.showErrorMessage("FLUSEC: Rule pack update failed. Check console.");
+        vscode9.window.showErrorMessage("FLUSEC: Rule pack update failed. Check console.");
       }
     })
   );
   context.subscriptions.push(
-    vscode8.commands.registerCommand("flusec.scanFile", async () => {
-      const active = vscode8.window.activeTextEditor;
+    vscode9.commands.registerCommand("flusec.scanFile", async () => {
+      const active = vscode9.window.activeTextEditor;
       let target;
       if (active && active.document.languageId === "dart") {
         target = active.document;
       } else if (lastDartDoc) {
         target = lastDartDoc;
       } else {
-        const dartDocs = vscode8.workspace.textDocuments.filter((d) => d.languageId === "dart");
+        const dartDocs = vscode9.workspace.textDocuments.filter((d) => d.languageId === "dart");
         if (dartDocs.length > 0) {
           target = dartDocs[0];
         }
       }
       if (!target) {
-        vscode8.window.showInformationMessage(
+        vscode9.window.showInformationMessage(
           "FLUSEC: No Dart file available to scan. Open a Dart file first."
         );
         return;
       }
       try {
         await runAnalyzer(target, context);
-        vscode8.window.setStatusBarMessage(`FLUSEC: Scan completed for ${target.fileName}`, 3e3);
+        vscode9.window.setStatusBarMessage(`FLUSEC: Scan completed for ${target.fileName}`, 3e3);
       } catch (e) {
-        vscode8.window.showErrorMessage("FLUSEC: Scan failed: " + String(e));
+        vscode9.window.showErrorMessage("FLUSEC: Scan failed: " + String(e));
       }
     })
   );
   context.subscriptions.push(
-    vscode8.commands.registerCommand("flusec.manageRules", () => openRuleManager(context))
+    vscode9.commands.registerCommand("flusec.manageRules", () => openRuleManager(context))
   );
   context.subscriptions.push(
-    vscode8.commands.registerCommand("flusec.openFindings", () => openDashboard(context))
+    vscode9.commands.registerCommand("flusec.openFindings", () => openDashboard(context))
   );
   context.subscriptions.push(
-    vscode8.workspace.onDidSaveTextDocument(async (doc) => {
+    vscode9.commands.registerCommand("flusec.uploadFindings", async () => {
+      try {
+        await uploadFindingsCommand(context);
+      } catch (e) {
+        vscode9.window.showErrorMessage("FLUSEC: Upload failed: " + String(e));
+      }
+    })
+  );
+  context.subscriptions.push(
+    vscode9.workspace.onDidSaveTextDocument(async (doc) => {
       if (doc.languageId === "dart") {
         lastDartDoc = doc;
         await runAnalyzer(doc, context);
@@ -4152,7 +4269,7 @@ async function activate(context) {
   );
   let typingTimeout;
   context.subscriptions.push(
-    vscode8.workspace.onDidChangeTextDocument((event) => {
+    vscode9.workspace.onDidChangeTextDocument((event) => {
       const doc = event.document;
       if (doc.languageId !== "dart") {
         return;

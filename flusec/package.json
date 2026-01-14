@@ -34,6 +34,10 @@
       {
         "command": "flusec.updateRulePacks",
         "title": "Flusec: Update Rule Packs (Base Rules + Heuristics)"
+      },
+      {
+        "command": "flusec.uploadFindings",
+        "title": "Flusec: Upload Findings to DB"
       }
     ],
     "configuration": {
@@ -44,6 +48,11 @@
           "default": "https://raw.githubusercontent.com/FLUSEC-25-26/flusec-rulepacks/main",
           "description": "Base URL for flusec-rulepacks raw files...",
           "scope": "application"
+        },
+        "flusec.cloudUploadEndpoint": {
+          "type": "string",
+          "default": "http://localhost:8080",
+          "description": "FLUSEC Cloud API base URL (example: https://cloud.yourcompany.com)."
         }
       }
     },
@@ -88,6 +97,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
+    "@types/node-fetch": "^2.6.13",
     "@types/vscode": "^1.105.0",
     "@typescript-eslint/eslint-plugin": "^8.45.0",
     "@typescript-eslint/parser": "^8.45.0",
