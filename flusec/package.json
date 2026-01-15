@@ -51,7 +51,7 @@
         },
         "flusec.cloudUploadEndpoint": {
           "type": "string",
-          "default": "http://localhost:8080",
+          "default": "http://localhost:8082",
           "description": "FLUSEC Cloud API base URL (example: https://cloud.yourcompany.com)."
         }
       }

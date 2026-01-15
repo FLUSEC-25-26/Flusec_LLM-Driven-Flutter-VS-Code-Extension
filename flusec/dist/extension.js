@@ -4029,18 +4029,41 @@ var fs6 = __toESM(require("fs"));
 var path5 = __toESM(require("path"));
 var import_node_fetch = __toESM(require_lib2());
 function findingsPathForWorkspaceRoot(workspaceRoot) {
-  return path5.join(workspaceRoot, ".flusec", "out", "findings.json");
+  return path5.join(workspaceRoot, ".flusec", ".out", "findings.json");
+}
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 function readFindingsJson(fp) {
   if (!fs6.existsSync(fp)) {
+    console.warn("[FLUSEC] findings.json not found:", fp);
     return [];
   }
   try {
-    const raw = JSON.parse(fs6.readFileSync(fp, "utf8"));
-    return Array.isArray(raw) ? raw : [];
-  } catch {
+    let text = fs6.readFileSync(fp, "utf8");
+    if (text && text.charCodeAt(0) === 65279) {
+      text = text.slice(1);
+    }
+    const raw = JSON.parse(text);
+    if (Array.isArray(raw)) {
+      return raw;
+    }
+    console.warn("[FLUSEC] findings.json parsed but top-level is not an array.");
+    return [];
+  } catch (e) {
+    console.error("[FLUSEC] JSON parse failed:", fp, e?.message || e);
     return [];
   }
+}
+async function readFindingsJsonStable(fp) {
+  for (let i = 0; i < 6; i++) {
+    const arr = readFindingsJson(fp);
+    if (arr.length > 0) {
+      return arr;
+    }
+    await sleep(200);
+  }
+  return readFindingsJson(fp);
 }
 function toRelativeFindingPaths(findings, workspaceRoot) {
   return findings.map((f) => {
@@ -4063,9 +4086,7 @@ function getCloudEndpoint() {
 async function uploadFindingsCommand(context) {
   const endpoint = getCloudEndpoint();
   if (!endpoint) {
-    vscode8.window.showErrorMessage(
-      "FLUSEC: Set flusec.cloudUploadEndpoint in Settings first."
-    );
+    vscode8.window.showErrorMessage("FLUSEC: Set flusec.cloudUploadEndpoint in Settings first.");
     return;
   }
   const folders = vscode8.workspace.workspaceFolders ?? [];
@@ -4073,22 +4094,27 @@ async function uploadFindingsCommand(context) {
     vscode8.window.showErrorMessage("FLUSEC: No workspace folder open.");
     return;
   }
-  const session = await vscode8.authentication.getSession(
-    "github",
-    ["read:user"],
-    { createIfNone: true }
-  );
+  const session = await vscode8.authentication.getSession("github", ["read:user"], {
+    createIfNone: true
+  });
   const token = session.accessToken;
   const allPayloads = [];
   for (const f of folders) {
     const workspaceRoot = f.uri.fsPath;
     const fp = findingsPathForWorkspaceRoot(workspaceRoot);
-    const findingsAbs = readFindingsJson(fp);
+    const rawText = fs6.existsSync(fp) ? fs6.readFileSync(fp, "utf8") : "";
+    console.log("[FLUSEC] workspaceRoot =", workspaceRoot);
+    console.log("[FLUSEC] findings fp     =", fp);
+    console.log("[FLUSEC] findings size   =", Buffer.byteLength(rawText, "utf8"));
+    console.log("[FLUSEC] findings head   =", rawText.slice(0, 80).replace(/\s+/g, " "));
+    const findingsAbs = await readFindingsJsonStable(fp);
+    console.log("[FLUSEC] findings count  =", findingsAbs.length);
     const findings = toRelativeFindingPaths(findingsAbs, workspaceRoot);
+    const safeWorkspaceName = f.name && f.name.trim() || path5.basename(workspaceRoot) || "workspace";
     allPayloads.push({
-      workspaceName: f.name,
+      workspaceName: safeWorkspaceName,
       workspaceId: "",
-      // optional (add later if you want)
+      // optional
       findingsFile: fp,
       findingsCount: findings.length,
       findings
@@ -4108,26 +4134,26 @@ async function uploadFindingsCommand(context) {
   const body = {
     extensionVersion: context.extension.packageJSON?.version ?? "",
     generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    totalFindings,
     workspaces: allPayloads
   };
   const res = await (0, import_node_fetch.default)(`${endpoint}/v1/findings`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${token}`
+      Authorization: `Bearer ${token}`
     },
     body: JSON.stringify(body)
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    vscode8.window.showErrorMessage(
-      `FLUSEC: Upload failed (HTTP ${res.status}). ${text}`.trim()
-    );
+    vscode8.window.showErrorMessage(`FLUSEC: Upload failed (HTTP ${res.status}). ${text}`.trim());
     return;
   }
   const json = await res.json().catch(() => ({}));
+  const serverTotal = typeof json?.totalFindings === "number" ? json.totalFindings : totalFindings;
   vscode8.window.showInformationMessage(
-    `FLUSEC: Uploaded ${totalFindings} finding(s) as GitHub user "${json.username || "unknown"}".`
+    `FLUSEC: Uploaded ${serverTotal} finding(s) as GitHub user "${json.username || "unknown"}".`
   );
 }
 
