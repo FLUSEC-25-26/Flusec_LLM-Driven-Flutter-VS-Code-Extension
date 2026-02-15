@@ -1,0 +1,50 @@
+[
+  {
+    "id": "FLUSEC.GOOGLE_API_KEY",
+    "name": "Google API Key",
+    "pattern": "^AIza[0-9A-Za-z\\-_]{35}$",
+    "severity": "warning",
+    "description": "Google API keys must not be hardcoded in client-side code.",
+    "enabled": true
+  },
+  {
+    "id": "FLUSEC.AWS_ACCESS_KEY",
+    "name": "AWS Access Key ID",
+    "pattern": "^AKIA[0-9A-Z]{16}$",
+    "severity": "warning",
+    "description": "AWS access keys must not be embedded in Flutter apps.",
+    "enabled": true
+  },
+  {
+    "id": "FLUSEC.STRIPE_LIVE_KEY",
+    "name": "Stripe Live Secret Key",
+    "pattern": "^sk_live_[0-9A-Za-z]{16,}$",
+    "severity": "warning",
+    "description": "Stripe live secret keys must never exist in client apps.",
+    "enabled": true
+  },
+  {
+    "id": "FLUSEC.JWT",
+    "name": "JWT-like Token",
+    "pattern": "eyJ[A-Za-z0-9\\-_]+\\.[A-Za-z0-9\\-_]+\\.[A-Za-z0-9\\-_]+",
+    "severity": "warning",
+    "description": "JWT-like strings may represent auth tokens if hardcoded.",
+    "enabled": true
+  },
+  {
+    "id": "FLUSEC.GITHUB_TOKEN",
+    "name": "GitHub Token (classic)",
+    "pattern": "^ghp_[A-Za-z0-9]{36}$",
+    "severity": "warning",
+    "description": "GitHub tokens must not be hardcoded in source code.",
+    "enabled": true
+  },
+  {
+    "id": "FLUSEC.GITLAB_PAT",
+    "name": "GitLab Personal Access Token",
+    "pattern": "^glpat-[A-Za-z0-9\\-_]{20,}$",
+    "severity": "warning",
+    "description": "GitLab PATs must not be hardcoded in client-side apps.",
+    "enabled": true
+  }
+]
