@@ -36,8 +36,8 @@ export function openIDSDashboard(context: vscode.ExtensionContext) {
     _resolve(context, "src", "web", "ids", "dashboard.css");
 
   const jsPath =
-    _resolve(context, "web", "ids", "dashboard.js") ??
-    _resolve(context, "src", "web", "ids", "dashboard.js");
+    _resolve(context, "web", "ids", "idswebview.js") ??
+    _resolve(context, "src", "web", "ids", "idswebview.js");
 
   if (!htmlPath) {
     panel.webview.html =
