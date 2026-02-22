@@ -1,12 +1,12 @@
 // src/ui/flusecNavigation.ts
 //
 // FLUSEC Navigation Sidebar (TreeView)
-// Active: HSD + Network
-// Future: Secure Storage, Input Validation (commented out)
+// Active: HSD + Network + Storage (IDS)
+// Future: Input Validation (commented out)
 
 import * as vscode from "vscode";
 
-type ComponentId = "hsd" | "network" /* | "storage" | "inputValidation" */;
+type ComponentId = "hsd" | "network" | "storage" /* | "inputValidation" */;
 
 class FlusecNavItem extends vscode.TreeItem {
   constructor(
@@ -62,13 +62,13 @@ class FlusecNavigationProvider
       label: "Network Security (NET)",
       icon: new vscode.ThemeIcon("rss"),
     },
+    {
+      id: "storage",
+      label: "Secure Storage (IDS)",
+      icon: new vscode.ThemeIcon("database"),
+    },
 
     // Uncomment when ready:
-    // {
-    //   id: "storage",
-    //   label: "Secure Storage (IDS)",
-    //   icon: new vscode.ThemeIcon("database"),
-    // },
     // {
     //   id: "inputValidation",
     //   label: "Input Validation (IIV)",
@@ -116,7 +116,7 @@ class FlusecNavigationProvider
     const parts = element.id.split(":");
     if (parts.length < 2) {return null;}
     const candidate = parts[1] as ComponentId;
-    if (candidate === "hsd" || candidate === "network") {
+    if (candidate === "hsd" || candidate === "network" || candidate === "storage") {
       return candidate;
     }
     return null;
@@ -179,14 +179,34 @@ class FlusecNavigationProvider
           }
         );
 
-        // Network component has no user rule manager (base rules only from repo).
+        return [dashboard];
+      }
+
+      // ─── Storage (IDS) ──────────────────────────────────────────────
+      case "storage": {
+        const dashboard = new FlusecNavItem(
+          "IDS Dashboard",
+          vscode.TreeItemCollapsibleState.None,
+          {
+            nodeType: "action",
+            componentId,
+            tooltip: "Open the Insecure Data Storage dashboard – shows storage vulnerability findings.",
+            icon: new vscode.ThemeIcon("graph"),
+            command: {
+              command: "flusec.openIDSDashboard",
+              title: "Open IDS Dashboard",
+            },
+            contextValue: "ids-dashboard",
+          }
+        );
+
+        // IDS component has no user rule manager (base rules only from repo).
         // If you want one later, add it here same as HSD.
 
         return [dashboard];
       }
 
       // Future:
-      // case "storage": { ... }
       // case "inputValidation": { ... }
     }
 

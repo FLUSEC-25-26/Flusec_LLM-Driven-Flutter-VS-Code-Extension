@@ -1,7 +1,7 @@
 // src/extension.ts
 //
 // FLUSEC VS Code Extension — main entry point.
-// Now supports: HSD + Insecure Network Communication
+// Now supports: HSD + NET + IDS (Insecure Data Storage)
 
 import * as vscode from "vscode";
 import * as fs from "fs";
@@ -11,6 +11,7 @@ import {
   findingsOutDir,
   hsdFindingsPathForFolder,
   netFindingsPathForFolder,
+  idsFindingsPathForFolder,
 } from "./analyzer/runAnalyzer.js";
 import { diagCollection } from "./analyzer/findingsStore.js";
 import { registerHoverProvider } from "./diagnostics/hoverllm.js";
@@ -19,8 +20,12 @@ import { openDashboard } from "./web/hsd/dashboard.js";
 
 // NET dashboard
 import { openNetDashboard } from "./web/net/dasboard.js";
+
+// IDS dashboard
+import { openIDSDashboard } from "./web/ids/dashboard.js";
+
 import { registerFlusecNavigationView } from "./ui/flusecNavigation.js";
-import { uploadFindingsCommand } from "./cloud/uploadFindings.js";
+import { uploadFindings } from "./cloud/uploadFindings.js";
 
 // HSD rulepack
 import { syncHsdRulePack, writeHsdWorkspaceData } from "./rules/hsdRulePack.js";
@@ -28,13 +33,16 @@ import { syncHsdRulePack, writeHsdWorkspaceData } from "./rules/hsdRulePack.js";
 // NET rulepack
 import { syncNetRulePack, writeNetWorkspaceData } from "./rules/netRulePack.js";
 
+// IDS rulepack
+import { syncIdsRulePack, writeIdsWorkspaceData } from "./rules/idsRulePack.js";
+
 
 let lastDartDoc: vscode.TextDocument | undefined;
 
 // We only want to clear findings once per VS Code session.
 let clearedFindingsThisSession = false;
 
-// Delete hsd_findings.json & net_findings.json for all workspace folders ONCE per session
+// Delete hsd_findings.json, net_findings.json & ids_findings.json for all workspace folders ONCE per session
 function clearFindingsForAllWorkspaceFoldersOnce() {
   if (clearedFindingsThisSession) {return;}
 
@@ -43,8 +51,12 @@ function clearFindingsForAllWorkspaceFoldersOnce() {
 
   try {
     for (const folder of folders) {
-      // Delete both component findings files
-      for (const fp of [hsdFindingsPathForFolder(folder), netFindingsPathForFolder(folder)]) {
+      // Delete all component findings files
+      for (const fp of [
+        hsdFindingsPathForFolder(folder),
+        netFindingsPathForFolder(folder),
+        idsFindingsPathForFolder(folder),
+      ]) {
         if (fs.existsSync(fp)) {
           fs.unlinkSync(fp);
           console.log("FLUSEC: deleted", fp);
@@ -78,7 +90,7 @@ function writeAllWorkspaceData(context: vscode.ExtensionContext) {
   for (const f of vscode.workspace.workspaceFolders ?? []) {
     writeHsdWorkspaceData(context, f.uri.fsPath);
     writeNetWorkspaceData(context, f.uri.fsPath);
-    // Future: writeIdsWorkspaceData(context, f.uri.fsPath);
+    writeIdsWorkspaceData(context, f.uri.fsPath);
     // Future: writeIivWorkspaceData(context, f.uri.fsPath);
   }
 }
@@ -102,8 +114,13 @@ async function syncAllRulePacks(
     console.error("[FLUSEC] syncNetRulePack failed:", e);
   }
 
+  try {
+    await syncIdsRulePack(context);
+  } catch (e) {
+    console.error("[FLUSEC] syncIdsRulePack failed:", e);
+  }
+
   // Future:
-  // try { await syncIdsRulePack(context, opts); } catch (e) { ... }
   // try { await syncIivRulePack(context, opts); } catch (e) { ... }
 }
 
@@ -207,11 +224,16 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("flusec.openNetDashboard", () => openNetDashboard(context))
   );
 
+  // Dashboard (IDS)
+  context.subscriptions.push(
+    vscode.commands.registerCommand("flusec.openIDSDashboard", () => openIDSDashboard(context))
+  );
+
   // Upload findings
   context.subscriptions.push(
     vscode.commands.registerCommand("flusec.uploadFindings", async () => {
       try {
-        await uploadFindingsCommand(context);
+        await uploadFindings(context);
       } catch (e) {
         vscode.window.showErrorMessage("FLUSEC: Upload failed: " + String(e));
       }
@@ -244,7 +266,7 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Hover provider (LLM feedback)
+  // Hover provider (LLM feedback — routes to HSD/NET/IDS based on ruleId)
   registerHoverProvider(context);
 
   // Navigation view

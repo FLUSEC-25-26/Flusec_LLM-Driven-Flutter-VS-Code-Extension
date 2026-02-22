@@ -37,6 +37,10 @@
         "title": "Open NET Dashboard"
       },
       {
+        "command": "flusec.openIDSDashboard",
+        "title": "Open IDS Dashboard"
+    },
+      {
         "command": "flusec.updateRulePacks",
         "title": "Flusec: Update Rule Packs (All Components)"
       },

@@ -10,9 +10,8 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 
-
-
-/** * Ensure the directory for a given file path exists.
+/**
+ * Ensure the directory for a given file path exists.
  */
 function ensureDirForFile(filePath: string) {
   const dir = path.dirname(filePath);
@@ -25,8 +24,6 @@ function ensureDirForFile(filePath: string) {
 export const diagCollection = vscode.languages.createDiagnosticCollection("flusec");
 
 export function severityToVS(sev: string): vscode.DiagnosticSeverity {
-  // Map custom severity string ("error" / "warning" / anything else)
-  // to VS Code's DiagnosticSeverity enum.
   return sev?.toLowerCase() === "error"
     ? vscode.DiagnosticSeverity.Error
     : vscode.DiagnosticSeverity.Warning;
@@ -37,7 +34,6 @@ export function severityToVS(sev: string): vscode.DiagnosticSeverity {
  */
 export function refreshDiagnosticsFromFindings(fp: string) {
   if (!fs.existsSync(fp)) {
-    // If no findings file, clear all diagnostics.
     diagCollection.clear();
     return;
   }
@@ -50,7 +46,7 @@ export function refreshDiagnosticsFromFindings(fp: string) {
     return;
   }
 
-    const map = new Map<string, vscode.Diagnostic[]>();
+  const map = new Map<string, vscode.Diagnostic[]>();
   for (const f of raw) {
     const file = String(f.file || "");
     if (!file) { continue; }
@@ -59,7 +55,6 @@ export function refreshDiagnosticsFromFindings(fp: string) {
     const col = Math.max(0, (f.column ?? 1) - 1);
     const endCol = col + Math.max(1, (f.snippet?.length ?? 80));
 
-    // 🔹 numeric metrics again
     const metricParts: string[] = [];
     if (typeof f.complexity === "number") {
       metricParts.push(`Cx=${f.complexity}`);
@@ -87,8 +82,6 @@ export function refreshDiagnosticsFromFindings(fp: string) {
     map.set(file, list);
   }
 
-
-  // Clear all and re-set per file.
   diagCollection.clear();
   for (const [fsPath, diags] of map) {
     diagCollection.set(vscode.Uri.file(fsPath), diags);
@@ -96,8 +89,9 @@ export function refreshDiagnosticsFromFindings(fp: string) {
 }
 
 /**
- * Merge new findings for a single document into findings.json,
- * then refresh diagnostics.
+ * Merge new findings for a single document into the component findings file.
+ * NOTE: Does NOT refresh diagnostics — runAnalyzer.ts sets diagnostics
+ * once for ALL components via diagCollection.set() before calling this.
  */
 export function upsertFindingsForDoc(
   findingsFilePath: string,
@@ -110,10 +104,11 @@ export function upsertFindingsForDoc(
     column: number;
     functionName?: string;
     complexity?: number;
-    nestingDepth?: number;   // 🔹 NEW
-    functionLoc?: number;    // 🔹 NEW
+    nestingDepth?: number;
+    functionLoc?: number;
+    component?: string;
   }>
-){
+) {
   ensureDirForFile(findingsFilePath);
   let all: any[] = [];
   if (fs.existsSync(findingsFilePath)) {
@@ -142,13 +137,13 @@ export function upsertFindingsForDoc(
       severity: f.severity || "warning",
       functionName: (f as any).functionName,
       complexity: (f as any).complexity,
-      // 🔹 store numeric metrics in findings.json
       nestingDepth: (f as any).nestingDepth,
       functionLoc: (f as any).functionLoc,
+      component: (f as any).component,
     });
   }
 
   fs.writeFileSync(findingsFilePath, JSON.stringify(all, null, 2), "utf8");
-  // refreshDiagnosticsFromFindings(findingsFilePath);
+  // Do NOT call refreshDiagnosticsFromFindings here — diagnostics are already
+  // set by runAnalyzer.ts via diagCollection.set() for ALL components combined.
 }
-

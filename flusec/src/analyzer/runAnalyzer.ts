@@ -5,9 +5,9 @@
 // - executing the Dart analyzer.exe
 // - parsing JSON findings from stdout
 // - creating diagnostics for the current document
-// - updating hsd_findings.json & net_findings.json via findingsStore
+// - updating hsd_findings.json, net_findings.json & ids_findings.json via findingsStore
 // - resetting LLM hover state for this document
-// - sync rulepack + write effective workspace rule files (HSD + NET)
+// - sync rulepack + write effective workspace rule files (HSD + NET + IDS)
 
 import * as vscode from "vscode";
 import { spawn } from "child_process";
@@ -36,6 +36,12 @@ import {
   syncNetRulePack,
   writeNetWorkspaceData,
 } from "../rules/netRulePack.js";
+
+// IDS rulepack sync + workspace effective rule generation
+import {
+  syncIdsRulePack,
+  writeIdsWorkspaceData,
+} from "../rules/idsRulePack.js";
 
 /**
  * Return workspace folder for a document.
@@ -79,6 +85,16 @@ export function netFindingsPathForFolder(
 }
 
 /**
+ * IDS component findings path.
+ * <root>/.flusec/.out/ids_findings.json
+ */
+export function idsFindingsPathForFolder(
+  folder: vscode.WorkspaceFolder
+): string {
+  return path.join(findingsOutDir(folder), "ids_findings.json");
+}
+
+/**
  * Run the external Dart analyzer.exe against a document.
  * Called by extension.ts on:
  * - manual scan
@@ -89,7 +105,7 @@ export function netFindingsPathForFolder(
  * Resolves ONLY AFTER:
  * - analyzer.exe finished
  * - diagnostics updated
- * - hsd_findings.json & net_findings.json updated
+ * - hsd_findings.json, net_findings.json & ids_findings.json updated
  */
 export async function runAnalyzer(
   doc: vscode.TextDocument,
@@ -120,7 +136,13 @@ export async function runAnalyzer(
   });
   writeNetWorkspaceData(context, folder.uri.fsPath);
 
-  // Future: syncIdsRulePack, writeIdsWorkspaceData, etc.
+  // IDS rulepack sync
+  await syncIdsRulePack(context).catch((e) => {
+    console.error("[FLUSEC] syncIdsRulePack (scan) failed:", e);
+  });
+  writeIdsWorkspaceData(context, folder.uri.fsPath);
+
+  // Future: syncIivRulePack, writeIivWorkspaceData, etc.
 
   // analyzer.exe is under <extension>/dart-analyzer/bin/analyzer.exe
   const analyzerPath = path.join(
@@ -235,16 +257,19 @@ export async function runAnalyzer(
     diags.push(diag);
   }
 
-  // Update diagnostics
+  // Update diagnostics (ALL components combined — set once)
   diagCollection.set(doc.uri, diags);
 
   // Split findings by component and write to separate files
-  const hsdFindings = findings.filter((f: any) => f.component === "hsd");
+  const hsdFindings = findings.filter((f: any) => (f.component ?? "hsd") === "hsd");
   const netFindings = findings.filter((f: any) => f.component === "net");
+  const idsFindings = findings.filter((f: any) => f.component === "ids");
 
   const hsdPath = hsdFindingsPathForFolder(folder);
   const netPath = netFindingsPathForFolder(folder);
+  const idsPath = idsFindingsPathForFolder(folder);
 
   upsertFindingsForDoc(hsdPath, doc, hsdFindings);
   upsertFindingsForDoc(netPath, doc, netFindings);
+  upsertFindingsForDoc(idsPath, doc, idsFindings);
 }

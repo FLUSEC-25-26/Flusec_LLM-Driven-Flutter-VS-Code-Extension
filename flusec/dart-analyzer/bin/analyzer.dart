@@ -5,9 +5,9 @@
 // Currently active:
 //   1. HSD  — Hardcoded Secrets Detection + Maintainability Metrics
 //   2. NET  — Insecure Network Communication Advisor
+//   3. IDS  — Insecure Data Storage Advisor
 //
 // Future (uncomment when ready):
-//   3. IDS  — Insecure Data Storage Advisor
 //   4. IIV  — Insufficient Input Validation Advisor
 //
 // Each component produces List<Issue>. All issues are merged and output ONCE
@@ -24,9 +24,9 @@ import 'package:dart_analyzer/core/issue.dart';
 // Component imports
 import 'package:dart_analyzer/hsd/index.dart';
 import 'package:dart_analyzer/net/index.dart' as net;
+import 'package:dart_analyzer/ids/index.dart' as ids;
 
 // Future component imports (uncomment when ready):
-// import 'package:dart_analyzer/ids/index.dart' as ids;
 // import 'package:dart_analyzer/iiv/index.dart' as iiv;
 
 // ---------------------------------------------------------------------------
@@ -126,9 +126,6 @@ void main(List<String> args) {
       netRulesEngine.loadRules(rawNetRules);
       stderr.writeln('♻️ [NET] Loaded ${rawNetRules.length} rule(s) from ${netRulesFile.path}');
     } else {
-      // No rules file → detection disabled.
-      // Extension handles offline fallback via bundled baseline files
-      // (same approach as HSD bootstrapCacheFromBundled).
       netRulesEngine.loadRules(const []);
       stderr.writeln('⚠️ [NET] No rules file found. Network detection disabled.');
     }
@@ -142,17 +139,32 @@ void main(List<String> args) {
   }
 
   // =========================================================================
-  // 3) IDS — Insecure Data Storage (FUTURE — uncomment when ready)
+  // 3) IDS — Insecure Data Storage
   // =========================================================================
-  // try {
-  //   final idsRulesFile =
-  //       RulesPathResolver.resolveRulesFile('insecure_data_storage_rules.json');
-  //   // ... load rules, run visitor ...
-  //   // final idsIssues = ids.StorageAnalyzer.run(unit, content, filePath, idsRulesEngine);
-  //   // allIssues.addAll(idsIssues);
-  // } catch (e, st) {
-  //   stderr.writeln('⚠️ [IDS] Error during analysis: $e\n$st');
-  // }
+  try {
+    final idsRulesFile =
+        RulesPathResolver.resolveRulesFile('insecure_data_storage_rules.json');
+
+    final idsRulesEngine = ids.IdsRulesEngine();
+
+    final rawIdsRules = _readRuleList(idsRulesFile);
+    if (rawIdsRules.isNotEmpty) {
+      idsRulesEngine.loadRules(rawIdsRules);
+      stderr.writeln('♻️ [IDS] Loaded ${rawIdsRules.length} rule(s) from ${idsRulesFile.path}');
+    } else {
+      idsRulesEngine.loadRules(const []);
+      stderr.writeln('⚠️ [IDS] No rules file found. Storage detection disabled.');
+    }
+
+    final idsVisitor = ids.StorageVisitor(unit, content, filePath, idsRulesEngine);
+    unit.accept(idsVisitor);
+    idsVisitor.debugCounters();
+
+    allIssues.addAll(idsVisitor.issues);
+    stderr.writeln('[IDS] Found ${idsVisitor.issues.length} issue(s).');
+  } catch (e, st) {
+    stderr.writeln('⚠️ [IDS] Error during analysis: $e\n$st');
+  }
 
   // =========================================================================
   // 4) IIV — Insufficient Input Validation (FUTURE — uncomment when ready)
