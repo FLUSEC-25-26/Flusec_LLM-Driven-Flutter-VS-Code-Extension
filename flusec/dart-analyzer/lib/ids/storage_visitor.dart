@@ -272,6 +272,9 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
       nestingDepth: null,
       functionLoc: null,
       component: 'ids',
+      riskLevel: riskLevel,
+      dataType: dataType,
+      storageContext: storageCtx,
     );
     issues.add(issue);
     stderr.writeln('[IDS] ${issue.ruleId} at ${issue.line}:${issue.column}');
