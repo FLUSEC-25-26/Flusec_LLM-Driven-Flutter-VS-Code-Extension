@@ -74,7 +74,7 @@ export function openIDSDashboard(context: vscode.ExtensionContext) {
     if (fs.existsSync(findingsPath)) {
       try {
         findings = JSON.parse(fs.readFileSync(findingsPath, "utf8"));
-        if (!Array.isArray(findings)) {findings = [];}
+        if (!Array.isArray(findings)) { findings = []; }
       } catch {
         findings = [];
       }
@@ -84,9 +84,40 @@ export function openIDSDashboard(context: vscode.ExtensionContext) {
 
   sendFindings();
 
+  // Auto-refresh: watch ids_findings.json for changes (written after every scan)
+  let watchDebounce: NodeJS.Timeout | undefined;
+  let watcher: fs.FSWatcher | undefined;
+
+  const startWatcher = () => {
+    if (watcher) { try { watcher.close(); } catch { /* ignore */ } }
+    // Watch the parent directory (more reliable than watching the file directly)
+    const watchDir = path.dirname(findingsPath);
+    if (!fs.existsSync(watchDir)) { return; }
+    try {
+      watcher = fs.watch(watchDir, (_event, filename) => {
+        if (filename && filename.includes('ids_findings')) {
+          clearTimeout(watchDebounce);
+          watchDebounce = setTimeout(() => {
+            if (panel.visible) { sendFindings(); }
+          }, 300);
+        }
+      });
+    } catch { /* directory may not exist yet */ }
+  };
+
+  startWatcher();
+
   panel.onDidChangeViewState(() => {
-    if (panel.visible) {sendFindings();}
+    if (panel.visible) {
+      sendFindings();
+      startWatcher(); // re-attach watch if panel was hidden
+    }
   });
+
+  panel.onDidDispose(() => {
+    clearTimeout(watchDebounce);
+    if (watcher) { try { watcher.close(); } catch { /* ignore */ } }
+  }, null, context.subscriptions);
 
   // Handle messages from webview
   panel.webview.onDidReceiveMessage(
