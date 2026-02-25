@@ -43,28 +43,39 @@ Storage Context: ${metadata.storageContext || 'Unknown'}
         // Keep model warm so repeated hovers are fast
         keep_alive: "30m",
 
-        // Enhanced prompt with IDS context
-        prompt: `
-You are a Flutter security expert specializing in insecure data storage.
+        // Enhanced prompt with IDS context - strict JSON formatting
+        prompt: `You are a Flutter security expert. Analyze this security issue and respond ONLY with valid JSON.
 
 ${contextInfo}
 Issue: ${issueMessage}
 
-Provide educational feedback in JSON format (no markdown, no extra text):
+IMPORTANT: Your response must be ONLY valid JSON with this exact structure:
 {
-  "why": "Explain why this ${metadata?.riskLevel || 'issue'} risk is dangerous for ${metadata?.dataType || 'sensitive data'} in ${metadata?.storageContext || 'this storage'}. 2-3 sentences.",
-  "risk": "Specific security impact for ${metadata?.dataType || 'this data'} stored in ${metadata?.storageContext || 'this location'}. 1 sentence.",
-  "fix": ["3 concrete steps to fix, prioritized by ${metadata?.riskLevel || 'severity'}"],
-  "example": "Short secure Dart code example for ${metadata?.storageContext || 'this scenario'}"
+  "title": "Brief security issue title (max 10 words)",
+  "severity": "${metadata?.riskLevel || 'MEDIUM'}",
+  "category": "${metadata?.dataType || 'Sensitive Data'}",
+  "why": "Clear explanation of why this is dangerous (2-3 sentences, focus on ${metadata?.storageContext || 'this storage context'})",
+  "risk": "Specific attack scenario or security impact (1-2 sentences)",
+  "fix": [
+    "First concrete remediation step",
+    "Second concrete remediation step",
+    "Third concrete remediation step"
+  ],
+  "example": "// Secure implementation example\nfinal secureStorage = FlutterSecureStorage();\nawait secureStorage.write(key: 'token', value: sensitiveData);",
+  "references": ["OWASP Mobile Top 10 - M2: Insecure Data Storage"]
 }
 
-Be specific to the storage type (${metadata?.storageContext || 'storage mechanism'}) and data sensitivity (${metadata?.dataType || 'data type'}).
-        `.trim(),
+Rules:
+- Return ONLY the JSON object, no markdown, no explanations
+- Use double quotes for all strings
+- Keep code examples concise (3-5 lines max)
+- Focus on ${metadata?.storageContext || 'the storage mechanism'} and ${metadata?.dataType || 'data type'}
+- Ensure all JSON is properly escaped`.trim(),
 
         // Ollama generation controls (optimized for IDS feedback)
         options: {
           num_ctx: 2048,        // keep context small for speed
-          num_predict: 200,     // increased for richer context
+          num_predict: 350,     // increased for structured JSON response
           temperature: 0.15,    // slight creativity, but not rambling
           top_p: 0.9,
           repeat_penalty: 1.1,
@@ -78,11 +89,32 @@ Be specific to the storage type (${metadata?.storageContext || 'storage mechanis
     }
 
     const data: OllamaServerResponse = await res.json();
-    const raw = (data.response || "").trim();
+    let raw = (data.response || "").trim();
 
-    if (!raw) { return "No feedback returned by LLM."; }
+    if (!raw) { return JSON.stringify({ error: "No feedback returned by LLM." }); }
 
-    return raw;
+    // Extract JSON from markdown code blocks if present
+    const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch) {
+      raw = jsonMatch[1].trim();
+    }
+
+    // Validate JSON structure
+    try {
+      const parsed = JSON.parse(raw);
+      // Ensure required fields exist
+      if (!parsed.why || !parsed.risk || !parsed.fix) {
+        console.warn("LLM response missing required fields, using raw response");
+      }
+      return raw; // Return valid JSON string
+    } catch (parseError) {
+      console.error("LLM returned invalid JSON:", raw);
+      // Return a structured error response
+      return JSON.stringify({
+        error: "Invalid response format",
+        rawResponse: raw.substring(0, 200) // Truncate for safety
+      });
+    }
   } catch (err) {
     console.error("Error fetching LLM feedback:", err);
     { return "Error getting LLM feedback."; }

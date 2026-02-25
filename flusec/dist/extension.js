@@ -3067,29 +3067,42 @@ Storage Context: ${metadata.storageContext || "Unknown"}
         stream: false,
         // Keep model warm so repeated hovers are fast
         keep_alive: "30m",
-        // Enhanced prompt with IDS context
-        prompt: `
-You are a Flutter security expert specializing in insecure data storage.
+        // Enhanced prompt with IDS context - strict JSON formatting
+        prompt: `You are a Flutter security expert. Analyze this security issue and respond ONLY with valid JSON.
 
 ${contextInfo}
 Issue: ${issueMessage}
 
-Provide educational feedback in JSON format (no markdown, no extra text):
+IMPORTANT: Your response must be ONLY valid JSON with this exact structure:
 {
-  "why": "Explain why this ${metadata?.riskLevel || "issue"} risk is dangerous for ${metadata?.dataType || "sensitive data"} in ${metadata?.storageContext || "this storage"}. 2-3 sentences.",
-  "risk": "Specific security impact for ${metadata?.dataType || "this data"} stored in ${metadata?.storageContext || "this location"}. 1 sentence.",
-  "fix": ["3 concrete steps to fix, prioritized by ${metadata?.riskLevel || "severity"}"],
-  "example": "Short secure Dart code example for ${metadata?.storageContext || "this scenario"}"
+  "title": "Brief security issue title (max 10 words)",
+  "severity": "${metadata?.riskLevel || "MEDIUM"}",
+  "category": "${metadata?.dataType || "Sensitive Data"}",
+  "why": "Clear explanation of why this is dangerous (2-3 sentences, focus on ${metadata?.storageContext || "this storage context"})",
+  "risk": "Specific attack scenario or security impact (1-2 sentences)",
+  "fix": [
+    "First concrete remediation step",
+    "Second concrete remediation step",
+    "Third concrete remediation step"
+  ],
+  "example": "// Secure implementation example
+final secureStorage = FlutterSecureStorage();
+await secureStorage.write(key: 'token', value: sensitiveData);",
+  "references": ["OWASP Mobile Top 10 - M2: Insecure Data Storage"]
 }
 
-Be specific to the storage type (${metadata?.storageContext || "storage mechanism"}) and data sensitivity (${metadata?.dataType || "data type"}).
-        `.trim(),
+Rules:
+- Return ONLY the JSON object, no markdown, no explanations
+- Use double quotes for all strings
+- Keep code examples concise (3-5 lines max)
+- Focus on ${metadata?.storageContext || "the storage mechanism"} and ${metadata?.dataType || "data type"}
+- Ensure all JSON is properly escaped`.trim(),
         // Ollama generation controls (optimized for IDS feedback)
         options: {
           num_ctx: 2048,
           // keep context small for speed
-          num_predict: 200,
-          // increased for richer context
+          num_predict: 350,
+          // increased for structured JSON response
           temperature: 0.15,
           // slight creativity, but not rambling
           top_p: 0.9,
@@ -3104,11 +3117,28 @@ Be specific to the storage type (${metadata?.storageContext || "storage mechanis
       }
     }
     const data = await res.json();
-    const raw = (data.response || "").trim();
+    let raw = (data.response || "").trim();
     if (!raw) {
-      return "No feedback returned by LLM.";
+      return JSON.stringify({ error: "No feedback returned by LLM." });
     }
-    return raw;
+    const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jsonMatch) {
+      raw = jsonMatch[1].trim();
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed.why || !parsed.risk || !parsed.fix) {
+        console.warn("LLM response missing required fields, using raw response");
+      }
+      return raw;
+    } catch (parseError) {
+      console.error("LLM returned invalid JSON:", raw);
+      return JSON.stringify({
+        error: "Invalid response format",
+        rawResponse: raw.substring(0, 200)
+        // Truncate for safety
+      });
+    }
   } catch (err) {
     console.error("Error fetching LLM feedback:", err);
     {
@@ -3264,8 +3294,106 @@ function ensureDirForFile(filePath) {
 function formatFeedbackForHover(raw, metadata) {
   const md = new vscode2.MarkdownString();
   md.isTrusted = false;
+  md.supportHtml = true;
   try {
     const obj = JSON.parse(raw);
+    if (obj.error) {
+      md.appendMarkdown(`### \u26A0\uFE0F Feedback Error
+
+`);
+      md.appendMarkdown(`${obj.error}
+
+`);
+      if (obj.rawResponse) {
+        md.appendMarkdown(`*Raw response:* ${obj.rawResponse}...
+`);
+      }
+      return md;
+    }
+    const riskEmoji = {
+      "CRITICAL": "\u{1F534}",
+      "HIGH": "\u{1F7E0}",
+      "MEDIUM": "\u{1F7E1}",
+      "LOW": "\u{1F7E2}"
+    };
+    const emoji = riskEmoji[metadata?.riskLevel || obj.severity || "MEDIUM"] || "\u26AA";
+    const riskLevel = metadata?.riskLevel || obj.severity || "MEDIUM";
+    const category = metadata?.dataType || obj.category || "Sensitive Data";
+    const storage = metadata?.storageContext || obj.storageContext || "Unknown Storage";
+    md.appendMarkdown(`## ${emoji} ${riskLevel} Risk
+
+`);
+    md.appendMarkdown(`**Category:** ${category} | **Storage:** ${storage}
+
+`);
+    if (obj.title) {
+      md.appendMarkdown(`**Issue:** ${obj.title}
+
+`);
+    }
+    md.appendMarkdown(`---
+
+`);
+    if (obj.why) {
+      md.appendMarkdown(`### \u{1F3AF} Why This Matters
+
+`);
+      md.appendMarkdown(`${obj.why}
+
+`);
+    }
+    if (obj.risk) {
+      md.appendMarkdown(`### \u26A1 Security Impact
+
+`);
+      md.appendMarkdown(`${obj.risk}
+
+`);
+    }
+    if (Array.isArray(obj.fix) && obj.fix.length > 0) {
+      md.appendMarkdown(`### \u{1F527} How to Fix
+
+`);
+      obj.fix.slice(0, 3).forEach((step, index) => {
+        const cleanStep = String(step).replace(/^\d+\.\s*/, "");
+        md.appendMarkdown(`${index + 1}. ${cleanStep}
+`);
+      });
+      md.appendMarkdown(`
+`);
+    }
+    if (obj.example && String(obj.example).trim()) {
+      md.appendMarkdown(`### \u2705 Secure Example
+
+`);
+      md.appendCodeblock(String(obj.example), "dart");
+      md.appendMarkdown(`
+`);
+    }
+    if (metadata?.recommendation) {
+      md.appendMarkdown(`### \u{1F4A1} Recommended Action
+
+`);
+      md.appendMarkdown(`${metadata.recommendation}
+
+`);
+    }
+    if (Array.isArray(obj.references) && obj.references.length > 0) {
+      md.appendMarkdown(`---
+
+`);
+      md.appendMarkdown(`**\u{1F4DA} References:**
+`);
+      obj.references.forEach((ref) => {
+        md.appendMarkdown(`- ${String(ref)}
+`);
+      });
+    }
+    return md;
+  } catch (parseError) {
+    md.appendMarkdown(`### \u{1F4A1} Security Feedback
+
+`);
     if (metadata?.riskLevel) {
       const riskEmoji = {
         "CRITICAL": "\u{1F534}",
@@ -3274,59 +3402,22 @@ function formatFeedbackForHover(raw, metadata) {
         "LOW": "\u{1F7E2}"
       };
       const emoji = riskEmoji[metadata.riskLevel] || "\u26AA";
-      md.appendMarkdown(`### ${emoji} ${metadata.riskLevel} Risk - ${metadata.dataType || "Sensitive Data"}
+      md.appendMarkdown(`**${emoji} ${metadata.riskLevel} Risk** - ${metadata.dataType || "Sensitive Data"}
 
 `);
-      md.appendMarkdown(`**Storage**: ${metadata.storageContext || "Unknown"}
+      md.appendMarkdown(`**Storage:** ${metadata.storageContext || "Unknown"}
 
 `);
       md.appendMarkdown(`---
 
 `);
     }
-    md.appendMarkdown(`### \u{1F4A1} Educational Feedback
+    const lines = raw.split("\n");
+    lines.forEach((line) => {
+      md.appendMarkdown(`${line}
 
 `);
-    if (obj.why) {
-      md.appendMarkdown(`**Why This Matters**: ${obj.why}
-
-`);
-    }
-    if (obj.risk) {
-      md.appendMarkdown(`**Security Impact**: ${obj.risk}
-
-`);
-    }
-    if (Array.isArray(obj.fix) && obj.fix.length > 0) {
-      md.appendMarkdown(`**How to Fix**:
-`);
-      for (const step of obj.fix.slice(0, 3)) {
-        md.appendMarkdown(`- ${String(step).replace(/^\d+\.\s*/, "")}
-`);
-      }
-      md.appendMarkdown(`
-`);
-    }
-    if (obj.example && String(obj.example).trim()) {
-      md.appendMarkdown(`**Secure Example**:
-
-`);
-      md.appendCodeblock(String(obj.example), "dart");
-    }
-    if (metadata?.recommendation) {
-      md.appendMarkdown(`
----
-
-`);
-      md.appendMarkdown(`**Recommended Action**: ${metadata.recommendation}
-`);
-    }
-    return md;
-  } catch {
-    md.appendMarkdown(`### \u{1F4A1} Educational Feedback
-
-`);
-    md.appendMarkdown(raw);
+    });
     return md;
   }
 }

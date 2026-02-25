@@ -84,11 +84,109 @@ function ensureDirForFile(filePath: string) {
 function formatFeedbackForHover(raw: string, metadata?: any): vscode.MarkdownString {
   const md = new vscode.MarkdownString();
   md.isTrusted = false;
+  md.supportHtml = true;
 
   try {
     const obj = JSON.parse(raw);
 
-    // Add risk level header with color-coded emoji
+    // Handle error responses
+    if (obj.error) {
+      md.appendMarkdown(`### ⚠️ Feedback Error\n\n`);
+      md.appendMarkdown(`${obj.error}\n\n`);
+      if (obj.rawResponse) {
+        md.appendMarkdown(`*Raw response:* ${obj.rawResponse}...\n`);
+      }
+      return md;
+    }
+
+    // ========================================
+    // HEADER SECTION - Risk Level & Category
+    // ========================================
+    const riskEmoji: Record<string, string> = {
+      'CRITICAL': '🔴',
+      'HIGH': '🟠',
+      'MEDIUM': '🟡',
+      'LOW': '🟢'
+    };
+    const emoji = riskEmoji[metadata?.riskLevel || obj.severity || 'MEDIUM'] || '⚪';
+    const riskLevel = metadata?.riskLevel || obj.severity || 'MEDIUM';
+    const category = metadata?.dataType || obj.category || 'Sensitive Data';
+    const storage = metadata?.storageContext || obj.storageContext || 'Unknown Storage';
+
+    md.appendMarkdown(`## ${emoji} ${riskLevel} Risk\n\n`);
+    md.appendMarkdown(`**Category:** ${category} | **Storage:** ${storage}\n\n`);
+
+    // Title if available
+    if (obj.title) {
+      md.appendMarkdown(`**Issue:** ${obj.title}\n\n`);
+    }
+
+    md.appendMarkdown(`---\n\n`);
+
+    // ========================================
+    // WHY THIS MATTERS
+    // ========================================
+    if (obj.why) {
+      md.appendMarkdown(`### 🎯 Why This Matters\n\n`);
+      md.appendMarkdown(`${obj.why}\n\n`);
+    }
+
+    // ========================================
+    // SECURITY IMPACT
+    // ========================================
+    if (obj.risk) {
+      md.appendMarkdown(`### ⚡ Security Impact\n\n`);
+      md.appendMarkdown(`${obj.risk}\n\n`);
+    }
+
+    // ========================================
+    // HOW TO FIX
+    // ========================================
+    if (Array.isArray(obj.fix) && obj.fix.length > 0) {
+      md.appendMarkdown(`### 🔧 How to Fix\n\n`);
+      obj.fix.slice(0, 3).forEach((step: any, index: number) => {
+        const cleanStep = String(step).replace(/^\d+\.\s*/, "");
+        md.appendMarkdown(`${index + 1}. ${cleanStep}\n`);
+      });
+      md.appendMarkdown(`\n`);
+    }
+
+    // ========================================
+    // SECURE CODE EXAMPLE
+    // ========================================
+    if (obj.example && String(obj.example).trim()) {
+      md.appendMarkdown(`### ✅ Secure Example\n\n`);
+      md.appendCodeblock(String(obj.example), "dart");
+      md.appendMarkdown(`\n`);
+    }
+
+    // ========================================
+    // RECOMMENDATION (from metadata)
+    // ========================================
+    if (metadata?.recommendation) {
+      md.appendMarkdown(`### 💡 Recommended Action\n\n`);
+      md.appendMarkdown(`${metadata.recommendation}\n\n`);
+    }
+
+    // ========================================
+    // REFERENCES
+    // ========================================
+    if (Array.isArray(obj.references) && obj.references.length > 0) {
+      md.appendMarkdown(`---\n\n`);
+      md.appendMarkdown(`**📚 References:**\n`);
+      obj.references.forEach((ref: any) => {
+        md.appendMarkdown(`- ${String(ref)}\n`);
+      });
+    }
+
+    return md;
+  } catch (parseError) {
+    // ========================================
+    // FALLBACK FOR NON-JSON RESPONSES
+    // ========================================
+    md.appendMarkdown(`### 💡 Security Feedback\n\n`);
+
+    // Add metadata header even for fallback
     if (metadata?.riskLevel) {
       const riskEmoji: Record<string, string> = {
         'CRITICAL': '🔴',
@@ -97,46 +195,17 @@ function formatFeedbackForHover(raw: string, metadata?: any): vscode.MarkdownStr
         'LOW': '🟢'
       };
       const emoji = riskEmoji[metadata.riskLevel] || '⚪';
-
-      md.appendMarkdown(`### ${emoji} ${metadata.riskLevel} Risk - ${metadata.dataType || 'Sensitive Data'}\n\n`);
-      md.appendMarkdown(`**Storage**: ${metadata.storageContext || 'Unknown'}\n\n`);
+      md.appendMarkdown(`**${emoji} ${metadata.riskLevel} Risk** - ${metadata.dataType || 'Sensitive Data'}\n\n`);
+      md.appendMarkdown(`**Storage:** ${metadata.storageContext || 'Unknown'}\n\n`);
       md.appendMarkdown(`---\n\n`);
     }
 
-    md.appendMarkdown(`### 💡 Educational Feedback\n\n`);
+    // Display raw feedback with basic formatting
+    const lines = raw.split('\n');
+    lines.forEach(line => {
+      md.appendMarkdown(`${line}\n\n`);
+    });
 
-    if (obj.why) {
-      md.appendMarkdown(`**Why This Matters**: ${obj.why}\n\n`);
-    }
-
-    if (obj.risk) {
-      md.appendMarkdown(`**Security Impact**: ${obj.risk}\n\n`);
-    }
-
-    if (Array.isArray(obj.fix) && obj.fix.length > 0) {
-      md.appendMarkdown(`**How to Fix**:\n`);
-      for (const step of obj.fix.slice(0, 3)) {
-        md.appendMarkdown(`- ${String(step).replace(/^\d+\.\s*/, "")}\n`);
-      }
-      md.appendMarkdown(`\n`);
-    }
-
-    if (obj.example && String(obj.example).trim()) {
-      md.appendMarkdown(`**Secure Example**:\n\n`);
-      md.appendCodeblock(String(obj.example), "dart");
-    }
-
-    // Add recommendation if available
-    if (metadata?.recommendation) {
-      md.appendMarkdown(`\n---\n\n`);
-      md.appendMarkdown(`**Recommended Action**: ${metadata.recommendation}\n`);
-    }
-
-    return md;
-  } catch {
-    // fallback if JSON parsing fails
-    md.appendMarkdown(`### 💡 Educational Feedback\n\n`);
-    md.appendMarkdown(raw);
     return md;
   }
 }
