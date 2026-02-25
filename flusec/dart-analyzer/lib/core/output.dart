@@ -32,6 +32,10 @@ class OutputWriter {
               'functionLoc': i.functionLoc,
               // Which component produced this finding:
               'component': i.component,
+              // IDS metadata (null for non-IDS components):
+              'riskLevel': i.riskLevel,
+              'dataType': i.dataType,
+              'storageContext': i.storageContext,
             })
         .toList();
 
