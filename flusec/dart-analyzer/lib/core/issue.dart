@@ -2,8 +2,8 @@
 //
 // Shared model used by ALL analyzer components.
 // HSD fills functionName/complexity/nestingDepth/functionLoc.
-// Other components (network/storage/validation) can set them to null
-// or compute their own if needed later.
+// IDS fills riskLevel/dataType/storageContext.
+// Other components (network/validation) can set them to null.
 
 class Issue {
   final String filePath;
@@ -20,6 +20,11 @@ class Issue {
   final int? nestingDepth;
   final int? functionLoc;
 
+  /// IDS contribution: risk classification and storage metadata.
+  final String? riskLevel;      // CRITICAL | HIGH | MEDIUM | LOW
+  final String? dataType;       // e.g. PASSWORD, API_KEY, GENERIC_SENSITIVE
+  final String? storageContext; // e.g. shared_prefs, file, sqlite, log
+
   /// Which component produced this issue.
   /// Values: 'hsd', 'net', 'ids', 'iiv'
   final String component;
@@ -35,6 +40,9 @@ class Issue {
     this.complexity,
     this.nestingDepth,
     this.functionLoc,
+    this.riskLevel,
+    this.dataType,
+    this.storageContext,
     this.component = 'hsd',
   });
 }
