@@ -24,25 +24,43 @@
         return risk.toUpperCase();
     }
 
-    // Helper function to extract storage context from ruleId
+    // Helper function to extract storage context from finding
     function getStorageContext(finding) {
-        if (finding.storageContext) {return finding.storageContext;}
+        // Map raw Dart storageContext values to readable labels
+        const storageLabels = {
+            'shared_prefs': 'SharedPreferences',
+            'file': 'File Storage',
+            'sqlite': 'SQLite Database',
+            'external_storage': 'External Storage',
+            'cache': 'Cache',
+            'webview': 'WebView Storage',
+            'log': 'Logs',
+            'backup': 'Backup/Export',
+            'serialization': 'Serialization',
+            'clipboard': 'Clipboard',
+            'unknown': 'Unknown',
+        };
 
+        if (finding.storageContext) {
+            return storageLabels[finding.storageContext] || finding.storageContext;
+        }
+
+        // Fallback: derive from ruleId
         const ruleId = finding.ruleId || '';
-        if (ruleId.includes('IDS-001')) {return 'SharedPreferences';}
-        if (ruleId.includes('IDS-002')) {return 'File Storage';}
-        if (ruleId.includes('IDS-003')) {return 'SQLite Database';}
-        if (ruleId.includes('IDS-004')) {return 'External Storage';}
-        if (ruleId.includes('IDS-005')) {return 'Cache';}
-        if (ruleId.includes('IDS-006')) {return 'WebView Storage';}
-        if (ruleId.includes('IDS-007')) {return 'Clipboard';}
-        if (ruleId.includes('IDS-008')) {return 'Logs';}
+        if (ruleId.includes('IDS-001')) { return 'SharedPreferences'; }
+        if (ruleId.includes('IDS-002')) { return 'File Storage'; }
+        if (ruleId.includes('IDS-003')) { return 'SQLite Database'; }
+        if (ruleId.includes('IDS-004')) { return 'External Storage'; }
+        if (ruleId.includes('IDS-005')) { return 'Cache'; }
+        if (ruleId.includes('IDS-006')) { return 'WebView Storage'; }
+        if (ruleId.includes('IDS-007')) { return 'Clipboard'; }
+        if (ruleId.includes('IDS-008')) { return 'Logs'; }
         return 'Unknown';
     }
 
     // Helper function to get data type
     function getDataType(finding) {
-        if (finding.dataType) {return finding.dataType;}
+        if (finding.dataType) { return finding.dataType; }
         return 'SENSITIVE_DATA';
     }
 
@@ -337,16 +355,16 @@
 
         filteredFindings = allFindings.filter(finding => {
             // Risk level filter
-            if (riskFilter && getRiskLevel(finding) !== riskFilter) {return false;}
+            if (riskFilter && getRiskLevel(finding) !== riskFilter) { return false; }
 
             // Data type filter
-            if (dataTypeFilter && getDataType(finding) !== dataTypeFilter) {return false;}
+            if (dataTypeFilter && getDataType(finding) !== dataTypeFilter) { return false; }
 
             // Severity filter
-            if (severityFilter && getRiskLevel(finding).toLowerCase() !== severityFilter) {return false;}
+            if (severityFilter && getRiskLevel(finding).toLowerCase() !== severityFilter) { return false; }
 
             // Storage filter
-            if (storageFilter && getStorageContext(finding) !== storageFilter) {return false;}
+            if (storageFilter && getStorageContext(finding) !== storageFilter) { return false; }
 
             // Search filter
             if (searchTerm) {
@@ -360,7 +378,7 @@
                     finding.recommendation
                 ].filter(Boolean).join(' ').toLowerCase();
 
-                if (!searchableText.includes(searchTerm)) {return false;}
+                if (!searchableText.includes(searchTerm)) { return false; }
             }
 
             return true;
@@ -441,7 +459,7 @@
     }
 
     function getFileName(filePath) {
-        if (!filePath) {return '';}
+        if (!filePath) { return ''; }
         const parts = filePath.replace(/\\/g, '/').split('/');
         return parts[parts.length - 1];
     }
