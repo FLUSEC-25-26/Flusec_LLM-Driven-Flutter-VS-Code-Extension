@@ -107,6 +107,10 @@ export function upsertFindingsForDoc(
     nestingDepth?: number;
     functionLoc?: number;
     component?: string;
+    // IDS fields
+    riskLevel?: string;
+    dataType?: string;
+    storageContext?: string;
   }>
 ) {
   ensureDirForFile(findingsFilePath);
@@ -140,6 +144,10 @@ export function upsertFindingsForDoc(
       nestingDepth: (f as any).nestingDepth,
       functionLoc: (f as any).functionLoc,
       component: (f as any).component,
+      // IDS-specific fields — pass through if present
+      riskLevel: (f as any).riskLevel ?? null,
+      dataType: (f as any).dataType ?? null,
+      storageContext: (f as any).storageContext ?? null,
     });
   }
 
