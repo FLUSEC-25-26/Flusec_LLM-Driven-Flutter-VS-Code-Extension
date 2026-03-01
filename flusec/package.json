@@ -15,7 +15,10 @@
     "onCommand:flusec.manageRules",
     "onCommand:flusec.openFindings",
     "onCommand:flusec.openNetDashboard",
-    "onCommand:flusec.updateRulePacks"
+    "onCommand:flusec.updateRulePacks",
+    "onCommand:flusec.loginToTeam",
+    "onCommand:flusec.logoutFromTeam",
+    "onCommand:flusec.uploadFindings"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -39,14 +42,22 @@
       {
         "command": "flusec.openIDSDashboard",
         "title": "Open IDS Dashboard"
-    },
+      },
       {
         "command": "flusec.updateRulePacks",
         "title": "Flusec: Update Rule Packs (All Components)"
       },
       {
         "command": "flusec.uploadFindings",
-        "title": "Flusec: Upload Findings to DB"
+        "title": "FluSec: Sync Findings to Team"
+      },
+      {
+        "command": "flusec.loginToTeam",
+        "title": "FluSec: Login to Team"
+      },
+      {
+        "command": "flusec.logoutFromTeam",
+        "title": "FluSec: Logout from Team"
       }
     ],
     "configuration": {
@@ -61,7 +72,22 @@
         "flusec.cloudUploadEndpoint": {
           "type": "string",
           "default": "http://localhost:8082",
-          "description": "FLUSEC Cloud API base URL (example: https://cloud.yourcompany.com)."
+          "description": "FLUSEC Cloud API base URL (legacy)."
+        },
+        "flusec.webApiEndpoint": {
+          "type": "string",
+          "default": "http://localhost:3001",
+          "description": "FluSec Web Platform API URL (backend). Default: http://localhost:3001"
+        },
+        "flusec.supabaseUrl": {
+          "type": "string",
+          "default": "https://rlqfktxtgptsyuacqtve.supabase.co",
+          "description": "Your Supabase project URL."
+        },
+        "flusec.supabaseAnonKey": {
+          "type": "string",
+          "default": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJscWZrdHh0Z3B0c3l1YWNxdHZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxMDY1ODMsImV4cCI6MjA4NzY4MjU4M30.jPzakW2dM42VoCFbtmpWnPCqvxJCPAJnVZ5u8bLZNX0",
+          "description": "Supabase anon key (safe to embed — protected by RLS policies)."
         }
       }
     },

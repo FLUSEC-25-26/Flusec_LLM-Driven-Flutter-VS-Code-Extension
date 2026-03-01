@@ -27,7 +27,8 @@ import { openNetDashboard } from "./web/net/dasboard.js";
 import { openIDSDashboard } from "./web/ids/dashboard.js";
 
 import { registerFlusecNavigationView } from "./ui/flusecNavigation.js";
-import { uploadFindings } from "./cloud/uploadFindings.js";
+import { uploadFindings } from './cloud/uploadFindings.js';
+import { loginToTeam, logoutFromTeam } from './cloud/auth.js';
 
 // HSD rulepack
 import { syncHsdRulePack, writeHsdWorkspaceData } from "./rules/hsdRulePack.js";
@@ -46,10 +47,10 @@ let clearedFindingsThisSession = false;
 
 // Delete hsd_findings.json, net_findings.json & ids_findings.json for all workspace folders ONCE per session
 function clearFindingsForAllWorkspaceFoldersOnce() {
-  if (clearedFindingsThisSession) {return;}
+  if (clearedFindingsThisSession) { return; }
 
   const folders = vscode.workspace.workspaceFolders ?? [];
-  if (!folders.length) {return;}
+  if (!folders.length) { return; }
 
   try {
     for (const folder of folders) {
@@ -164,7 +165,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Track last Dart doc
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((doc) => {
-      if (doc.languageId === "dart") {lastDartDoc = doc;}
+      if (doc.languageId === "dart") { lastDartDoc = doc; }
     })
   );
 
@@ -188,11 +189,11 @@ export async function activate(context: vscode.ExtensionContext) {
       const active = vscode.window.activeTextEditor;
       let target: vscode.TextDocument | undefined;
 
-      if (active && active.document.languageId === "dart") {target = active.document;}
-      else if (lastDartDoc) {target = lastDartDoc;}
+      if (active && active.document.languageId === "dart") { target = active.document; }
+      else if (lastDartDoc) { target = lastDartDoc; }
       else {
         const dartDocs = vscode.workspace.textDocuments.filter((d) => d.languageId === "dart");
-        if (dartDocs.length > 0) {target = dartDocs[0];}
+        if (dartDocs.length > 0) { target = dartDocs[0]; }
       }
 
       if (!target) {
@@ -278,12 +279,30 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Upload findings
   context.subscriptions.push(
-    vscode.commands.registerCommand("flusec.uploadFindings", async () => {
+    vscode.commands.registerCommand('flusec.uploadFindings', async () => {
       try {
         await uploadFindings(context);
       } catch (e) {
-        vscode.window.showErrorMessage("FLUSEC: Upload failed: " + String(e));
+        vscode.window.showErrorMessage('FLUSEC: Upload failed: ' + String(e));
       }
+    })
+  );
+
+  // Login to FluSec Web Platform
+  context.subscriptions.push(
+    vscode.commands.registerCommand('flusec.loginToTeam', async () => {
+      try {
+        await loginToTeam(context);
+      } catch (e) {
+        vscode.window.showErrorMessage('FLUSEC: Login failed: ' + String(e));
+      }
+    })
+  );
+
+  // Logout from FluSec Web Platform
+  context.subscriptions.push(
+    vscode.commands.registerCommand('flusec.logoutFromTeam', async () => {
+      await logoutFromTeam(context);
     })
   );
 
@@ -302,7 +321,7 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((event) => {
       const doc = event.document;
-      if (doc.languageId !== "dart") {return;}
+      if (doc.languageId !== "dart") { return; }
 
       lastDartDoc = doc;
 
