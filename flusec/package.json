@@ -12,9 +12,11 @@
   "activationEvents": [
     "onLanguage:dart",
     "onCommand:flusec.scanFile",
+    "onCommand:flusec.scanProject",
     "onCommand:flusec.manageRules",
     "onCommand:flusec.openFindings",
     "onCommand:flusec.openNetDashboard",
+    "onCommand:flusec.openIDSDashboard",
     "onCommand:flusec.updateRulePacks",
     "onCommand:flusec.loginToTeam",
     "onCommand:flusec.logoutFromTeam",
@@ -26,6 +28,10 @@
       {
         "command": "flusec.scanFile",
         "title": "Flusec: Scan current file"
+      },
+      {
+        "command": "flusec.scanProject",
+        "title": "Flusec: Scan Entire Project"
       },
       {
         "command": "flusec.manageRules",
