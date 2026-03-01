@@ -2,6 +2,7 @@
 //
 // FLUSEC Navigation Sidebar (TreeView)
 // Active: HSD + Network + Storage (IDS)
+// Top-level: Scan Entire Project (scans all components)
 // Future: Input Validation (commented out)
 
 import * as vscode from "vscode";
@@ -81,8 +82,25 @@ class FlusecNavigationProvider
   }
 
   getChildren(element?: FlusecNavItem): Thenable<FlusecNavItem[]> {
-    // Root level → show components
+    // Root level → show project scan button + components
     if (!element) {
+      // Top-level "Scan Entire Project" button (scans ALL components)
+      const projectScan = new FlusecNavItem(
+        "Scan Entire Project",
+        vscode.TreeItemCollapsibleState.None,
+        {
+          nodeType: "action",
+          tooltip: "Scan all Dart files for all vulnerability types (HSD, NET, IDS).",
+          icon: new vscode.ThemeIcon("search"),
+          command: {
+            command: "flusec.scanProject",
+            title: "Scan Entire Project",
+          },
+          contextValue: "project-scan",
+        }
+      );
+
+      // Component items (collapsible)
       const items = this.components.map(
         (c) =>
           new FlusecNavItem(
@@ -97,7 +115,8 @@ class FlusecNavigationProvider
             }
           )
       );
-      return Promise.resolve(items);
+
+      return Promise.resolve([projectScan, ...items]);
     }
 
     // Children for a component node

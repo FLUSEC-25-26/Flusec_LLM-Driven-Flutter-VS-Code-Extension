@@ -8,6 +8,7 @@
 // - updating hsd_findings.json, net_findings.json & ids_findings.json via findingsStore
 // - resetting LLM hover state for this document
 // - sync rulepack + write effective workspace rule files (HSD + NET + IDS)
+// - PROJECT SCAN: scan all .dart files in lib/ in a single analyzer process
 
 import * as vscode from "vscode";
 import { spawn } from "child_process";
@@ -18,6 +19,7 @@ import {
   diagCollection,
   severityToVS,
   upsertFindingsForDoc,
+  upsertFindingsForFile,
 } from "./findingsStore.js";
 
 import {
@@ -95,6 +97,36 @@ export function idsFindingsPathForFolder(
 }
 
 /**
+ * Resolve the path to the analyzer executable.
+ */
+function resolveAnalyzerPath(): string {
+  return path.join(__dirname, "..", "dart-analyzer", "bin", "analyzer.exe");
+}
+
+/**
+ * Sync all rulepacks and write workspace data for a given folder.
+ */
+async function syncAndWriteAllRules(
+  context: vscode.ExtensionContext,
+  folderFsPath: string
+): Promise<void> {
+  await syncHsdRulePack(context).catch((e) => {
+    console.error("[FLUSEC] syncHsdRulePack (scan) failed:", e);
+  });
+  writeHsdWorkspaceData(context, folderFsPath);
+
+  await syncNetRulePack(context).catch((e) => {
+    console.error("[FLUSEC] syncNetRulePack (scan) failed:", e);
+  });
+  writeNetWorkspaceData(context, folderFsPath);
+
+  await syncIdsRulePack(context).catch((e) => {
+    console.error("[FLUSEC] syncIdsRulePack (scan) failed:", e);
+  });
+  writeIdsWorkspaceData(context, folderFsPath);
+}
+
+/**
  * Run the external Dart analyzer.exe against a document.
  * Called by extension.ts on:
  * - manual scan
@@ -124,34 +156,9 @@ export async function runAnalyzer(
   }
 
   // Sync rulepacks + write effective workspace rule files for ALL components
-  // Safe if offline: it just keeps cached/globalStorage values
-  await syncHsdRulePack(context).catch((e) => {
-    console.error("[FLUSEC] syncHsdRulePack (scan) failed:", e);
-  });
-  writeHsdWorkspaceData(context, folder.uri.fsPath);
+  await syncAndWriteAllRules(context, folder.uri.fsPath);
 
-  // NET rulepack sync
-  await syncNetRulePack(context).catch((e) => {
-    console.error("[FLUSEC] syncNetRulePack (scan) failed:", e);
-  });
-  writeNetWorkspaceData(context, folder.uri.fsPath);
-
-  // IDS rulepack sync
-  await syncIdsRulePack(context).catch((e) => {
-    console.error("[FLUSEC] syncIdsRulePack (scan) failed:", e);
-  });
-  writeIdsWorkspaceData(context, folder.uri.fsPath);
-
-  // Future: syncIivRulePack, writeIivWorkspaceData, etc.
-
-  // analyzer.exe is under <extension>/dart-analyzer/bin/analyzer.exe
-  const analyzerPath = path.join(
-    __dirname,
-    "..",
-    "dart-analyzer",
-    "bin",
-    "analyzer.exe"
-  );
+  const analyzerPath = resolveAnalyzerPath();
 
   if (!fs.existsSync(analyzerPath)) {
     vscode.window.showErrorMessage(
@@ -161,7 +168,6 @@ export async function runAnalyzer(
   }
 
   // Set cwd = <workspace>/.flusec
-  // so the Dart resolver loads: <cwd>/data/<component>_rules.json
   const analyzerCwd = path.join(folder.uri.fsPath, ".flusec");
 
   // Ensure output folder exists
@@ -272,4 +278,241 @@ export async function runAnalyzer(
   upsertFindingsForDoc(hsdPath, doc, hsdFindings);
   upsertFindingsForDoc(netPath, doc, netFindings);
   upsertFindingsForDoc(idsPath, doc, idsFindings);
+}
+
+
+// ==========================================================================
+// PROJECT SCAN — scan all .dart files in lib/ using a single analyzer process
+// ==========================================================================
+
+/**
+ * Result of a project-level scan.
+ */
+export interface ProjectScanResult {
+  totalFiles: number;
+  filesWithIssues: number;
+  totalIssues: number;
+  hsdCount: number;
+  netCount: number;
+  idsCount: number;
+}
+
+/**
+ * Run the analyzer in --project mode against the workspace's lib/ directory.
+ * This spawns a SINGLE analyzer.exe process that scans all .dart files
+ * internally, avoiding the overhead of spawning hundreds of processes.
+ *
+ * After completion, it:
+ * - Sets diagnostics for ALL files with findings
+ * - Writes component-specific findings JSON files
+ * - Returns scan summary statistics
+ */
+export async function runProjectAnalyzer(
+  context: vscode.ExtensionContext,
+  folder: vscode.WorkspaceFolder,
+  scanDir?: string
+): Promise<ProjectScanResult> {
+  // Reset LLM state
+  resetLLMState();
+
+  // Sync rulepacks + write workspace data
+  await syncAndWriteAllRules(context, folder.uri.fsPath);
+
+  const analyzerPath = resolveAnalyzerPath();
+
+  if (!fs.existsSync(analyzerPath)) {
+    throw new Error(`Analyzer not found at path: ${analyzerPath}`);
+  }
+
+  // Default scan directory is lib/
+  const targetDir = scanDir ?? path.join(folder.uri.fsPath, "lib");
+
+  if (!fs.existsSync(targetDir)) {
+    throw new Error(`Scan directory not found: ${targetDir}`);
+  }
+
+  // Set cwd = <workspace>/.flusec
+  const analyzerCwd = path.join(folder.uri.fsPath, ".flusec");
+
+  // Ensure output folder exists
+  const outDir = findingsOutDir(folder);
+  fs.mkdirSync(outDir, { recursive: true });
+
+  // Spawn analyzer with --project flag
+  const stdout = await new Promise<string>((resolve, reject) => {
+    const proc = spawn(analyzerPath, ["--project", targetDir], {
+      cwd: analyzerCwd,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let out = "";
+    let err = "";
+    proc.stdout.on("data", (d: Buffer) => { out += d.toString(); });
+    proc.stderr.on("data", (d: Buffer) => { err += d.toString(); });
+
+    proc.on("error", (e) => {
+      console.error("Analyzer spawn error (project scan):", e);
+      reject(e);
+    });
+
+    proc.on("close", (code) => {
+      if (err) {
+        console.error("Analyzer stderr (project scan):", err);
+      }
+      if (code !== 0) {
+        reject(new Error(`Analyzer exited with code ${code}`));
+      } else {
+        resolve(out);
+      }
+    });
+  });
+
+  // Parse all findings from stdout
+  let findings: any[] = [];
+  try {
+    findings = JSON.parse(stdout);
+    if (!Array.isArray(findings)) {
+      findings = [];
+    }
+  } catch (e) {
+    console.error("Failed to parse project scan output:", e);
+    throw new Error("Failed to parse analyzer output as JSON");
+  }
+
+  // Group findings by file for diagnostics
+  const findingsByFile = new Map<string, any[]>();
+  for (const f of findings) {
+    const filePath = f.file ?? "";
+    if (!filePath) { continue; }
+    const existing = findingsByFile.get(filePath) ?? [];
+    existing.push(f);
+    findingsByFile.set(filePath, existing);
+  }
+
+  // Set diagnostics for each file
+  for (const [filePath, fileFindings] of findingsByFile) {
+    const uri = vscode.Uri.file(filePath);
+    const diags: vscode.Diagnostic[] = [];
+
+    for (const f of fileFindings) {
+      const lineIdx = Math.max(0, (f.line ?? 1) - 1);
+
+      // We can't use doc.lineAt() here since files may not be open.
+      // Use a simple range instead.
+      const range = new vscode.Range(lineIdx, 0, lineIdx, 200);
+
+      const metricParts: string[] = [];
+      if (typeof f.complexity === "number") {
+        metricParts.push(`Cx=${f.complexity}`);
+      }
+      if (typeof f.nestingDepth === "number") {
+        metricParts.push(`Depth=${f.nestingDepth}`);
+      }
+      if (typeof f.functionLoc === "number") {
+        metricParts.push(`Size=${f.functionLoc} LOC`);
+      }
+
+      const metricSuffix = metricParts.length
+        ? ` [${metricParts.join(", ")}]`
+        : "";
+      const message = `${f.message ?? ""}${metricSuffix}`;
+
+      const diag = new vscode.Diagnostic(
+        range,
+        message,
+        severityToVS(f.severity || "warning")
+      );
+      diag.source = "flusec";
+      diag.code = f.ruleId;
+      diags.push(diag);
+    }
+
+    diagCollection.set(uri, diags);
+  }
+
+  // Split findings by component
+  const hsdFindings = findings.filter((f: any) => (f.component ?? "hsd") === "hsd");
+  const netFindings = findings.filter((f: any) => f.component === "net");
+  const idsFindings = findings.filter((f: any) => f.component === "ids");
+
+  // Write component-specific findings files (replace all — full project data)
+  const hsdPath = hsdFindingsPathForFolder(folder);
+  const netPath = netFindingsPathForFolder(folder);
+  const idsPath = idsFindingsPathForFolder(folder);
+
+  writeFindingsFile(hsdPath, hsdFindings);
+  writeFindingsFile(netPath, netFindings);
+  writeFindingsFile(idsPath, idsFindings);
+
+  // Compute summary statistics
+  const filesWithIssues = findingsByFile.size;
+
+  return {
+    totalFiles: countDartFiles(targetDir),
+    filesWithIssues,
+    totalIssues: findings.length,
+    hsdCount: hsdFindings.length,
+    netCount: netFindings.length,
+    idsCount: idsFindings.length,
+  };
+}
+
+/**
+ * Write findings array directly to a JSON file (full replace, not merge).
+ * Used by project scan to write complete project-level findings.
+ */
+function writeFindingsFile(filePath: string, findings: any[]): void {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+
+  const enriched = findings.map((f: any) => ({
+    file: f.file ?? "",
+    line: f.line ?? 1,
+    column: f.column ?? 1,
+    ruleId: f.ruleId ?? "",
+    message: f.message ?? "",
+    severity: f.severity ?? "warning",
+    functionName: f.functionName ?? null,
+    complexity: f.complexity ?? null,
+    nestingDepth: f.nestingDepth ?? null,
+    functionLoc: f.functionLoc ?? null,
+    component: f.component ?? "hsd",
+    riskLevel: f.riskLevel ?? null,
+    dataType: f.dataType ?? null,
+    storageContext: f.storageContext ?? null,
+  }));
+
+  fs.writeFileSync(filePath, JSON.stringify(enriched, null, 2), "utf8");
+}
+
+/**
+ * Count .dart files in a directory (for summary stats).
+ */
+function countDartFiles(dirPath: string): number {
+  let count = 0;
+  try {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        // Skip non-source directories
+        if (
+          entry.name === ".dart_tool" ||
+          entry.name === "build" ||
+          entry.name === ".flusec" ||
+          entry.name === "generated"
+        ) {
+          continue;
+        }
+        count += countDartFiles(fullPath);
+      } else if (entry.name.endsWith(".dart")) {
+        count++;
+      }
+    }
+  } catch {
+    // ignore permission errors etc.
+  }
+  return count;
 }

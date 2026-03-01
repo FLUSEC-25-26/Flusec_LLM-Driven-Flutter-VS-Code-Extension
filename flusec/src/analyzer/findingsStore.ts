@@ -155,3 +155,48 @@ export function upsertFindingsForDoc(
   // Do NOT call refreshDiagnosticsFromFindings here — diagnostics are already
   // set by runAnalyzer.ts via diagCollection.set() for ALL components combined.
 }
+
+/**
+ * Merge new findings for a file path (without requiring an open TextDocument).
+ * Used by project scan where files may not be open in the editor.
+ */
+export function upsertFindingsForFile(
+  findingsFilePath: string,
+  sourceFilePath: string,
+  newFindings: any[]
+) {
+  ensureDirForFile(findingsFilePath);
+  let all: any[] = [];
+  if (fs.existsSync(findingsFilePath)) {
+    try {
+      all = JSON.parse(fs.readFileSync(findingsFilePath, "utf8"));
+      if (!Array.isArray(all)) { all = []; }
+    } catch {
+      all = [];
+    }
+  }
+
+  // Remove old findings for this file
+  all = all.filter((x) => x?.file !== sourceFilePath);
+
+  for (const f of newFindings) {
+    all.push({
+      file: f.file ?? sourceFilePath,
+      line: f.line ?? 1,
+      column: f.column ?? 1,
+      ruleId: f.ruleId ?? "",
+      message: f.message ?? "",
+      severity: f.severity ?? "warning",
+      functionName: f.functionName ?? null,
+      complexity: f.complexity ?? null,
+      nestingDepth: f.nestingDepth ?? null,
+      functionLoc: f.functionLoc ?? null,
+      component: f.component ?? "hsd",
+      riskLevel: f.riskLevel ?? null,
+      dataType: f.dataType ?? null,
+      storageContext: f.storageContext ?? null,
+    });
+  }
+
+  fs.writeFileSync(findingsFilePath, JSON.stringify(all, null, 2), "utf8");
+}

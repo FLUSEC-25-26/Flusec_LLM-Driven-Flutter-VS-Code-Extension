@@ -1,6 +1,10 @@
 // bin/analyzer.dart
 //
-// ONE analyzer.exe — runs ALL security components on a Dart file.
+// ONE analyzer.exe — runs ALL security components on a Dart file OR directory.
+//
+// Usage:
+//   analyzer.exe <path-to-dart-file>       — scan a single file
+//   analyzer.exe --project <path-to-dir>   — scan all .dart files recursively
 //
 // Currently active:
 //   1. HSD  — Hardcoded Secrets Detection + Maintainability Metrics
@@ -54,135 +58,271 @@ Map<String, dynamic> _readMap(File f) {
 }
 
 // ---------------------------------------------------------------------------
+// Engine initialization (shared across all files in project scan)
+// ---------------------------------------------------------------------------
+
+/// Initialize HSD engine once (reused across all files)
+RulesEngine _initHsdEngine() {
+  final hsdRulesFile =
+      RulesPathResolver.resolveRulesFile('hardcoded_secrets_rules.json');
+  final hsdHeuristicsFile =
+      RulesPathResolver.resolveRulesFile('hardcoded_secrets_heuristics.json');
+
+  final rawRules = _readRuleList(hsdRulesFile);
+  if (rawRules.isNotEmpty) {
+    stderr.writeln('♻️ [HSD] Reloaded ${rawRules.length} rule(s) from ${hsdRulesFile.path}');
+  } else {
+    stderr.writeln('⚠️ [HSD] Rules file not found or empty. Rule-based detection may be limited.');
+  }
+
+  final heuristics = _readMap(hsdHeuristicsFile);
+
+  final engine = RulesEngine();
+  engine.loadDynamicRules(rawRules);
+  engine.loadHeuristics(heuristics);
+  return engine;
+}
+
+/// Initialize NET engine once
+net.NetworkRulesEngine _initNetEngine() {
+  final netRulesFile =
+      RulesPathResolver.resolveRulesFile('insecure_network_rules.json');
+  final netRulesEngine = net.NetworkRulesEngine();
+
+  final rawNetRules = _readRuleList(netRulesFile);
+  if (rawNetRules.isNotEmpty) {
+    netRulesEngine.loadRules(rawNetRules);
+    stderr.writeln('♻️ [NET] Loaded ${rawNetRules.length} rule(s) from ${netRulesFile.path}');
+  } else {
+    netRulesEngine.loadRules(const []);
+    stderr.writeln('⚠️ [NET] No rules file found. Network detection disabled.');
+  }
+  return netRulesEngine;
+}
+
+/// Initialize IDS engine once
+ids.IdsRulesEngine _initIdsEngine() {
+  final idsRulesFile =
+      RulesPathResolver.resolveRulesFile('insecure_data_storage_rules.json');
+  final idsRulesEngine = ids.IdsRulesEngine();
+
+  final rawIdsRules = _readRuleList(idsRulesFile);
+  if (rawIdsRules.isNotEmpty) {
+    idsRulesEngine.loadRules(rawIdsRules);
+    stderr.writeln('♻️ [IDS] Loaded ${rawIdsRules.length} rule(s) from ${idsRulesFile.path}');
+  } else {
+    idsRulesEngine.loadRules(const []);
+    stderr.writeln('⚠️ [IDS] No rules file found. Storage detection disabled.');
+  }
+  return idsRulesEngine;
+}
+
+// ---------------------------------------------------------------------------
+// Scan a single file using pre-initialized engines
+// ---------------------------------------------------------------------------
+
+List<Issue> _scanFile(
+  String filePath,
+  String content,
+  RulesEngine hsdEngine,
+  net.NetworkRulesEngine netEngine,
+  ids.IdsRulesEngine idsEngine,
+) {
+  final result = parseString(content: content, path: filePath);
+  final unit = result.unit;
+  final fileIssues = <Issue>[];
+
+  // 1) HSD
+  try {
+    final visitor = SecretVisitor(hsdEngine, content, filePath);
+    unit.accept(visitor);
+    fileIssues.addAll(visitor.issues);
+  } catch (e) {
+    stderr.writeln('⚠️ [HSD] Error scanning $filePath: $e');
+  }
+
+  // 2) NET
+  try {
+    final netIssues = net.NetworkAnalyzer.run(unit, content, filePath, netEngine);
+    fileIssues.addAll(netIssues);
+  } catch (e) {
+    stderr.writeln('⚠️ [NET] Error scanning $filePath: $e');
+  }
+
+  // 3) IDS
+  try {
+    final idsVisitor = ids.StorageVisitor(unit, content, filePath, idsEngine);
+    unit.accept(idsVisitor);
+    fileIssues.addAll(idsVisitor.issues);
+  } catch (e) {
+    stderr.writeln('⚠️ [IDS] Error scanning $filePath: $e');
+  }
+
+  // 4) IIV (future)
+  // try {
+  //   final iivIssues = iiv.ValidationAnalyzer.run(unit, content, filePath, iivEngine);
+  //   fileIssues.addAll(iivIssues);
+  // } catch (e) {
+  //   stderr.writeln('⚠️ [IIV] Error scanning $filePath: $e');
+  // }
+
+  return fileIssues;
+}
+
+// ---------------------------------------------------------------------------
+// Collect all .dart files recursively from a directory
+// ---------------------------------------------------------------------------
+
+List<File> _collectDartFiles(Directory dir) {
+  final dartFiles = <File>[];
+
+  try {
+    final entities = dir.listSync(recursive: true, followLinks: false);
+    for (final entity in entities) {
+      if (entity is File && entity.path.endsWith('.dart')) {
+        // Skip common non-source directories
+        final relativePath = entity.path.replaceAll('\\', '/');
+        if (relativePath.contains('/.dart_tool/') ||
+            relativePath.contains('/build/') ||
+            relativePath.contains('/.flusec/') ||
+            relativePath.contains('/generated/')) {
+          continue;
+        }
+        dartFiles.add(entity);
+      }
+    }
+  } catch (e) {
+    stderr.writeln('⚠️ Error listing directory: $e');
+  }
+
+  // Sort for deterministic output
+  dartFiles.sort((a, b) => a.path.compareTo(b.path));
+  return dartFiles;
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 void main(List<String> args) {
   if (args.isEmpty) {
-    stderr.writeln('Usage: dart run bin/analyzer.dart <path-to-dart-file>');
+    stderr.writeln('Usage:');
+    stderr.writeln('  analyzer.exe <path-to-dart-file>       — scan a single file');
+    stderr.writeln('  analyzer.exe --project <path-to-dir>   — scan all .dart files recursively');
     exitCode = 2;
     return;
   }
 
-  final filePath = args.first;
-  final file = File(filePath);
+  // Check for --project flag
+  final isProjectScan = args.length >= 2 && args[0] == '--project';
 
-  if (!file.existsSync()) {
-    stderr.writeln("PathNotFoundException: Cannot open file, path = '$filePath'");
-    exitCode = 2;
-    return;
-  }
+  if (isProjectScan) {
+    // =====================================================================
+    // PROJECT SCAN MODE — scan all .dart files in directory
+    // =====================================================================
+    final dirPath = args[1];
+    final dir = Directory(dirPath);
 
-  // Parse the Dart file into an AST (shared by all components)
-  final content = file.readAsStringSync();
-  final result = parseString(content: content, path: filePath);
-  final unit = result.unit;
-
-  // Collect all issues from every component
-  final allIssues = <Issue>[];
-
-  // =========================================================================
-  // 1) HSD — Hardcoded Secrets Detection
-  // =========================================================================
-  try {
-    final hsdRulesFile =
-        RulesPathResolver.resolveRulesFile('hardcoded_secrets_rules.json');
-    final hsdHeuristicsFile =
-        RulesPathResolver.resolveRulesFile('hardcoded_secrets_heuristics.json');
-
-    final rawRules = _readRuleList(hsdRulesFile);
-    if (rawRules.isNotEmpty) {
-      stderr.writeln('♻️ [HSD] Reloaded ${rawRules.length} rule(s) from ${hsdRulesFile.path}');
-    } else {
-      stderr.writeln('⚠️ [HSD] Rules file not found or empty. Rule-based detection may be limited.');
+    if (!dir.existsSync()) {
+      stderr.writeln("Directory not found: '$dirPath'");
+      exitCode = 2;
+      return;
     }
 
-    final heuristics = _readMap(hsdHeuristicsFile);
+    stderr.writeln('━━━ FLUSEC Project Scan: $dirPath ━━━');
 
-    final engine = RulesEngine();
-    engine.loadDynamicRules(rawRules);
-    engine.loadHeuristics(heuristics);
+    // Initialize all engines ONCE (shared across all files)
+    final hsdEngine = _initHsdEngine();
+    final netEngine = _initNetEngine();
+    final idsEngine = _initIdsEngine();
 
-    final visitor = SecretVisitor(engine, content, filePath);
-    unit.accept(visitor);
+    // Collect all .dart files
+    final dartFiles = _collectDartFiles(dir);
+    stderr.writeln('📁 Found ${dartFiles.length} Dart file(s) to scan.');
 
-    allIssues.addAll(visitor.issues);
-    stderr.writeln('[HSD] Found ${visitor.issues.length} issue(s).');
-  } catch (e, st) {
-    stderr.writeln('⚠️ [HSD] Error during analysis: $e\n$st');
-  }
-
-  // =========================================================================
-  // 2) NET — Insecure Network Communication
-  // =========================================================================
-  try {
-    final netRulesFile =
-        RulesPathResolver.resolveRulesFile('insecure_network_rules.json');
-
-    final netRulesEngine = net.NetworkRulesEngine();
-
-    final rawNetRules = _readRuleList(netRulesFile);
-    if (rawNetRules.isNotEmpty) {
-      netRulesEngine.loadRules(rawNetRules);
-      stderr.writeln('♻️ [NET] Loaded ${rawNetRules.length} rule(s) from ${netRulesFile.path}');
-    } else {
-      netRulesEngine.loadRules(const []);
-      stderr.writeln('⚠️ [NET] No rules file found. Network detection disabled.');
+    if (dartFiles.isEmpty) {
+      stdout.writeln(jsonEncode([]));
+      return;
     }
 
-    final netIssues = net.NetworkAnalyzer.run(unit, content, filePath, netRulesEngine);
+    // Scan each file and collect all issues
+    final allIssues = <Issue>[];
+    int filesScanned = 0;
+    int filesWithIssues = 0;
 
-    allIssues.addAll(netIssues);
-    stderr.writeln('[NET] Found ${netIssues.length} issue(s).');
-  } catch (e, st) {
-    stderr.writeln('⚠️ [NET] Error during analysis: $e\n$st');
-  }
+    for (final file in dartFiles) {
+      try {
+        final content = file.readAsStringSync();
+        final issues = _scanFile(
+          file.path,
+          content,
+          hsdEngine,
+          netEngine,
+          idsEngine,
+        );
 
-  // =========================================================================
-  // 3) IDS — Insecure Data Storage
-  // =========================================================================
-  try {
-    final idsRulesFile =
-        RulesPathResolver.resolveRulesFile('insecure_data_storage_rules.json');
+        if (issues.isNotEmpty) {
+          filesWithIssues++;
+        }
 
-    final idsRulesEngine = ids.IdsRulesEngine();
+        allIssues.addAll(issues);
+        filesScanned++;
 
-    final rawIdsRules = _readRuleList(idsRulesFile);
-    if (rawIdsRules.isNotEmpty) {
-      idsRulesEngine.loadRules(rawIdsRules);
-      stderr.writeln('♻️ [IDS] Loaded ${rawIdsRules.length} rule(s) from ${idsRulesFile.path}');
-    } else {
-      idsRulesEngine.loadRules(const []);
-      stderr.writeln('⚠️ [IDS] No rules file found. Storage detection disabled.');
+        // Progress indicator every 10 files
+        if (filesScanned % 10 == 0) {
+          stderr.writeln('  ... scanned $filesScanned / ${dartFiles.length} files');
+        }
+      } catch (e) {
+        stderr.writeln('⚠️ Failed to scan ${file.path}: $e');
+      }
     }
 
-    final idsVisitor = ids.StorageVisitor(unit, content, filePath, idsRulesEngine);
-    unit.accept(idsVisitor);
-    idsVisitor.debugCounters();
+    // Summary
+    stderr.writeln('━━━ Project Scan Complete ━━━');
+    stderr.writeln('  Files scanned:      $filesScanned');
+    stderr.writeln('  Files with issues:  $filesWithIssues');
+    stderr.writeln('  Total issues:       ${allIssues.length}');
 
-    allIssues.addAll(idsVisitor.issues);
-    stderr.writeln('[IDS] Found ${idsVisitor.issues.length} issue(s).');
-  } catch (e, st) {
-    stderr.writeln('⚠️ [IDS] Error during analysis: $e\n$st');
+    // Count by component
+    final hsdCount = allIssues.where((i) => i.component == 'hsd').length;
+    final netCount = allIssues.where((i) => i.component == 'net').length;
+    final idsCount = allIssues.where((i) => i.component == 'ids').length;
+    stderr.writeln('  HSD: $hsdCount | NET: $netCount | IDS: $idsCount');
+
+    // Output all issues as JSON to stdout
+    OutputWriter.printStdout(allIssues);
+
+  } else {
+    // =====================================================================
+    // SINGLE FILE MODE — original behavior (backwards compatible)
+    // =====================================================================
+    final filePath = args.first;
+    final file = File(filePath);
+
+    if (!file.existsSync()) {
+      stderr.writeln("PathNotFoundException: Cannot open file, path = '$filePath'");
+      exitCode = 2;
+      return;
+    }
+
+    // Initialize engines
+    final hsdEngine = _initHsdEngine();
+    final netEngine = _initNetEngine();
+    final idsEngine = _initIdsEngine();
+
+    // Read and scan the single file
+    final content = file.readAsStringSync();
+    final allIssues = _scanFile(filePath, content, hsdEngine, netEngine, idsEngine);
+
+    // Summary
+    final hsdCount = allIssues.where((i) => i.component == 'hsd').length;
+    final netCount = allIssues.where((i) => i.component == 'net').length;
+    final idsCount = allIssues.where((i) => i.component == 'ids').length;
+    stderr.writeln('[HSD] Found $hsdCount issue(s).');
+    stderr.writeln('[NET] Found $netCount issue(s).');
+    stderr.writeln('[IDS] Found $idsCount issue(s).');
+    stderr.writeln('━━━ Total: ${allIssues.length} issue(s) from all components ━━━');
+
+    OutputWriter.printStdout(allIssues);
   }
-
-  // =========================================================================
-  // 4) IIV — Insufficient Input Validation (FUTURE — uncomment when ready)
-  // =========================================================================
-  // try {
-  //   final iivRulesFile =
-  //       RulesPathResolver.resolveRulesFile('insufficient_input_validation_rules.json');
-  //   // ... load rules, run visitor ...
-  //   // final iivIssues = iiv.ValidationAnalyzer.run(unit, content, filePath, iivRulesEngine);
-  //   // allIssues.addAll(iivIssues);
-  // } catch (e, st) {
-  //   stderr.writeln('⚠️ [IIV] Error during analysis: $e\n$st');
-  // }
-
-  // =========================================================================
-  // OUTPUT — single combined output for ALL components
-  // =========================================================================
-  stderr.writeln('━━━ Total: ${allIssues.length} issue(s) from all components ━━━');
-
-  OutputWriter.printStdout(allIssues);
 }

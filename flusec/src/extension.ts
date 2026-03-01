@@ -2,12 +2,14 @@
 //
 // FLUSEC VS Code Extension — main entry point.
 // Now supports: HSD + NET + IDS (Insecure Data Storage)
+// Features: Single file scan + Full project scan
 
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 import {
   runAnalyzer,
+  runProjectAnalyzer,
   findingsOutDir,
   hsdFindingsPathForFolder,
   netFindingsPathForFolder,
@@ -180,7 +182,7 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Manual scan
+  // Manual scan (single file)
   context.subscriptions.push(
     vscode.commands.registerCommand("flusec.scanFile", async () => {
       const active = vscode.window.activeTextEditor;
@@ -206,6 +208,51 @@ export async function activate(context: vscode.ExtensionContext) {
       } catch (e) {
         vscode.window.showErrorMessage("FLUSEC: Scan failed: " + String(e));
       }
+    })
+  );
+
+  // ─── Full project scan (all components: HSD + NET + IDS) ─────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand("flusec.scanProject", async () => {
+      const folder = vscode.workspace.workspaceFolders?.[0];
+      if (!folder) {
+        vscode.window.showInformationMessage("FLUSEC: No workspace folder open.");
+        return;
+      }
+
+      // Prefer lib/ for Flutter projects, fall back to workspace root
+      let scanDir = path.join(folder.uri.fsPath, "lib");
+      if (!fs.existsSync(scanDir)) {
+        scanDir = folder.uri.fsPath;
+      }
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "FLUSEC: Scanning entire project...",
+          cancellable: false,
+        },
+        async (progress) => {
+          progress.report({ message: "Initializing project scan..." });
+
+          try {
+            const result = await runProjectAnalyzer(context, folder, scanDir);
+
+            // Show summary
+            const msg = [
+              `Project scan complete.`,
+              `Files: ${result.totalFiles} scanned, ${result.filesWithIssues} with issues.`,
+              `Issues: ${result.totalIssues} total`,
+              `(HSD: ${result.hsdCount}, NET: ${result.netCount}, IDS: ${result.idsCount})`,
+            ].join(" ");
+
+            vscode.window.showInformationMessage(`FLUSEC: ${msg}`);
+          } catch (e) {
+            vscode.window.showErrorMessage("FLUSEC: Project scan failed: " + String(e));
+            console.error("[FLUSEC] Project scan error:", e);
+          }
+        }
+      );
     })
   );
 
