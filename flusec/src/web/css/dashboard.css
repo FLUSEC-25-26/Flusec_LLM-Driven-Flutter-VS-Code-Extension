@@ -1,7 +1,7 @@
 body {
   font-family: Segoe UI, sans-serif;
-  background: radial-gradient(circle at top left, #1f2933 0%, #111827 40%, #050509 100%);
-  color: #e5e5e5; /* Global text colour – change this if you want */
+  background: #1e1e1e;
+  color: #ddd;
   padding: 12px;
 }
 
@@ -11,12 +11,11 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: linear-gradient(135deg, #111827, #1f2933);
-  border: 1px solid #374151;
-  border-radius: 10px;
+  background: #252526;
+  border: 1px solid #444;
+  border-radius: 8px;
   padding: 12px 16px;
   margin-bottom: 16px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
 
 .app-header .titles h1 {
@@ -28,7 +27,7 @@ body {
 .app-header .titles p {
   margin: 2px 0 0;
   font-size: 12px;
-  color: #cbd5f5;
+  color: #c0c0c0;
 }
 
 .container {
@@ -59,17 +58,16 @@ h2 {
 }
 
 .card {
-  background: linear-gradient(145deg, #111827, #1f2933);
-  border: 1px solid #374151;
+  background: #252526;
+  border: 1px solid #444;
   padding: 12px;
-  border-radius: 10px;
+  border-radius: 8px;
   flex: 1;
   min-width: 260px;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
 }
 
 .kpi-card {
-  flex: 1.4;
+  flex: 1.2;
 }
 
 .info-card {
@@ -89,74 +87,11 @@ h2 {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 4px;
-  gap: 10px;
 }
 
 .actions {
   display: flex;
   gap: 8px;
-}
-
-/* KPI grid */
-
-#counters {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.kpi-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.kpi {
-  flex: 1;
-  min-width: 130px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: radial-gradient(circle at top left, #0b1120, #020617);
-  border: 1px solid #1f2937;
-}
-
-.kpi-label {
-  display: block;
-  font-size: 11px;
-  color: #9ca3af;
-  margin-bottom: 4px;
-}
-
-.kpi-value {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-/* Filter tabs above table */
-
-.filter-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  justify-content: flex-end;
-}
-
-.filter-tab {
-  border: none;
-  border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 11px;
-  cursor: pointer;
-  background: #1f2933;
-  color: #d1d5db;
-  border: 1px solid #374151;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-}
-
-.filter-tab.active {
-  background: linear-gradient(135deg, #2563eb, #22d3ee);
-  color: #0b1120;
-  border-color: transparent;
 }
 
 /* Tables */
@@ -170,45 +105,37 @@ table {
 
 th,
 td {
-  border: 1px solid #374151;
+  border: 1px solid #444;
   padding: 6px 8px;
   text-align: left;
 }
 
 th {
-  background: #111827;
-  /* if you want header text colour different, add: color: #...; */
+  background: #2d2d2d;
 }
 
 #tblHotspots tbody tr {
-  background: rgba(148, 27, 27, 0.18);
+  background: #2a2525;
 }
 
 /* Buttons */
 
-/* Base button – BLUE (Refresh) */
 .btn {
+  background: #007acc;
   border: none;
-  color: #f9fafb;
+  color: #fff;
   padding: 6px 10px;
-  border-radius: 999px;
+  border-radius: 4px;
   cursor: pointer;
   font-size: 13px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-  transition: filter 0.15s ease;
-  background: linear-gradient(135deg, #2563eb, #22d3ee); /* BLUE */
 }
 
-/* Primary button – GREEN (Re-scan Active File) */
 .btn.primary {
-  background: linear-gradient(135deg, #16a34a, #22c55e); /* GREEN */
+  background: #0e639c;
 }
 
 .btn:hover {
-  filter: brightness(1.08);
+  background: #005fa3;
 }
 
 /* Charts */
@@ -216,26 +143,12 @@ th {
 canvas {
   width: 100%;
   height: 160px;
-  background: radial-gradient(circle at top, #020617 0%, #020617 45%, #050816 100%);
-  border-radius: 8px;
-  border: 1px solid #1f2937;
-}
-
-/* Mini charts inside maintainability card */
-
-.mini-chart-row {
-  display: flex;
-  gap: 8px;
-}
-
-.mini-chart-row canvas {
-  height: 140px;
 }
 
 /* Links */
 
 a {
-  color: #4fc1ff; /* file link colour */
+  color: #4fc1ff;
   text-decoration: none;
 }
 
@@ -247,7 +160,7 @@ a:hover {
 
 .small-note {
   font-size: 12px;
-  color: #d1d5db; /* description text colour */
+  color: #bbbbbb;
   margin: 4px 0 0;
 }
 
@@ -255,5 +168,5 @@ a:hover {
   margin-top: 16px;
   text-align: center;
   font-size: 11px;
-  color: #9ca3af;
+  color: #888;
 }
