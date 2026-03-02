@@ -1,3 +1,5 @@
+// src/ui/flusecNavigation.ts
+
 import * as vscode from "vscode";
 
 // Define the valid IDs for our components - Removed 'hsd'

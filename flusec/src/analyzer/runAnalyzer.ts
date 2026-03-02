@@ -1,3 +1,5 @@
+// src/analyzer/runAnalyzer.ts
+
 import * as vscode from "vscode";
 import { execFile } from "child_process";
 import * as path from "path";

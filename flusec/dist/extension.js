@@ -1,3 +1,5 @@
+// src/extension.ts
+
 "use strict";
 var __create = Object.create;
 var __defProp = Object.defineProperty;
