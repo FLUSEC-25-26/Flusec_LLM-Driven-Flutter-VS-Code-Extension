@@ -1,4 +1,3 @@
-
 // src/netChartScript.ts
 // return the exact inline messaging + Chart.js script as a string.
 // Runs in the webview (browser) when injected into the HTML.
@@ -6,7 +5,7 @@
 
 export function getNetChartMessagingScript(nonce: string): string {
   return `
-<script nonce="${nonce}">
+<script nonce="\${nonce}">
   // The VS Code webview API is injected globally.
   const vscode = acquireVsCodeApi();
 
@@ -67,7 +66,7 @@ Redundancy: \${Math.round(((c.redundancyRatio ?? 0) * 100))}%\`;
     }
   });
 
-  // ---- Findings list (unchanged) ----
+  // ---- Findings list ----
   function renderFindings(items) {
     lastItems = items;
     const list = document.getElementById('issues-list');
@@ -134,7 +133,7 @@ Redundancy: \${Math.round(((c.redundancyRatio ?? 0) * 100))}%\`;
     const countEl = document.getElementById('issues-count');
     if (countEl) countEl.textContent = String(filtered.length);
 
-    // 🔄 Update warnings chart with filtered set
+    //  Update warnings chart with filtered set
     renderWarningsChart(filtered);
   }
 
@@ -143,8 +142,42 @@ Redundancy: \${Math.round(((c.redundancyRatio ?? 0) * 100))}%\`;
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-      .replace(/\\\"/g, '&quot;')
+      .replace(/\\"/g, '&quot;')
       .replace(/'/g, '&#039;');
+  }
+
+  // ---- Shared compact options for all charts ----
+  function baseCompactOptions(hasLegend = true, horizontal = false) {
+    const styles = getComputedStyle(document.documentElement);
+    const fg = styles.getPropertyValue('--fg') || '#e0e0e0';
+
+    // Font sizes tuned for compact view
+    const tickFont = { size: 10 };
+    const legendFont = { size: 10 };
+
+    return {
+      responsive: true,
+      maintainAspectRatio: false, //  allows CSS height to control canvas
+      layout: { padding: { top: 4, right: 6, bottom: 4, left: 6 } },
+      plugins: {
+        legend: {
+          display: hasLegend,
+          position: 'top',
+          labels: { color: fg, boxWidth: 10, boxHeight: 10, font: legendFont }
+        },
+        tooltip: { enabled: true }
+      },
+      scales: horizontal
+        ? {
+            x: { ticks: { color: fg, font: tickFont }, beginAtZero: true, grace: '5%' },
+            y: { ticks: { color: fg, font: tickFont } }
+          }
+        : {
+            x: { ticks: { color: fg, font: tickFont } },
+            y: { ticks: { color: fg, font: tickFont }, beginAtZero: true, grace: '5%' }
+          },
+      animation: { duration: 200 }
+    };
   }
 
   // ---- Warnings per Rule (bar) ----
@@ -162,12 +195,12 @@ Redundancy: \${Math.round(((c.redundancyRatio ?? 0) * 100))}%\`;
     }
 
     const labels = Object.keys(ruleCounts);
-    const data = labels.map(k => ruleCounts[k]);
+    theData = labels.map(k => ruleCounts[k]);
 
     const ctx = document.getElementById('chart-findings-by-rule');
     if (!ctx || typeof Chart === 'undefined') return;
 
-    const fg = getComputedStyle(document.documentElement).getPropertyValue('--fg') || '#e0e0e0';
+    const hasLegend = false; // single dataset → save space
 
     if (findingsChart) findingsChart.destroy();
     findingsChart = new Chart(ctx, {
@@ -176,22 +209,18 @@ Redundancy: \${Math.round(((c.redundancyRatio ?? 0) * 100))}%\`;
         labels,
         datasets: [{
           label: 'Warnings',
-          data,
+          data: theData,
           backgroundColor: 'rgba(245, 158, 11, 0.45)', // orange
           borderColor: 'rgb(245, 158, 11)',
-          borderWidth: 1
+          borderWidth: 1,
+          barThickness: 16,
+          maxBarThickness: 18,
+          categoryPercentage: 0.7,
+          barPercentage: 0.7
         }]
       },
       options: {
-        scales: {
-          x: { ticks: { color: fg } },
-          y: { ticks: { color: fg }, beginAtZero: true, precision: 0 }
-        },
-        plugins: {
-          legend: { labels: { color: fg } },
-          tooltip: { enabled: true }
-        },
-        animation: { duration: 200 }
+        ...baseCompactOptions(hasLegend, /*horizontal*/ false),
       }
     });
   }
@@ -200,13 +229,12 @@ Redundancy: \${Math.round(((c.redundancyRatio ?? 0) * 100))}%\`;
   function renderCouplingCharts(payload) {
     if (!payload) return;
 
-    const fg = getComputedStyle(document.documentElement).getPropertyValue('--fg') || '#e0e0e0';
     const modules = payload.modules ?? [];
     const services = payload.services ?? [];
     const outData = modules.map(m => payload.cdOut?.[m] ?? 0);
     const inData = services.map(s => payload.afferent?.[s] ?? 0);
 
-    // Outgoing (modules)
+    // Outgoing (modules) - vertical
     const ctxOut = document.getElementById('chart-cd-out');
     if (ctxOut && typeof Chart !== 'undefined') {
       cdOutChart?.destroy();
@@ -219,21 +247,20 @@ Redundancy: \${Math.round(((c.redundancyRatio ?? 0) * 100))}%\`;
             data: outData,
             backgroundColor: 'rgba(54, 162, 235, 0.5)',
             borderColor: 'rgb(54, 162, 235)',
-            borderWidth: 1
+            borderWidth: 1,
+            barThickness: 16,
+            maxBarThickness: 18,
+            categoryPercentage: 0.7,
+            barPercentage: 0.7
           }]
         },
         options: {
-          scales: {
-            x: { ticks: { color: fg } },
-            y: { ticks: { color: fg }, beginAtZero: true, precision: 0 }
-          },
-          plugins: { legend: { labels: { color: fg } } },
-          animation: { duration: 200 }
+          ...baseCompactOptions(true, /*horizontal*/ false),
         }
       });
     }
 
-    // Incoming (services, horizontal)
+    // Incoming (services) - horizontal
     const ctxIn = document.getElementById('chart-cd-in');
     if (ctxIn && typeof Chart !== 'undefined') {
       cdInChart?.destroy();
@@ -246,17 +273,16 @@ Redundancy: \${Math.round(((c.redundancyRatio ?? 0) * 100))}%\`;
             data: inData,
             backgroundColor: 'rgba(16, 185, 129, 0.45)',
             borderColor: 'rgb(16, 185, 129)',
-            borderWidth: 1
+            borderWidth: 1,
+            barThickness: 14,
+            maxBarThickness: 16,
+            categoryPercentage: 0.7,
+            barPercentage: 0.7
           }]
         },
         options: {
           indexAxis: 'y',
-          scales: {
-            x: { ticks: { color: fg }, beginAtZero: true, precision: 0 },
-            y: { ticks: { color: fg } }
-          },
-          plugins: { legend: { labels: { color: fg } } },
-          animation: { duration: 200 }
+          ...baseCompactOptions(true, /*horizontal*/ true),
         }
       });
     }

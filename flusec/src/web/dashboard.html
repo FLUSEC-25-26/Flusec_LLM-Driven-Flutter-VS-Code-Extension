@@ -1,13 +1,18 @@
-
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <title>FLUSEC – Network Dashboard</title>
+
+  <!--  Keep the actual <link> element; the extension provides the resolved href -->
   <link rel="stylesheet" href="{{styleHref}}">
+
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 </head>
 <body>
+  <!-- Tip: you can force compact mode by adding data-compact="true" -->
+  <!-- <body data-compact="true"> -->
+
   <header class="app-header">
     <div class="titles">
       <h1>FLUSEC – Network Dashboard</h1>
@@ -38,7 +43,7 @@
       <input id="filterInput" type="text" class="input" placeholder="Search message / file / rule" />
     </section>
 
-    <!-- ✅ Warnings chart -->
+    <!--  Warnings chart -->
     <section class="charts">
       <h2>Warnings per Rule</h2>
       <div class="card">
@@ -49,7 +54,7 @@
       </div>
     </section>
 
-    <!-- ✅ Network dependency analysis -->
+    <!--  Network dependency analysis -->
     <section class="charts">
       <h2>Network Dependency Analysis</h2>
 
@@ -61,18 +66,23 @@
           <span class="value" id="kpi-health-index">—</span>
         </div>
         <p class="small-note">
-          0–100 score computed from outgoing & incoming coupling (lower risk ⇒ higher health).
+          0–100 score computed from outgoing &amp; incoming coupling (lower risk ⇒ higher health).
         </p>
       </div>
 
-      <div class="card">
-        <h3>Coupling Degree (Outgoing) — per Module</h3>
-        <canvas id="chart-cd-out" aria-label="Outgoing coupling per module"></canvas>
-      </div>
+      <!--  Side-by-side charts row -->
+      <div class="coupling-row">
+        <!-- LEFT: Outgoing -->
+        <div class="card">
+          <h3>Coupling Degree (Outgoing) — per Module</h3>
+          <canvas id="chart-cd-out" aria-label="Outgoing coupling per module"></canvas>
+        </div>
 
-      <div class="card">
-        <h3>Afferent Coupling (Incoming) — per Service</h3>
-        <canvas id="chart-cd-in" aria-label="Incoming coupling per service"></canvas>
+        <!-- RIGHT: Incoming -->
+        <div class="card">
+          <h3>Afferent Coupling (Incoming) — per Service</h3>
+          <canvas id="chart-cd-in" aria-label="Incoming coupling per service"></canvas>
+        </div>
       </div>
     </section>
 
@@ -86,7 +96,7 @@
     <small>FLUSEC © 2025 • Insecure Network Communication Detection</small>
   </footer>
 
-  <!-- Load local Chart.js (UMD/minified). The nonce is provided by extension.ts -->
+  <!--  Load Chart.js with the nonce; the extension provides the resolved src -->
   <script nonce="{{nonce}}" src="{{chartHref}}"></script>
 </body>
 </html>
