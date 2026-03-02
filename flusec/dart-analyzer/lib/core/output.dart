@@ -30,6 +30,8 @@ class OutputWriter {
               'complexity': i.complexity,
               'nestingDepth': i.nestingDepth,
               'functionLoc': i.functionLoc,
+              // HSD secret type classification:
+              'secretType': i.secretType,
               // Which component produced this finding:
               'component': i.component,
               // IDS metadata (null for non-IDS components):
@@ -71,6 +73,7 @@ class OutputWriter {
           'complexity': i.complexity,
           'nestingDepth': i.nestingDepth,
           'functionLoc': i.functionLoc,
+          'secretType': i.secretType,
 
           // Component tag:
           'component': i.component,

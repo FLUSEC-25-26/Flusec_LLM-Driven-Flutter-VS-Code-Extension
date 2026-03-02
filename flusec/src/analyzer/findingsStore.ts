@@ -106,6 +106,7 @@ export function upsertFindingsForDoc(
     complexity?: number;
     nestingDepth?: number;
     functionLoc?: number;
+    secretType?: string;
     component?: string;
     // IDS fields
     riskLevel?: string;
@@ -143,6 +144,7 @@ export function upsertFindingsForDoc(
       complexity: (f as any).complexity,
       nestingDepth: (f as any).nestingDepth,
       functionLoc: (f as any).functionLoc,
+      secretType: (f as any).secretType ?? null,
       component: (f as any).component,
       // IDS-specific fields — pass through if present
       riskLevel: (f as any).riskLevel ?? null,
@@ -152,8 +154,6 @@ export function upsertFindingsForDoc(
   }
 
   fs.writeFileSync(findingsFilePath, JSON.stringify(all, null, 2), "utf8");
-  // Do NOT call refreshDiagnosticsFromFindings here — diagnostics are already
-  // set by runAnalyzer.ts via diagCollection.set() for ALL components combined.
 }
 
 /**
@@ -191,6 +191,7 @@ export function upsertFindingsForFile(
       complexity: f.complexity ?? null,
       nestingDepth: f.nestingDepth ?? null,
       functionLoc: f.functionLoc ?? null,
+      secretType: f.secretType ?? null,
       component: f.component ?? "hsd",
       riskLevel: f.riskLevel ?? null,
       dataType: f.dataType ?? null,

@@ -132,12 +132,6 @@ async function syncAndWriteAllRules(
  * - manual scan
  * - save
  * - debounced typing
- *
- * IMPORTANT:
- * Resolves ONLY AFTER:
- * - analyzer.exe finished
- * - diagnostics updated
- * - hsd_findings.json, net_findings.json & ids_findings.json updated
  */
 export async function runAnalyzer(
   doc: vscode.TextDocument,
@@ -174,7 +168,7 @@ export async function runAnalyzer(
   const outDir = findingsOutDir(folder);
   fs.mkdirSync(outDir, { recursive: true });
 
-  // Spawn the analyzer directly (no shell needed — more reliable on Windows)
+  // Spawn the analyzer directly
   const stdout = await new Promise<string>((resolve, reject) => {
     const proc = spawn(analyzerPath, [doc.fileName], {
       cwd: analyzerCwd,
@@ -223,7 +217,7 @@ export async function runAnalyzer(
     return;
   }
 
-  // Build diagnostics for this document (in-memory view).
+  // Build diagnostics for this document
   const diags: vscode.Diagnostic[] = [];
   for (const f of findings) {
     const lineIdx = Math.max(0, (f.line ?? 1) - 1);
@@ -236,7 +230,6 @@ export async function runAnalyzer(
       range = new vscode.Range(lineIdx, 0, lineIdx, 0);
     }
 
-    // numeric metric suffix: Cx, Depth, Size
     const metricParts: string[] = [];
     if (typeof f.complexity === "number") {
       metricParts.push(`Cx=${f.complexity}`);
@@ -263,7 +256,7 @@ export async function runAnalyzer(
     diags.push(diag);
   }
 
-  // Update diagnostics (ALL components combined — set once)
+  // Update diagnostics
   diagCollection.set(doc.uri, diags);
 
   // Split findings by component and write to separate files
@@ -282,12 +275,9 @@ export async function runAnalyzer(
 
 
 // ==========================================================================
-// PROJECT SCAN — scan all .dart files in lib/ using a single analyzer process
+// PROJECT SCAN
 // ==========================================================================
 
-/**
- * Result of a project-level scan.
- */
 export interface ProjectScanResult {
   totalFiles: number;
   filesWithIssues: number;
@@ -297,25 +287,13 @@ export interface ProjectScanResult {
   idsCount: number;
 }
 
-/**
- * Run the analyzer in --project mode against the workspace's lib/ directory.
- * This spawns a SINGLE analyzer.exe process that scans all .dart files
- * internally, avoiding the overhead of spawning hundreds of processes.
- *
- * After completion, it:
- * - Sets diagnostics for ALL files with findings
- * - Writes component-specific findings JSON files
- * - Returns scan summary statistics
- */
 export async function runProjectAnalyzer(
   context: vscode.ExtensionContext,
   folder: vscode.WorkspaceFolder,
   scanDir?: string
 ): Promise<ProjectScanResult> {
-  // Reset LLM state
   resetLLMState();
 
-  // Sync rulepacks + write workspace data
   await syncAndWriteAllRules(context, folder.uri.fsPath);
 
   const analyzerPath = resolveAnalyzerPath();
@@ -324,21 +302,16 @@ export async function runProjectAnalyzer(
     throw new Error(`Analyzer not found at path: ${analyzerPath}`);
   }
 
-  // Default scan directory is lib/
   const targetDir = scanDir ?? path.join(folder.uri.fsPath, "lib");
 
   if (!fs.existsSync(targetDir)) {
     throw new Error(`Scan directory not found: ${targetDir}`);
   }
 
-  // Set cwd = <workspace>/.flusec
   const analyzerCwd = path.join(folder.uri.fsPath, ".flusec");
-
-  // Ensure output folder exists
   const outDir = findingsOutDir(folder);
   fs.mkdirSync(outDir, { recursive: true });
 
-  // Spawn analyzer with --project flag
   const stdout = await new Promise<string>((resolve, reject) => {
     const proc = spawn(analyzerPath, ["--project", targetDir], {
       cwd: analyzerCwd,
@@ -367,7 +340,6 @@ export async function runProjectAnalyzer(
     });
   });
 
-  // Parse all findings from stdout
   let findings: any[] = [];
   try {
     findings = JSON.parse(stdout);
@@ -396,9 +368,6 @@ export async function runProjectAnalyzer(
 
     for (const f of fileFindings) {
       const lineIdx = Math.max(0, (f.line ?? 1) - 1);
-
-      // We can't use doc.lineAt() here since files may not be open.
-      // Use a simple range instead.
       const range = new vscode.Range(lineIdx, 0, lineIdx, 200);
 
       const metricParts: string[] = [];
@@ -435,7 +404,6 @@ export async function runProjectAnalyzer(
   const netFindings = findings.filter((f: any) => f.component === "net");
   const idsFindings = findings.filter((f: any) => f.component === "ids");
 
-  // Write component-specific findings files (replace all — full project data)
   const hsdPath = hsdFindingsPathForFolder(folder);
   const netPath = netFindingsPathForFolder(folder);
   const idsPath = idsFindingsPathForFolder(folder);
@@ -444,7 +412,6 @@ export async function runProjectAnalyzer(
   writeFindingsFile(netPath, netFindings);
   writeFindingsFile(idsPath, idsFindings);
 
-  // Compute summary statistics
   const filesWithIssues = findingsByFile.size;
 
   return {
@@ -457,10 +424,6 @@ export async function runProjectAnalyzer(
   };
 }
 
-/**
- * Write findings array directly to a JSON file (full replace, not merge).
- * Used by project scan to write complete project-level findings.
- */
 function writeFindingsFile(filePath: string, findings: any[]): void {
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
@@ -478,6 +441,7 @@ function writeFindingsFile(filePath: string, findings: any[]): void {
     complexity: f.complexity ?? null,
     nestingDepth: f.nestingDepth ?? null,
     functionLoc: f.functionLoc ?? null,
+    secretType: f.secretType ?? null,
     component: f.component ?? "hsd",
     riskLevel: f.riskLevel ?? null,
     dataType: f.dataType ?? null,
@@ -487,9 +451,6 @@ function writeFindingsFile(filePath: string, findings: any[]): void {
   fs.writeFileSync(filePath, JSON.stringify(enriched, null, 2), "utf8");
 }
 
-/**
- * Count .dart files in a directory (for summary stats).
- */
 function countDartFiles(dirPath: string): number {
   let count = 0;
   try {
@@ -497,7 +458,6 @@ function countDartFiles(dirPath: string): number {
     for (const entry of entries) {
       const fullPath = path.join(dirPath, entry.name);
       if (entry.isDirectory()) {
-        // Skip non-source directories
         if (
           entry.name === ".dart_tool" ||
           entry.name === "build" ||
@@ -512,7 +472,7 @@ function countDartFiles(dirPath: string): number {
       }
     }
   } catch {
-    // ignore permission errors etc.
+    // ignore
   }
   return count;
 }

@@ -1,4 +1,4 @@
-// src/web/hsd/js/dashboard.js
+// src/web/js/dashboard.js
 
 // VS Code webview API
 const vscode = acquireVsCodeApi();
@@ -53,67 +53,136 @@ function render() {
 }
 
 function computeBuckets() {
-  // Complexity buckets
-  let lowCx = 0,
-    medCx = 0,
-    highCx = 0;
-
-  // Nesting depth buckets
-  let lowDepth = 0,
-    medDepth = 0,
-    highDepth = 0;
-
-  // Function size buckets (LOC)
-  let smallSize = 0,
-    medSize = 0,
-    largeSize = 0;
+  let lowCx = 0, medCx = 0, highCx = 0;
+  let lowDepth = 0, medDepth = 0, highDepth = 0;
+  let smallSize = 0, medSize = 0, largeSize = 0;
 
   findings.forEach((f) => {
     const cx = typeof f.complexity === "number" ? f.complexity : 0;
-    if (cx > 0 && cx <= 5) {
-      lowCx++;
-    } else if (cx > 5 && cx <= 10) {
-      medCx++;
-    } else if (cx > 10) {
-      highCx++;
-    }
+    if (cx > 0 && cx <= 5) { lowCx++; }
+    else if (cx > 5 && cx <= 10) { medCx++; }
+    else if (cx > 10) { highCx++; }
 
-    const depth =
-      typeof f.nestingDepth === "number" ? f.nestingDepth : undefined;
+    const depth = typeof f.nestingDepth === "number" ? f.nestingDepth : undefined;
     if (typeof depth === "number") {
-      if (depth <= 2) {
-        lowDepth++;
-      } else if (depth <= 4) {
-        medDepth++;
-      } else {
-        highDepth++;
-      }
+      if (depth <= 2) { lowDepth++; }
+      else if (depth <= 4) { medDepth++; }
+      else { highDepth++; }
     }
 
-    const size =
-      typeof f.functionLoc === "number" ? f.functionLoc : undefined;
+    const size = typeof f.functionLoc === "number" ? f.functionLoc : undefined;
     if (typeof size === "number") {
-      if (size <= 20) {
-        smallSize++;
-      } else if (size <= 50) {
-        medSize++;
-      } else {
-        largeSize++;
-      }
+      if (size <= 20) { smallSize++; }
+      else if (size <= 50) { medSize++; }
+      else { largeSize++; }
     }
   });
 
+  return { lowCx, medCx, highCx, lowDepth, medDepth, highDepth, smallSize, medSize, largeSize };
+}
+
+// Count findings by secret type
+function computeSecretTypeCounts() {
+  const counts = new Map();
+  for (const f of findings) {
+    const st = f.secretType || "UNKNOWN";
+    counts.set(st, (counts.get(st) || 0) + 1);
+  }
+  const sorted = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
   return {
-    lowCx,
-    medCx,
-    highCx,
-    lowDepth,
-    medDepth,
-    highDepth,
-    smallSize,
-    medSize,
-    largeSize,
+    labels: sorted.map((r) => formatSecretTypeLabel(r[0])),
+    values: sorted.map((r) => r[1]),
   };
+}
+
+// Count findings by secret type × severity
+function computeSecretTypeSeverityCounts() {
+  const errorCounts = new Map();
+  const warnCounts = new Map();
+
+  for (const f of findings) {
+    const st = f.secretType || "UNKNOWN";
+    const isError = (f.severity || "").toLowerCase() === "error";
+    if (isError) {
+      errorCounts.set(st, (errorCounts.get(st) || 0) + 1);
+    } else {
+      warnCounts.set(st, (warnCounts.get(st) || 0) + 1);
+    }
+  }
+
+  const allTypes = new Set([...errorCounts.keys(), ...warnCounts.keys()]);
+  const sorted = Array.from(allTypes).sort((a, b) => {
+    const totalA = (errorCounts.get(a) || 0) + (warnCounts.get(a) || 0);
+    const totalB = (errorCounts.get(b) || 0) + (warnCounts.get(b) || 0);
+    return totalB - totalA;
+  });
+
+  return {
+    labels: sorted.map((t) => formatSecretTypeLabel(t)),
+    errors: sorted.map((t) => errorCounts.get(t) || 0),
+    warnings: sorted.map((t) => warnCounts.get(t) || 0),
+  };
+}
+
+// Format secret type enum to readable label
+function formatSecretTypeLabel(st) {
+  const map = {
+    API_KEY: "API Key",
+    SECRET_KEY: "Secret Key",
+    JWT_TOKEN: "JWT Token",
+    PASSWORD: "Password",
+    DATABASE_CREDENTIAL: "DB Credential",
+    OAUTH_SECRET: "OAuth Secret",
+    FIREBASE_KEY: "Firebase Key",
+    ENCRYPTION_KEY: "Encryption Key",
+    GENERIC_SECRET: "Generic",
+    UNKNOWN: "Unknown",
+  };
+  return map[st] || st;
+}
+
+// ---------------------------------------------------------------------------
+// Split a label into two lines if it's too long.
+// Tries to break at dots, underscores, hyphens, or camelCase boundaries.
+// If no natural break, splits at the midpoint.
+// Short labels (≤ maxSingle chars) stay on one line.
+// ---------------------------------------------------------------------------
+function splitLabel(label, maxSingle) {
+  if (!label) {return [""];}
+  const limit = maxSingle || 12;
+
+  if (label.length <= limit) {return [label];}
+
+  // Try to find a natural break point near the middle
+  const mid = Math.floor(label.length / 2);
+  const breakChars = [".", "_", "-", " ", "/"];
+
+  // Search outward from middle for a break character
+  let bestBreak = -1;
+  for (let offset = 0; offset <= mid; offset++) {
+    // Check right of middle first
+    if (mid + offset < label.length && breakChars.includes(label[mid + offset])) {
+      bestBreak = mid + offset;
+      break;
+    }
+    // Then left of middle
+    if (mid - offset >= 0 && breakChars.includes(label[mid - offset])) {
+      bestBreak = mid - offset;
+      break;
+    }
+  }
+
+  // If found a break character, split there
+  if (bestBreak > 0 && bestBreak < label.length - 1) {
+    const line1 = label.substring(0, bestBreak + 1).trim();
+    const line2 = label.substring(bestBreak + 1).trim();
+    return [line1, line2];
+  }
+
+  // No natural break — split at midpoint
+  const line1 = label.substring(0, mid);
+  const line2 = label.substring(mid);
+  return [line1, line2];
 }
 
 function renderCounters() {
@@ -123,22 +192,16 @@ function renderCounters() {
   ).length;
   const warn = total - err;
 
-  const {
-    lowCx,
-    medCx,
-    highCx,
-    lowDepth,
-    medDepth,
-    highDepth,
-    smallSize,
-    medSize,
-    largeSize,
-  } = computeBuckets();
+  const { lowCx, medCx, highCx, lowDepth, medDepth, highDepth, smallSize, medSize, largeSize } = computeBuckets();
 
-  // Secrets inside *_test.dart
   const testSecrets = findings.filter((f) =>
     String(f.file || "").endsWith("_test.dart")
   ).length;
+
+  const typeCounts = computeSecretTypeCounts();
+  const topType = typeCounts.labels.length > 0 ? typeCounts.labels[0] : "N/A";
+  const topTypeCount = typeCounts.values.length > 0 ? typeCounts.values[0] : 0;
+  const uniqueTypes = typeCounts.labels.length;
 
   const counters = document.getElementById("counters");
   counters.innerHTML = `
@@ -154,6 +217,23 @@ function renderCounters() {
       <div class="kpi">
         <span class="kpi-label">Warnings</span>
         <span class="kpi-value" style="color:#facc15">${warn}</span>
+      </div>
+    </div>
+
+    <div class="kpi-row">
+      <div class="kpi">
+        <span class="kpi-label">Secret types detected</span>
+        <span class="kpi-value">${uniqueTypes}</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">Most common type</span>
+        <span class="kpi-value">${topType} <span style="color:#9ca3af;">(${topTypeCount})</span></span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">Secrets in test files</span>
+        <span class="kpi-value">
+          ${testSecrets} <span style="color:#9ca3af;">( *_test.dart )</span>
+        </span>
       </div>
     </div>
 
@@ -177,12 +257,6 @@ function renderCounters() {
         <span class="kpi-label">Function size (LOC)</span>
         <span class="kpi-value">
           small: ${smallSize} • medium: ${medSize} • large: ${largeSize}
-        </span>
-      </div>
-      <div class="kpi">
-        <span class="kpi-label">Secrets in test files</span>
-        <span class="kpi-value">
-          ${testSecrets} <span style="color:#9ca3af;">( *_test.dart )</span>
         </span>
       </div>
     </div>
@@ -220,24 +294,21 @@ function renderFindingsTable() {
   rows.forEach((f) => {
     const tr = document.createElement("tr");
 
-    const cx =
-      typeof f.complexity === "number" ? `Cx=${f.complexity}` : "";
-    const depth =
-      typeof f.nestingDepth === "number" ? `,Depth=${f.nestingDepth}` : "";
-    const size =
-      typeof f.functionLoc === "number" ? `,Size=${f.functionLoc} LOC` : "";
-
+    const cx = typeof f.complexity === "number" ? `Cx=${f.complexity}` : "";
+    const depth = typeof f.nestingDepth === "number" ? `,Depth=${f.nestingDepth}` : "";
+    const size = typeof f.functionLoc === "number" ? `,Size=${f.functionLoc} LOC` : "";
     const metrics = cx || depth || size ? cx + depth + size : "";
+
+    const secretTypeLabel = f.secretType ? formatSecretTypeLabel(f.secretType) : "";
 
     tr.innerHTML = `
       <td>${escapeHtml(f.severity || "")}</td>
       <td>${escapeHtml(f.ruleName || f.ruleId || "")}</td>
+      <td>${escapeHtml(secretTypeLabel)}</td>
       <td>${escapeHtml(f.message || "")}</td>
       <td>
         <a href="#"
-           onclick="reveal('${f.file}', ${f.line || 1}, ${
-      f.column || 1
-    }); return false;">
+           onclick="reveal('${f.file}', ${f.line || 1}, ${f.column || 1}); return false;">
           ${escapeHtml(fileNameFromPath(f.file || ""))}
         </a>
       </td>
@@ -251,8 +322,7 @@ function renderFindingsTable() {
 
   if (rows.length === 0) {
     const tr = document.createElement("tr");
-    tr.innerHTML =
-      '<td colspan="7" style="color:#9ca3af;">No findings for this filter.</td>';
+    tr.innerHTML = '<td colspan="8" style="color:#9ca3af;">No findings for this filter.</td>';
     tbody.appendChild(tr);
   }
 }
@@ -262,33 +332,26 @@ function renderHotspots() {
   if (!tbody) {return;}
   tbody.innerHTML = "";
 
-  // 1) Only findings that have complexity > 0
   const candidates = findings.filter((f) => {
     return typeof f.complexity === "number" && f.complexity > 0;
   });
 
   if (candidates.length === 0) {
     const tr = document.createElement("tr");
-    tr.innerHTML =
-      '<td colspan="6" style="color:#aaa;">No complexity data available.</td>';
+    tr.innerHTML = '<td colspan="6" style="color:#aaa;">No complexity data available.</td>';
     tbody.appendChild(tr);
     return;
   }
 
-  // 2) Sort by complexity (desc), then nesting depth (desc)
   candidates.sort((a, b) => {
     const cxA = typeof a.complexity === "number" ? a.complexity : 0;
     const cxB = typeof b.complexity === "number" ? b.complexity : 0;
-    if (cxB !== cxA) {
-      return cxB - cxA;
-    }
-
+    if (cxB !== cxA) { return cxB - cxA; }
     const dA = typeof a.nestingDepth === "number" ? a.nestingDepth : 0;
     const dB = typeof b.nestingDepth === "number" ? b.nestingDepth : 0;
     return dB - dA;
   });
 
-  // 3) Take top 15 worst functions
   const hotspots = candidates.slice(0, 15);
 
   hotspots.forEach((f) => {
@@ -306,32 +369,19 @@ function renderHotspots() {
 }
 
 function renderCharts() {
-  // Secrets by rule / file
   drawBar(
     "chartRules",
-    topCounts(findings, (x) => x.ruleName || x.ruleId, 8, (lab) =>
-      shorten(lab, 20)
-    )
+    topCounts(findings, (x) => x.ruleName || x.ruleId, 8, (lab) => shorten(lab, 20))
   );
   drawBar(
     "chartFiles",
-    topCounts(findings, (x) => x.file, 8, (lab) =>
-      shorten(fileNameFromPath(lab), 28)
-    )
+    topCounts(findings, (x) => x.file, 8, (lab) => shorten(fileNameFromPath(lab), 28))
   );
 
-  // Maintainability charts
-  const {
-    lowCx,
-    medCx,
-    highCx,
-    lowDepth,
-    medDepth,
-    highDepth,
-    smallSize,
-    medSize,
-    largeSize,
-  } = computeBuckets();
+  drawBar("chartSecretTypes", computeSecretTypeCounts());
+  drawStackedBar("chartSecretTypeSeverity", computeSecretTypeSeverityCounts());
+
+  const { lowCx, medCx, highCx, lowDepth, medDepth, highDepth, smallSize, medSize, largeSize } = computeBuckets();
 
   drawBar("chartCxBuckets", {
     labels: ["Low", "Medium", "High"],
@@ -364,13 +414,16 @@ function topCounts(arr, keyFn, topN = 8, mapLbl = (x) => x) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Draw a bar chart with multi-line X-axis labels
+// ---------------------------------------------------------------------------
 function drawBar(id, data) {
   const cvs = document.getElementById(id);
   if (!cvs) {return;}
 
   const ctx = cvs.getContext("2d");
   const W = (cvs.width = cvs.clientWidth);
-  const H = (cvs.height = 160);
+  const H = (cvs.height = 180);
 
   ctx.clearRect(0, 0, W, H);
 
@@ -384,7 +437,7 @@ function drawBar(id, data) {
   }
 
   const padTop = 16;
-  const padBottom = 42; // space for labels
+  const padBottom = 52;
   const chartHeight = H - padTop - padBottom;
   const max = Math.max(1, ...data.values);
   const n = data.values.length || 1;
@@ -392,7 +445,10 @@ function drawBar(id, data) {
   const bw = (totalWidth / n) * 0.7;
   const gap = (totalWidth / n) * 0.3;
 
-  ctx.font = "12px Segoe UI";
+  // Decide label max width per bar for splitting
+  const maxLabelChars = Math.max(8, Math.floor(bw / 6));
+
+  ctx.font = "11px Segoe UI";
   ctx.textAlign = "center";
 
   data.values.forEach((v, i) => {
@@ -401,21 +457,120 @@ function drawBar(id, data) {
     const y = padTop + (chartHeight - h);
 
     // Bar colours
-    const palette = ["#4fc3f7", "#34d399", "#f97373", "#facc15", "#a855f7"];
+    const palette = ["#4fc3f7", "#34d399", "#f97373", "#facc15", "#a855f7", "#fb923c", "#38bdf8", "#f472b6", "#818cf8"];
     ctx.fillStyle = palette[i % palette.length];
     ctx.fillRect(x, y, bw, h);
 
     // Value label on top of bar
     ctx.fillStyle = "#e5e5e5";
     ctx.textBaseline = "bottom";
+    ctx.font = "12px Segoe UI";
     ctx.fillText(String(v), x + bw / 2, y - 2);
 
-    // X-axis label (horizontal)
-    ctx.textBaseline = "top";
-    const lbl = data.labels[i] || "";
+    // X-axis label — split into two lines if long
     ctx.fillStyle = "#d1d5db";
-    ctx.fillText(lbl, x + bw / 2, H - padBottom + 20);
+    ctx.textBaseline = "top";
+    ctx.font = "11px Segoe UI";
+
+    const lbl = data.labels[i] || "";
+    const lines = splitLabel(lbl, maxLabelChars);
+    const lineHeight = 13;
+    const labelStartY = H - padBottom + 8;
+
+    lines.forEach((line, lineIdx) => {
+      ctx.fillText(line, x + bw / 2, labelStartY + lineIdx * lineHeight);
+    });
   });
+}
+
+// ---------------------------------------------------------------------------
+// Stacked bar chart for secret type × severity (with multi-line labels)
+// ---------------------------------------------------------------------------
+function drawStackedBar(id, data) {
+  const cvs = document.getElementById(id);
+  if (!cvs) {return;}
+
+  const ctx = cvs.getContext("2d");
+  const W = (cvs.width = cvs.clientWidth);
+  const H = (cvs.height = 180);
+
+  ctx.clearRect(0, 0, W, H);
+
+  if (!data || !data.labels || data.labels.length === 0) {
+    ctx.fillStyle = "#9ca3af";
+    ctx.font = "12px Segoe UI";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("No data", W / 2, H / 2);
+    return;
+  }
+
+  const padTop = 16;
+  const padBottom = 52;
+  const chartHeight = H - padTop - padBottom;
+
+  const totals = data.labels.map((_, i) => (data.errors[i] || 0) + (data.warnings[i] || 0));
+  const max = Math.max(1, ...totals);
+
+  const n = data.labels.length;
+  const totalWidth = W - 32;
+  const bw = (totalWidth / n) * 0.7;
+  const gap = (totalWidth / n) * 0.3;
+
+  const maxLabelChars = Math.max(8, Math.floor(bw / 6));
+
+  ctx.font = "11px Segoe UI";
+  ctx.textAlign = "center";
+
+  data.labels.forEach((lbl, i) => {
+    const x = 16 + i * (bw + gap);
+    const errVal = data.errors[i] || 0;
+    const warnVal = data.warnings[i] || 0;
+    const total = errVal + warnVal;
+
+    // Warning bar (bottom)
+    const warnH = Math.round(chartHeight * (warnVal / max));
+    const warnY = padTop + chartHeight - warnH;
+    ctx.fillStyle = "#facc15";
+    ctx.fillRect(x, warnY, bw, warnH);
+
+    // Error bar (stacked on top)
+    const errH = Math.round(chartHeight * (errVal / max));
+    const errY = warnY - errH;
+    ctx.fillStyle = "#f97373";
+    ctx.fillRect(x, errY, bw, errH);
+
+    // Total label on top
+    ctx.fillStyle = "#e5e5e5";
+    ctx.textBaseline = "bottom";
+    ctx.font = "12px Segoe UI";
+    ctx.fillText(String(total), x + bw / 2, errY - 2);
+
+    // X-axis label — multi-line
+    ctx.fillStyle = "#d1d5db";
+    ctx.textBaseline = "top";
+    ctx.font = "11px Segoe UI";
+
+    const lines = splitLabel(lbl, maxLabelChars);
+    const lineHeight = 13;
+    const labelStartY = H - padBottom + 8;
+
+    lines.forEach((line, lineIdx) => {
+      ctx.fillText(line, x + bw / 2, labelStartY + lineIdx * lineHeight);
+    });
+  });
+
+  // Legend
+  ctx.font = "10px Segoe UI";
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#f97373";
+  ctx.fillRect(W - 120, 4, 8, 8);
+  ctx.fillStyle = "#d1d5db";
+  ctx.fillText("Error", W - 108, 5);
+  ctx.fillStyle = "#facc15";
+  ctx.fillRect(W - 60, 4, 8, 8);
+  ctx.fillStyle = "#d1d5db";
+  ctx.fillText("Warning", W - 48, 5);
 }
 
 function escapeHtml(s) {
@@ -428,16 +583,14 @@ function escapeHtml(s) {
 }
 
 function shorten(s, n = 60) {
-  if (!s) {
-    return "";
-  }
+  if (!s) { return ""; }
   return s.length > n ? "…" + s.slice(-n) : s;
 }
 
 function fileNameFromPath(p) {
   const s = String(p || "");
   if (!s) {return "";}
-  const parts = s.split(/[\\/]/); // works for Windows + POSIX
+  const parts = s.split(/[\\/]/);
   return parts[parts.length - 1] || s;
 }
 

@@ -51,8 +51,8 @@
             </p>
             <p class="small-note">
               Use it to answer questions like:
-              “Where do secrets live in complex code?” and
-              “Which files and rules are the highest-risk hotspots?”.
+              "Where do secrets live in complex code?" and
+              "Which files and rules are the highest-risk hotspots?".
             </p>
           </div>
         </div>
@@ -85,6 +85,39 @@
             <p class="small-note">
               Highlights files where secret findings accumulate,
               helping you prioritize secure refactoring.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- CHARTS: SECRET TYPE CLASSIFICATION -->
+      <section class="section charts">
+        <h2 class="section-title">Secret Type Classification</h2>
+        <div class="row">
+          <!-- Secret types chart -->
+          <div class="card">
+            <h3 class="card-title">Secrets by Type</h3>
+            <canvas
+              id="chartSecretTypes"
+              aria-label="Bar chart of findings by secret type"
+            ></canvas>
+            <p class="small-note">
+              Classifies detected secrets into categories: API keys, passwords,
+              JWT tokens, database credentials, OAuth secrets, Firebase keys,
+              encryption keys, and generic secrets.
+            </p>
+          </div>
+
+          <!-- Secret type × severity chart -->
+          <div class="card">
+            <h3 class="card-title">Secret Type × Severity</h3>
+            <canvas
+              id="chartSecretTypeSeverity"
+              aria-label="Stacked chart of secret type by severity"
+            ></canvas>
+            <p class="small-note">
+              Shows which secret types are flagged as errors vs warnings,
+              helping prioritize remediation by risk category.
             </p>
           </div>
         </div>
@@ -175,6 +208,7 @@
               <tr>
                 <th>Severity</th>
                 <th>Rule</th>
+                <th>Secret Type</th>
                 <th>Message</th>
                 <th>File</th>
                 <th>Line</th>

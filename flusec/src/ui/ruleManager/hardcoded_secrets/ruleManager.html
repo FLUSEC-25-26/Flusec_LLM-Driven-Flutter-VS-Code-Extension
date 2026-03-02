@@ -95,6 +95,17 @@
       }
       #saveForm { margin-top: 1rem; background: #007acc; }
       #saveForm:hover { background: #005fa3; }
+
+      /* Secret type badge in table */
+      .type-badge {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 500;
+        background: #374151;
+        color: #d1d5db;
+      }
     </style>
   </head>
   <body>
@@ -109,6 +120,7 @@
           <th style="width: 180px;">Name</th>
           <th>Pattern</th>
           <th style="width: 100px;">Severity</th>
+          <th style="width: 120px;">Secret Type</th>
           <th>Description</th>
           <th style="width: 160px;">Actions</th>
         </tr>
@@ -135,6 +147,19 @@
         <option value="error">Error</option>
       </select>
 
+      <label for="ruleSecretType">Secret Type</label>
+      <select id="ruleSecretType">
+        <option value="GENERIC_SECRET">Generic Secret</option>
+        <option value="API_KEY">API Key</option>
+        <option value="SECRET_KEY">Secret Key</option>
+        <option value="JWT_TOKEN">JWT Token</option>
+        <option value="PASSWORD">Password</option>
+        <option value="DATABASE_CREDENTIAL">Database Credential</option>
+        <option value="OAUTH_SECRET">OAuth Secret</option>
+        <option value="FIREBASE_KEY">Firebase Key</option>
+        <option value="ENCRYPTION_KEY">Encryption Key</option>
+      </select>
+
       <label for="ruleDescription">Description</label>
       <textarea id="ruleDescription" placeholder="Explain what this rule detects"></textarea>
 
@@ -159,22 +184,38 @@
         tbody.innerHTML = "";
         for (let i = 0; i < rules.length; i++) {
           const r = rules[i];
+          const stLabel = formatSecretType(r.secretType || "GENERIC_SECRET");
           const row = document.createElement("tr");
           row.innerHTML = `
             <td>${escapeHtml(r.id || "")}</td>
             <td>${escapeHtml(r.name || "")}</td>
             <td><code>${escapeHtml(r.pattern || "")}</code></td>
             <td>${escapeHtml(r.severity || "")}</td>
+            <td><span class="type-badge">${escapeHtml(stLabel)}</span></td>
             <td>${escapeHtml(r.description || "")}</td>
             <td>
               <div class="action-cell">
                 <button onclick="editRule(${i})">✏️ Edit</button>
                 <button onclick="deleteInWebview(${i})">🗑️ Delete</button>
-
               </div>
             </td>`;
           tbody.appendChild(row);
         }
+      }
+
+      function formatSecretType(st) {
+        const map = {
+          API_KEY: "API Key",
+          SECRET_KEY: "Secret Key",
+          JWT_TOKEN: "JWT Token",
+          PASSWORD: "Password",
+          DATABASE_CREDENTIAL: "DB Credential",
+          OAUTH_SECRET: "OAuth Secret",
+          FIREBASE_KEY: "Firebase Key",
+          ENCRYPTION_KEY: "Encryption Key",
+          GENERIC_SECRET: "Generic",
+        };
+        return map[st] || st;
       }
 
       function escapeHtml(s) {
@@ -191,6 +232,7 @@
         document.getElementById("ruleName").value = "";
         document.getElementById("rulePattern").value = "";
         document.getElementById("ruleSeverity").value = "warning";
+        document.getElementById("ruleSecretType").value = "GENERIC_SECRET";
         document.getElementById("ruleDescription").value = "";
         editIndex = -1;
       }
@@ -200,6 +242,7 @@
         document.getElementById("ruleName").value = r.name || "";
         document.getElementById("rulePattern").value = r.pattern || "";
         document.getElementById("ruleSeverity").value = r.severity || "warning";
+        document.getElementById("ruleSecretType").value = r.secretType || "GENERIC_SECRET";
         document.getElementById("ruleDescription").value = r.description || "";
       }
 
@@ -215,22 +258,21 @@
       }
 
       function deleteInWebview(i) {
-  if (!Number.isInteger(i) || i < 0 || i >= rules.length) {
-    console.error("Bad index for delete:", i, "rules length:", rules.length);
-    return;
-  }
+        if (!Number.isInteger(i) || i < 0 || i >= rules.length) {
+          console.error("Bad index for delete:", i, "rules length:", rules.length);
+          return;
+        }
 
-  const removed = rules.splice(i, 1);
-  renderTable();
+        const removed = rules.splice(i, 1);
+        renderTable();
 
-  // ✅ Send ONE save with action=delete
-  vscode.postMessage({
-    command: "saveRules",
-    rules,
-    action: "delete",
-    deletedId: removed?.[0]?.id || ""
-  });
-}
+        vscode.postMessage({
+          command: "saveRules",
+          rules,
+          action: "delete",
+          deletedId: removed?.[0]?.id || ""
+        });
+      }
 
       function requestDelete(i) {
         const rule = rules[i];
@@ -249,6 +291,7 @@
           name: document.getElementById("ruleName").value.trim(),
           pattern: document.getElementById("rulePattern").value.trim(),
           severity: document.getElementById("ruleSeverity").value.trim(),
+          secretType: document.getElementById("ruleSecretType").value.trim(),
           description: document.getElementById("ruleDescription").value.trim(),
         };
         if (!newRule.id || !newRule.pattern) {
@@ -276,7 +319,6 @@
       // Expose functions for inline onclick
       window.editRule = editRule;
       window.deleteInWebview = deleteInWebview;
-      //window.requestDelete = requestDelete;
     </script>
   </body>
 </html>

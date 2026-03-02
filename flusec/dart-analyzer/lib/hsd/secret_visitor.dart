@@ -1,13 +1,15 @@
 // lib/hsd/secret_visitor.dart
 //
-// AST visitor for your HSD module.
+// AST visitor for the HSD module.
 // It searches places where hardcoded string literals appear and asks RulesEngine
 // if that literal looks like a secret.
 //
-// IMPORTANT: Your original behavior is preserved, including:
+// IMPORTANT: Original behavior is preserved, including:
 // - ignoring insecure storage sinks by returning early in _maybeReport
 // - scanning VariableDeclaration, AssignmentExpression, MapLiteralEntry,
 //   ArgumentList, and ListLiteral
+//
+// NEW: secretType is now passed through to Issue from MatchHit.
 
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/token.dart';
@@ -37,10 +39,8 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
   }
 
   /// Walk up AST tree to detect if inside insecure storage sinks.
-  /// NOTE: Your current logic uses this as a FILTER (skip reporting inside these sinks).
-  ///
-  /// Other components idea (future):
-  /// - insecure_storage module might REPORT these sinks instead of skipping.
+  /// NOTE: Current logic uses this as a FILTER (skip reporting inside these sinks).
+  /// The IDS component handles reporting these sinks.
   bool _isInsideInsecureStorageCall(AstNode node) {
     AstNode? current = node;
 
@@ -92,11 +92,11 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
     return false;
   }
 
-    /// Decide if a node/value should become an Issue.
+  /// Decide if a node/value should become an Issue.
   void _maybeReport(AstNode node, String? value, String contextName) {
     if (value == null || value.isEmpty) return;
 
-    // Preserving your original behavior exactly:
+    // Preserving original behavior exactly:
     if (_isInsideInsecureStorageCall(node)) return;
 
     final nodeKind = _nodeKindName(node);
@@ -107,16 +107,16 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
     final key = '$filePath:${loc.$1}:${loc.$2}:${hit.ruleId}';
 
     if (_seen.add(key)) {
-      // Your feature: compute enclosing function name & metrics
+      // Compute enclosing function name & metrics
       String? fnName;
       int? complexity;
       String? complexityLevel;
 
-      // NEW numeric metrics
+      // Numeric metrics
       int? nestingDepth;
       int? functionLoc;
 
-      // NEW human-readable levels
+      // Human-readable levels
       String? nestingLevel;
       String? sizeLevel;
 
@@ -125,22 +125,22 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
         fnName = FunctionUtils.executableName(exec);
 
         // Treat "<anonymous>" as "no name" for the user-facing message
-      if (fnName == '<anonymous>') {
-        fnName = null;
-      }
+        if (fnName == '<anonymous>') {
+          fnName = null;
+        }
 
-        // numeric complexity score
+        // Numeric complexity score
         final score = Complexity.computeCyclomaticComplexity(exec);
         complexity = score;
 
-        // human-readable level (low / medium / high)
+        // Human-readable level (low / medium / high)
         complexityLevel = Complexity.levelFor(score);
 
-        // NEW: numeric nesting depth + size
+        // Numeric nesting depth + size
         nestingDepth = Complexity.computeMaxNestingDepth(exec);
         functionLoc = Complexity.computeFunctionLoc(exec);
 
-        // NEW: human-readable levels
+        // Human-readable levels
         if (nestingDepth != null) {
           nestingLevel = Complexity.nestingLevelFor(nestingDepth);
         }
@@ -191,8 +191,9 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
         loc.$2,
         functionName: fnName,
         complexity: complexity,
-        nestingDepth: nestingDepth, // numeric
-        functionLoc: functionLoc,   // numeric
+        nestingDepth: nestingDepth,
+        functionLoc: functionLoc,
+        secretType: hit.secretType,
       ));
     }
   }
@@ -231,7 +232,7 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
   }
 
   // ---------------------------
-  // Visit points (your original scan coverage)
+  // Visit points (scan coverage)
   // ---------------------------
 
   @override
