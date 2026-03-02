@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 
-// Define the valid IDs for our components
-type ComponentId = "hsd" | "ivd";
+// Define the valid IDs for our components - Removed 'hsd'
+type ComponentId = "ivd";
 
 class FlusecNavItem extends vscode.TreeItem {
   constructor(
@@ -27,7 +27,6 @@ class FlusecNavItem extends vscode.TreeItem {
       this.command = options.command;
     }
 
-    // Store componentId inside id so we can retrieve it later
     if (options.componentId) {
       this.id = `${options.nodeType}:${options.componentId}:${label}`;
     }
@@ -42,19 +41,13 @@ class FlusecNavigationProvider
   >();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  // 1. Register both Components here
   private components: {
     id: ComponentId;
     label: string;
     icon: vscode.ThemeIcon;
   }[] = [
     {
-      id: "hsd",
-      label: "Hardcoded Secrets (HSD)",
-      icon: new vscode.ThemeIcon("shield"),
-    },
-    {
-      id: "ivd", // <--- NEW: Register IVD Component
+      id: "ivd",
       label: "Input Validation (IVD)",
       icon: new vscode.ThemeIcon("checklist"),
     },
@@ -65,7 +58,6 @@ class FlusecNavigationProvider
   }
 
   getChildren(element?: FlusecNavItem): Thenable<FlusecNavItem[]> {
-    // Level 1: Show the main components (HSD, IVD)
     if (!element) {
       const items = this.components.map(
         (c) =>
@@ -84,7 +76,6 @@ class FlusecNavigationProvider
       return Promise.resolve(items);
     }
 
-    // Level 2: Show actions (Buttons) inside the component
     if (element.contextValue?.startsWith("component")) {
       const componentId = this.extractComponentId(element);
       if (componentId) {
@@ -96,56 +87,26 @@ class FlusecNavigationProvider
   }
 
   private extractComponentId(element: FlusecNavItem): ComponentId | null {
-    if (!element.id) return null;
+    // ESLint Fix: Added braces to satisfy the 'curly' rule
+    if (!element.id) { 
+      return null; 
+    }
+    
     const parts = element.id.split(":");
-    // id format: nodeType:componentId:label
-    if (parts.length < 2) return null;
+    if (parts.length < 2) { 
+      return null; 
+    }
     
     const candidate = parts[1];
-    if (candidate === "hsd" || candidate === "ivd") {
+    if (candidate === "ivd") {
       return candidate as ComponentId;
     }
+    
     return null;
   }
 
-  // 2. Define the Buttons for each Component
   private getActionsForComponent(componentId: ComponentId): FlusecNavItem[] {
     switch (componentId) {
-      // --- HSD BUTTONS ---
-      case "hsd": {
-        return [
-          new FlusecNavItem(
-            "HSD Dashboard",
-            vscode.TreeItemCollapsibleState.None,
-            {
-              nodeType: "action",
-              componentId,
-              tooltip: "View Hardcoded Secrets Findings",
-              icon: new vscode.ThemeIcon("graph"),
-              command: {
-                command: "flusec.openFindings",
-                title: "Open HSD Dashboard",
-              },
-            }
-          ),
-          new FlusecNavItem(
-            "HSD Rule Manager",
-            vscode.TreeItemCollapsibleState.None,
-            {
-              nodeType: "action",
-              componentId,
-              tooltip: "Manage HSD Regex Rules",
-              icon: new vscode.ThemeIcon("wrench"),
-              command: {
-                command: "flusec.manageRules",
-                title: "Open HSD Rule Manager",
-              },
-            }
-          ),
-        ];
-      }
-
-      // --- IVD BUTTONS (This was missing!) ---
       case "ivd": {
         return [
           new FlusecNavItem(
@@ -157,7 +118,7 @@ class FlusecNavigationProvider
               tooltip: "View Input Validation Findings",
               icon: new vscode.ThemeIcon("dashboard"),
               command: {
-                command: "flusec.openIvdFindings", // Matches extension.ts
+                command: "flusec.openIvdFindings",
                 title: "Open IVD Dashboard",
               },
             }

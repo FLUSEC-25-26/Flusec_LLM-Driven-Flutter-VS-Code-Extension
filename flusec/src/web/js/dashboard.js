@@ -47,6 +47,7 @@ function renderCounters() {
   const warn = total - err;
 
   const counters = document.getElementById("counters");
+  // Updated with explicit IVD labeling for your security research project
   counters.innerHTML = `
     <div class="kpi-row">
       <div class="kpi">
@@ -67,7 +68,9 @@ function renderCounters() {
 
 function renderFindingsTable() {
   const tbody = document.querySelector("#tbl tbody");
-  if (!tbody) return;
+  if (!tbody) {
+    return; // Added curly braces for ESLint consistency
+  }
   tbody.innerHTML = "";
 
   findings.forEach((f) => {
@@ -119,7 +122,9 @@ function topCounts(arr, keyFn, topN = 8, mapLbl = (x) => x) {
 
 function drawBar(id, data) {
   const cvs = document.getElementById(id);
-  if (!cvs) return;
+  if (!cvs) {
+    return; // ESLint fix
+  }
 
   const ctx = cvs.getContext("2d");
   const W = (cvs.width = cvs.clientWidth);
@@ -164,7 +169,9 @@ function escapeHtml(s) {
 }
 
 function shorten(s, n = 60) {
-  if (!s) return "";
+  if (!s) {
+    return "";
+  }
   return s.length > n ? "…" + s.slice(-n) : s;
 }
 

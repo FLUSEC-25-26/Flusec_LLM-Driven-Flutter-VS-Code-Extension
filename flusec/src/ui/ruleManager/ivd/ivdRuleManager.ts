@@ -21,14 +21,16 @@ export function openIvdRuleManager(context: vscode.ExtensionContext) {
 
   // Load HTML
   if (fs.existsSync(htmlFile)) {
-      panel.webview.html = fs.readFileSync(htmlFile, "utf8");
+    panel.webview.html = fs.readFileSync(htmlFile, "utf8");
   } else {
-      panel.webview.html = `<h1>Error: HTML file not found at ${htmlFile}</h1>`;
+    panel.webview.html = `<h1>Error: HTML file not found at ${htmlFile}</h1>`;
   }
 
   function readRules(): any[] {
     try {
-      if (!fs.existsSync(rulesPath)) return [];
+      if (!fs.existsSync(rulesPath)) {
+        return [];
+      }
       const txt = fs.readFileSync(rulesPath, "utf8");
       const json = JSON.parse(txt);
       return Array.isArray(json) ? json : [];
@@ -47,7 +49,9 @@ export function openIvdRuleManager(context: vscode.ExtensionContext) {
       try {
         // Ensure directory exists
         const dir = path.dirname(rulesPath);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
 
         // Write file
         fs.writeFileSync(rulesPath, JSON.stringify(msg.rules, null, 2), "utf8");
