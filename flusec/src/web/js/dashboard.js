@@ -49,8 +49,13 @@ function render() {
   renderCounters();
   renderFindingsTable();
   renderHotspots();
+  renderTaintFlowDetails();
   renderCharts();
 }
+
+// ---------------------------------------------------------------------------
+// Bucket computations
+// ---------------------------------------------------------------------------
 
 function computeBuckets() {
   let lowCx = 0, medCx = 0, highCx = 0;
@@ -81,7 +86,10 @@ function computeBuckets() {
   return { lowCx, medCx, highCx, lowDepth, medDepth, highDepth, smallSize, medSize, largeSize };
 }
 
-// Count findings by secret type
+// ---------------------------------------------------------------------------
+// Secret type computations
+// ---------------------------------------------------------------------------
+
 function computeSecretTypeCounts() {
   const counts = new Map();
   for (const f of findings) {
@@ -95,7 +103,6 @@ function computeSecretTypeCounts() {
   };
 }
 
-// Count findings by secret type × severity
 function computeSecretTypeSeverityCounts() {
   const errorCounts = new Map();
   const warnCounts = new Map();
@@ -124,7 +131,6 @@ function computeSecretTypeSeverityCounts() {
   };
 }
 
-// Format secret type enum to readable label
 function formatSecretTypeLabel(st) {
   const map = {
     API_KEY: "API Key",
@@ -142,66 +148,102 @@ function formatSecretTypeLabel(st) {
 }
 
 // ---------------------------------------------------------------------------
-// Split a label into two lines if it's too long.
-// Tries to break at dots, underscores, hyphens, or camelCase boundaries.
-// If no natural break, splits at the midpoint.
-// Short labels (≤ maxSingle chars) stay on one line.
+// Taint flow computations
 // ---------------------------------------------------------------------------
+
+function computeTaintSinkCounts() {
+  const counts = new Map();
+  let totalFlows = 0;
+
+  for (const f of findings) {
+    if (!Array.isArray(f.taintFlow) || f.taintFlow.length === 0) {continue;}
+    for (const step of f.taintFlow) {
+      const type = step.type || "UNKNOWN";
+      counts.set(type, (counts.get(type) || 0) + 1);
+      totalFlows++;
+    }
+  }
+
+  const sorted = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  return {
+    labels: sorted.map((r) => formatTaintSinkLabel(r[0])),
+    values: sorted.map((r) => r[1]),
+    totalFlows,
+  };
+}
+
+function formatTaintSinkLabel(type) {
+  const map = {
+    NETWORK_REQUEST: "Network Request",
+    FUNCTION_ARGUMENT: "Function Arg",
+    RETURN_VALUE: "Return Value",
+    ASSIGNMENT: "Assignment",
+    MAP_VALUE: "Map Value",
+    STRING_INTERPOLATION: "String Interp",
+    UNKNOWN: "Unknown",
+  };
+  return map[type] || type;
+}
+
+function findingsWithTaint() {
+  return findings.filter(
+    (f) => Array.isArray(f.taintFlow) && f.taintFlow.length > 0
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Split label into two lines for charts
+// ---------------------------------------------------------------------------
+
 function splitLabel(label, maxSingle) {
-  if (!label) {return [""];}
+  if (!label) { return [""]; }
   const limit = maxSingle || 12;
+  if (label.length <= limit) { return [label]; }
 
-  if (label.length <= limit) {return [label];}
-
-  // Try to find a natural break point near the middle
   const mid = Math.floor(label.length / 2);
   const breakChars = [".", "_", "-", " ", "/"];
 
-  // Search outward from middle for a break character
   let bestBreak = -1;
   for (let offset = 0; offset <= mid; offset++) {
-    // Check right of middle first
     if (mid + offset < label.length && breakChars.includes(label[mid + offset])) {
       bestBreak = mid + offset;
       break;
     }
-    // Then left of middle
     if (mid - offset >= 0 && breakChars.includes(label[mid - offset])) {
       bestBreak = mid - offset;
       break;
     }
   }
 
-  // If found a break character, split there
   if (bestBreak > 0 && bestBreak < label.length - 1) {
-    const line1 = label.substring(0, bestBreak + 1).trim();
-    const line2 = label.substring(bestBreak + 1).trim();
-    return [line1, line2];
+    return [label.substring(0, bestBreak + 1).trim(), label.substring(bestBreak + 1).trim()];
   }
 
-  // No natural break — split at midpoint
-  const line1 = label.substring(0, mid);
-  const line2 = label.substring(mid);
-  return [line1, line2];
+  return [label.substring(0, mid), label.substring(mid)];
 }
+
+// ---------------------------------------------------------------------------
+// Render: Counters
+// ---------------------------------------------------------------------------
 
 function renderCounters() {
   const total = findings.length;
-  const err = findings.filter(
-    (f) => (f.severity || "").toLowerCase() === "error"
-  ).length;
+  const err = findings.filter((f) => (f.severity || "").toLowerCase() === "error").length;
   const warn = total - err;
 
   const { lowCx, medCx, highCx, lowDepth, medDepth, highDepth, smallSize, medSize, largeSize } = computeBuckets();
 
-  const testSecrets = findings.filter((f) =>
-    String(f.file || "").endsWith("_test.dart")
-  ).length;
+  const testSecrets = findings.filter((f) => String(f.file || "").endsWith("_test.dart")).length;
 
   const typeCounts = computeSecretTypeCounts();
   const topType = typeCounts.labels.length > 0 ? typeCounts.labels[0] : "N/A";
   const topTypeCount = typeCounts.values.length > 0 ? typeCounts.values[0] : 0;
   const uniqueTypes = typeCounts.labels.length;
+
+  // Taint stats
+  const taintedFindings = findingsWithTaint();
+  const taintedCount = taintedFindings.length;
+  const taintSinkData = computeTaintSinkCounts();
 
   const counters = document.getElementById("counters");
   counters.innerHTML = `
@@ -230,63 +272,113 @@ function renderCounters() {
         <span class="kpi-value">${topType} <span style="color:#9ca3af;">(${topTypeCount})</span></span>
       </div>
       <div class="kpi">
-        <span class="kpi-label">Secrets in test files</span>
-        <span class="kpi-value">
-          ${testSecrets} <span style="color:#9ca3af;">( *_test.dart )</span>
-        </span>
+        <span class="kpi-label">Secrets with taint flows</span>
+        <span class="kpi-value" style="color:#fb923c">${taintedCount} <span style="color:#9ca3af;">/ ${total}</span></span>
       </div>
     </div>
 
     <div class="kpi-row">
       <div class="kpi">
         <span class="kpi-label">Complexity buckets (Cx)</span>
-        <span class="kpi-value">
-          low: ${lowCx} • medium: ${medCx} • high: ${highCx}
-        </span>
+        <span class="kpi-value">low: ${lowCx} • medium: ${medCx} • high: ${highCx}</span>
       </div>
       <div class="kpi">
         <span class="kpi-label">Nesting depth buckets</span>
-        <span class="kpi-value">
-          shallow: ${lowDepth} • medium: ${medDepth} • deep: ${highDepth}
-        </span>
+        <span class="kpi-value">shallow: ${lowDepth} • medium: ${medDepth} • deep: ${highDepth}</span>
       </div>
     </div>
 
     <div class="kpi-row">
       <div class="kpi">
         <span class="kpi-label">Function size (LOC)</span>
-        <span class="kpi-value">
-          small: ${smallSize} • medium: ${medSize} • large: ${largeSize}
-        </span>
+        <span class="kpi-value">small: ${smallSize} • medium: ${medSize} • large: ${largeSize}</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">Secrets in test files</span>
+        <span class="kpi-value">${testSecrets} <span style="color:#9ca3af;">( *_test.dart )</span></span>
       </div>
     </div>
   `;
+
+  // Taint summary card
+  const taintSummary = document.getElementById("taintSummary");
+  if (taintSummary) {
+    if (taintedCount === 0) {
+      taintSummary.innerHTML = `
+        <div class="kpi-row">
+          <div class="kpi">
+            <span class="kpi-label">Status</span>
+            <span class="kpi-value" style="color:#34d399">No taint flows detected</span>
+          </div>
+        </div>
+      `;
+    } else {
+      taintSummary.innerHTML = `
+        <div class="kpi-row">
+          <div class="kpi">
+            <span class="kpi-label">Secrets with flows</span>
+            <span class="kpi-value" style="color:#fb923c">${taintedCount}</span>
+          </div>
+          <div class="kpi">
+            <span class="kpi-label">Total sink usages</span>
+            <span class="kpi-value">${taintSinkData.totalFlows}</span>
+          </div>
+        </div>
+        <div class="kpi-row">
+          <div class="kpi">
+            <span class="kpi-label">Network request sinks</span>
+            <span class="kpi-value" style="color:#f97373">${countSinkType("NETWORK_REQUEST")}</span>
+          </div>
+          <div class="kpi">
+            <span class="kpi-label">Function argument sinks</span>
+            <span class="kpi-value">${countSinkType("FUNCTION_ARGUMENT")}</span>
+          </div>
+          <div class="kpi">
+            <span class="kpi-label">Return value sinks</span>
+            <span class="kpi-value">${countSinkType("RETURN_VALUE")}</span>
+          </div>
+        </div>
+      `;
+    }
+  }
 }
+
+function countSinkType(type) {
+  let count = 0;
+  for (const f of findings) {
+    if (!Array.isArray(f.taintFlow)) {continue;}
+    for (const step of f.taintFlow) {
+      if (step.type === type) {count++;}
+    }
+  }
+  return count;
+}
+
+// ---------------------------------------------------------------------------
+// Render: Findings table
+// ---------------------------------------------------------------------------
 
 function filteredFindingsForTable() {
   return findings.filter((f) => {
     const cx = typeof f.complexity === "number" ? f.complexity : 0;
     const file = String(f.file || "");
+    const hasTaint = Array.isArray(f.taintFlow) && f.taintFlow.length > 0;
 
     switch (currentFilter) {
-      case "highCx":
-        return cx > 10;
-      case "mediumCx":
-        return cx > 5 && cx <= 10;
-      case "lowCx":
-        return cx > 0 && cx <= 5;
-      case "tests":
-        return file.endsWith("_test.dart");
+      case "highCx": return cx > 10;
+      case "mediumCx": return cx > 5 && cx <= 10;
+      case "lowCx": return cx > 0 && cx <= 5;
+      case "hasTaint": return hasTaint;
+      case "tests": return file.endsWith("_test.dart");
       case "all":
-      default:
-        return true;
+      default: return true;
     }
   });
 }
 
 function renderFindingsTable() {
   const tbody = document.querySelector("#tbl tbody");
-  if (!tbody) {return;}
+  if (!tbody) { return; }
 
   tbody.innerHTML = "";
   const rows = filteredFindingsForTable();
@@ -300,6 +392,12 @@ function renderFindingsTable() {
     const metrics = cx || depth || size ? cx + depth + size : "";
 
     const secretTypeLabel = f.secretType ? formatSecretTypeLabel(f.secretType) : "";
+
+    // Taint column
+    const hasTaint = Array.isArray(f.taintFlow) && f.taintFlow.length > 0;
+    const taintBadge = hasTaint
+      ? `<span style="color:#fb923c;font-weight:600;">${f.taintFlow.length} flow(s)</span>`
+      : '<span style="color:#6b7280;">—</span>';
 
     tr.innerHTML = `
       <td>${escapeHtml(f.severity || "")}</td>
@@ -315,6 +413,7 @@ function renderFindingsTable() {
       <td>${f.line || ""}</td>
       <td>${escapeHtml(f.functionName || "")}</td>
       <td>${escapeHtml(metrics)}</td>
+      <td>${taintBadge}</td>
     `;
 
     tbody.appendChild(tr);
@@ -322,19 +421,21 @@ function renderFindingsTable() {
 
   if (rows.length === 0) {
     const tr = document.createElement("tr");
-    tr.innerHTML = '<td colspan="8" style="color:#9ca3af;">No findings for this filter.</td>';
+    tr.innerHTML = '<td colspan="9" style="color:#9ca3af;">No findings for this filter.</td>';
     tbody.appendChild(tr);
   }
 }
 
+// ---------------------------------------------------------------------------
+// Render: Hotspots
+// ---------------------------------------------------------------------------
+
 function renderHotspots() {
   const tbody = document.querySelector("#tblHotspots tbody");
-  if (!tbody) {return;}
+  if (!tbody) { return; }
   tbody.innerHTML = "";
 
-  const candidates = findings.filter((f) => {
-    return typeof f.complexity === "number" && f.complexity > 0;
-  });
+  const candidates = findings.filter((f) => typeof f.complexity === "number" && f.complexity > 0);
 
   if (candidates.length === 0) {
     const tr = document.createElement("tr");
@@ -368,35 +469,88 @@ function renderHotspots() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Render: Taint flow details table
+// ---------------------------------------------------------------------------
+
+function renderTaintFlowDetails() {
+  const tbody = document.querySelector("#tblTaintFlows tbody");
+  if (!tbody) { return; }
+  tbody.innerHTML = "";
+
+  const tainted = findingsWithTaint();
+
+  if (tainted.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = '<td colspan="5" style="color:#9ca3af;">No taint flows detected.</td>';
+    tbody.appendChild(tr);
+    return;
+  }
+
+  // Sort by number of flows (most dangerous first)
+  tainted.sort((a, b) => (b.taintFlow?.length || 0) - (a.taintFlow?.length || 0));
+
+  tainted.forEach((f) => {
+    const tr = document.createElement("tr");
+
+    const secretTypeLabel = f.secretType ? formatSecretTypeLabel(f.secretType) : "Generic";
+
+    // Build flow path description
+    const flowParts = f.taintFlow.map((step) => {
+      const icon = getTaintSinkIcon(step.type);
+      return `${icon} L${step.line}: ${escapeHtml(step.description)}`;
+    });
+    const flowHtml = flowParts.join('<br>');
+
+    tr.innerHTML = `
+      <td>${escapeHtml(f.ruleId || "")}</td>
+      <td>
+        <a href="#"
+           onclick="reveal('${f.file}', ${f.line || 1}, ${f.column || 1}); return false;">
+          ${escapeHtml(fileNameFromPath(f.file || ""))}
+        </a>
+      </td>
+      <td>${f.line || ""}</td>
+      <td>${escapeHtml(secretTypeLabel)}</td>
+      <td style="font-size:12px;">${flowHtml}</td>
+    `;
+
+    tbody.appendChild(tr);
+  });
+}
+
+function getTaintSinkIcon(type) {
+  const icons = {
+    NETWORK_REQUEST: "🌐",
+    FUNCTION_ARGUMENT: "📤",
+    RETURN_VALUE: "↩️",
+    ASSIGNMENT: "📋",
+    MAP_VALUE: "🗺️",
+    STRING_INTERPOLATION: "📝",
+  };
+  return icons[type] || "•";
+}
+
+// ---------------------------------------------------------------------------
+// Render: Charts
+// ---------------------------------------------------------------------------
+
 function renderCharts() {
-  drawBar(
-    "chartRules",
-    topCounts(findings, (x) => x.ruleName || x.ruleId, 8, (lab) => shorten(lab, 20))
-  );
-  drawBar(
-    "chartFiles",
-    topCounts(findings, (x) => x.file, 8, (lab) => shorten(fileNameFromPath(lab), 28))
-  );
+  drawBar("chartRules", topCounts(findings, (x) => x.ruleName || x.ruleId, 8, (lab) => shorten(lab, 20)));
+  drawBar("chartFiles", topCounts(findings, (x) => x.file, 8, (lab) => shorten(fileNameFromPath(lab), 28)));
 
   drawBar("chartSecretTypes", computeSecretTypeCounts());
   drawStackedBar("chartSecretTypeSeverity", computeSecretTypeSeverityCounts());
 
+  // Taint sink distribution chart
+  const taintData = computeTaintSinkCounts();
+  drawBar("chartTaintSinks", { labels: taintData.labels, values: taintData.values });
+
   const { lowCx, medCx, highCx, lowDepth, medDepth, highDepth, smallSize, medSize, largeSize } = computeBuckets();
 
-  drawBar("chartCxBuckets", {
-    labels: ["Low", "Medium", "High"],
-    values: [lowCx, medCx, highCx],
-  });
-
-  drawBar("chartDepthBuckets", {
-    labels: ["Shallow", "Medium", "Deep"],
-    values: [lowDepth, medDepth, highDepth],
-  });
-
-  drawBar("chartSizeBuckets", {
-    labels: ["Small", "Medium", "Large"],
-    values: [smallSize, medSize, largeSize],
-  });
+  drawBar("chartCxBuckets", { labels: ["Low", "Medium", "High"], values: [lowCx, medCx, highCx] });
+  drawBar("chartDepthBuckets", { labels: ["Shallow", "Medium", "Deep"], values: [lowDepth, medDepth, highDepth] });
+  drawBar("chartSizeBuckets", { labels: ["Small", "Medium", "Large"], values: [smallSize, medSize, largeSize] });
 }
 
 function topCounts(arr, keyFn, topN = 8, mapLbl = (x) => x) {
@@ -405,9 +559,7 @@ function topCounts(arr, keyFn, topN = 8, mapLbl = (x) => x) {
     const k = keyFn(a) || "unknown";
     m.set(k, (m.get(k) || 0) + 1);
   }
-  const rows = Array.from(m.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, topN);
+  const rows = Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, topN);
   return {
     labels: rows.map((r) => mapLbl(r[0])),
     values: rows.map((r) => r[1]),
@@ -415,11 +567,12 @@ function topCounts(arr, keyFn, topN = 8, mapLbl = (x) => x) {
 }
 
 // ---------------------------------------------------------------------------
-// Draw a bar chart with multi-line X-axis labels
+// Draw: Bar chart with multi-line X labels
 // ---------------------------------------------------------------------------
+
 function drawBar(id, data) {
   const cvs = document.getElementById(id);
-  if (!cvs) {return;}
+  if (!cvs) { return; }
 
   const ctx = cvs.getContext("2d");
   const W = (cvs.width = cvs.clientWidth);
@@ -444,8 +597,6 @@ function drawBar(id, data) {
   const totalWidth = W - 32;
   const bw = (totalWidth / n) * 0.7;
   const gap = (totalWidth / n) * 0.3;
-
-  // Decide label max width per bar for splitting
   const maxLabelChars = Math.max(8, Math.floor(bw / 6));
 
   ctx.font = "11px Segoe UI";
@@ -456,18 +607,15 @@ function drawBar(id, data) {
     const h = Math.round(chartHeight * (v / max));
     const y = padTop + (chartHeight - h);
 
-    // Bar colours
     const palette = ["#4fc3f7", "#34d399", "#f97373", "#facc15", "#a855f7", "#fb923c", "#38bdf8", "#f472b6", "#818cf8"];
     ctx.fillStyle = palette[i % palette.length];
     ctx.fillRect(x, y, bw, h);
 
-    // Value label on top of bar
     ctx.fillStyle = "#e5e5e5";
     ctx.textBaseline = "bottom";
     ctx.font = "12px Segoe UI";
     ctx.fillText(String(v), x + bw / 2, y - 2);
 
-    // X-axis label — split into two lines if long
     ctx.fillStyle = "#d1d5db";
     ctx.textBaseline = "top";
     ctx.font = "11px Segoe UI";
@@ -476,7 +624,6 @@ function drawBar(id, data) {
     const lines = splitLabel(lbl, maxLabelChars);
     const lineHeight = 13;
     const labelStartY = H - padBottom + 8;
-
     lines.forEach((line, lineIdx) => {
       ctx.fillText(line, x + bw / 2, labelStartY + lineIdx * lineHeight);
     });
@@ -484,11 +631,12 @@ function drawBar(id, data) {
 }
 
 // ---------------------------------------------------------------------------
-// Stacked bar chart for secret type × severity (with multi-line labels)
+// Draw: Stacked bar chart
 // ---------------------------------------------------------------------------
+
 function drawStackedBar(id, data) {
   const cvs = document.getElementById(id);
-  if (!cvs) {return;}
+  if (!cvs) { return; }
 
   const ctx = cvs.getContext("2d");
   const W = (cvs.width = cvs.clientWidth);
@@ -516,7 +664,6 @@ function drawStackedBar(id, data) {
   const totalWidth = W - 32;
   const bw = (totalWidth / n) * 0.7;
   const gap = (totalWidth / n) * 0.3;
-
   const maxLabelChars = Math.max(8, Math.floor(bw / 6));
 
   ctx.font = "11px Segoe UI";
@@ -528,25 +675,21 @@ function drawStackedBar(id, data) {
     const warnVal = data.warnings[i] || 0;
     const total = errVal + warnVal;
 
-    // Warning bar (bottom)
     const warnH = Math.round(chartHeight * (warnVal / max));
     const warnY = padTop + chartHeight - warnH;
     ctx.fillStyle = "#facc15";
     ctx.fillRect(x, warnY, bw, warnH);
 
-    // Error bar (stacked on top)
     const errH = Math.round(chartHeight * (errVal / max));
     const errY = warnY - errH;
     ctx.fillStyle = "#f97373";
     ctx.fillRect(x, errY, bw, errH);
 
-    // Total label on top
     ctx.fillStyle = "#e5e5e5";
     ctx.textBaseline = "bottom";
     ctx.font = "12px Segoe UI";
     ctx.fillText(String(total), x + bw / 2, errY - 2);
 
-    // X-axis label — multi-line
     ctx.fillStyle = "#d1d5db";
     ctx.textBaseline = "top";
     ctx.font = "11px Segoe UI";
@@ -554,7 +697,6 @@ function drawStackedBar(id, data) {
     const lines = splitLabel(lbl, maxLabelChars);
     const lineHeight = 13;
     const labelStartY = H - padBottom + 8;
-
     lines.forEach((line, lineIdx) => {
       ctx.fillText(line, x + bw / 2, labelStartY + lineIdx * lineHeight);
     });
@@ -573,6 +715,10 @@ function drawStackedBar(id, data) {
   ctx.fillText("Warning", W - 48, 5);
 }
 
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
 function escapeHtml(s) {
   return String(s)
     .replaceAll("&", "&amp;")
@@ -589,7 +735,7 @@ function shorten(s, n = 60) {
 
 function fileNameFromPath(p) {
   const s = String(p || "");
-  if (!s) {return "";}
+  if (!s) { return ""; }
   const parts = s.split(/[\\/]/);
   return parts[parts.length - 1] || s;
 }

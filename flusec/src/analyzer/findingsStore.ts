@@ -107,6 +107,7 @@ export function upsertFindingsForDoc(
     nestingDepth?: number;
     functionLoc?: number;
     secretType?: string;
+    taintFlow?: any[];
     component?: string;
     // IDS fields
     riskLevel?: string;
@@ -145,6 +146,7 @@ export function upsertFindingsForDoc(
       nestingDepth: (f as any).nestingDepth,
       functionLoc: (f as any).functionLoc,
       secretType: (f as any).secretType ?? null,
+      taintFlow: (f as any).taintFlow ?? null,
       component: (f as any).component,
       // IDS-specific fields — pass through if present
       riskLevel: (f as any).riskLevel ?? null,
@@ -192,6 +194,7 @@ export function upsertFindingsForFile(
       nestingDepth: f.nestingDepth ?? null,
       functionLoc: f.functionLoc ?? null,
       secretType: f.secretType ?? null,
+      taintFlow: f.taintFlow ?? null,
       component: f.component ?? "hsd",
       riskLevel: f.riskLevel ?? null,
       dataType: f.dataType ?? null,

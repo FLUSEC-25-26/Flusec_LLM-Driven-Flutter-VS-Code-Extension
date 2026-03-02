@@ -1,7 +1,7 @@
 // lib/core/issue.dart
 //
 // Shared model used by ALL analyzer components.
-// HSD fills functionName/complexity/nestingDepth/functionLoc/secretType.
+// HSD fills functionName/complexity/nestingDepth/functionLoc/secretType/taintFlow.
 // IDS fills riskLevel/dataType/storageContext.
 // Other components (network/validation) can set them to null.
 
@@ -25,6 +25,11 @@ class Issue {
   ///         OAUTH_SECRET, FIREBASE_KEY, ENCRYPTION_KEY, GENERIC_SECRET
   final String? secretType;
 
+  /// HSD contribution: simplified taint analysis — where the secret flows.
+  /// Each entry is a Map with: type, line, column, description.
+  /// Null or empty if no flow detected or not applicable.
+  final List<Map<String, dynamic>>? taintFlow;
+
   /// IDS contribution: risk classification and storage metadata.
   final String? riskLevel;      // CRITICAL | HIGH | MEDIUM | LOW
   final String? dataType;       // e.g. PASSWORD, API_KEY, GENERIC_SENSITIVE
@@ -46,6 +51,7 @@ class Issue {
     this.nestingDepth,
     this.functionLoc,
     this.secretType,
+    this.taintFlow,
     this.riskLevel,
     this.dataType,
     this.storageContext,

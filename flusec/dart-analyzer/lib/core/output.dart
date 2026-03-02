@@ -32,6 +32,8 @@ class OutputWriter {
               'functionLoc': i.functionLoc,
               // HSD secret type classification:
               'secretType': i.secretType,
+              // HSD taint flow (null if no flows detected):
+              'taintFlow': i.taintFlow,
               // Which component produced this finding:
               'component': i.component,
               // IDS metadata (null for non-IDS components):
@@ -74,6 +76,7 @@ class OutputWriter {
           'nestingDepth': i.nestingDepth,
           'functionLoc': i.functionLoc,
           'secretType': i.secretType,
+          'taintFlow': i.taintFlow,
 
           // Component tag:
           'component': i.component,

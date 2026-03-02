@@ -442,6 +442,7 @@ function writeFindingsFile(filePath: string, findings: any[]): void {
     nestingDepth: f.nestingDepth ?? null,
     functionLoc: f.functionLoc ?? null,
     secretType: f.secretType ?? null,
+    taintFlow: f.taintFlow ?? null,
     component: f.component ?? "hsd",
     riskLevel: f.riskLevel ?? null,
     dataType: f.dataType ?? null,

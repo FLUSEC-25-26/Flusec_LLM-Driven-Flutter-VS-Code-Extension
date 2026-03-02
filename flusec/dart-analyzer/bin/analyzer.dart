@@ -135,6 +135,7 @@ List<Issue> _scanFile(
   // 1) HSD
   try {
     final visitor = SecretVisitor(hsdEngine, content, filePath);
+    visitor.setUnit(unit); // Required for taint analysis
     unit.accept(visitor);
     fileIssues.addAll(visitor.issues);
   } catch (e) {
