@@ -157,6 +157,10 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
+  // Clear the diagnostics to prevent memory leaks
   diagCollection.clear();
   diagCollection.dispose();
+  
+  // Optional: Add logging to verify clean shutdown
+  console.log("FLUSEC: Extension deactivated successfully.");
 }
