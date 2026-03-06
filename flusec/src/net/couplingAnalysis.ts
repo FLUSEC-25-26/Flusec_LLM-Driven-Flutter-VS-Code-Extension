@@ -1,8 +1,9 @@
 // src/net/couplingAnalysis.ts
 //
 // Network dependency coupling analysis for Flutter/Dart projects.
-// Extracts HTTP endpoints from open Dart documents, maps them to services,
-// computes outgoing/incoming coupling metrics, and a 0-100 health index.
+// Extracts HTTP endpoints from open Dart documents AND from disk,
+// maps them to services, computes outgoing/incoming coupling metrics,
+// and a 0-100 health index.
 
 import * as vscode from "vscode";
 
@@ -273,12 +274,17 @@ export async function computeAndPostCoupling(
 ): Promise<void> {
   const cfg =
     (await loadServiceConfig().catch(() => null)) ?? null;
+
+  const calls: AutoCall[] = [];
+  const seenFiles = new Set<string>();
+
+  // 1. From currently open text documents in the editor
   const dartDocs = vscode.workspace.textDocuments.filter(
     (d) => d.languageId === "dart"
   );
 
-  const calls: AutoCall[] = [];
   for (const doc of dartDocs) {
+    seenFiles.add(doc.uri.fsPath);
     const endpoints = extractEndpointsFromDart(doc);
     const fromModule = inferModuleFromPath(doc.uri.fsPath);
     for (const ep of endpoints) {
@@ -288,6 +294,45 @@ export async function computeAndPostCoupling(
         file: doc.uri.fsPath,
         line: ep.line,
       });
+    }
+  }
+
+  // 2. From disk — scan all .dart files in lib/ (covers project scan scenario)
+  const folders = vscode.workspace.workspaceFolders;
+  if (folders?.length) {
+    const libUri = vscode.Uri.joinPath(folders[0].uri, "lib");
+    try {
+      const dartFiles = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(libUri, "**/*.dart"),
+        "**/build/**", // exclude build directory
+        500            // reasonable limit
+      );
+
+      for (const fileUri of dartFiles) {
+        // Skip files already processed from open documents
+        if (seenFiles.has(fileUri.fsPath)) {
+          continue;
+        }
+        seenFiles.add(fileUri.fsPath);
+
+        try {
+          const doc = await vscode.workspace.openTextDocument(fileUri);
+          const endpoints = extractEndpointsFromDart(doc);
+          const fromModule = inferModuleFromPath(doc.uri.fsPath);
+          for (const ep of endpoints) {
+            calls.push({
+              fromModule,
+              toUrl: ep.url,
+              file: doc.uri.fsPath,
+              line: ep.line,
+            });
+          }
+        } catch {
+          // Skip files that cannot be opened (binary, too large, etc.)
+        }
+      }
+    } catch {
+      // lib/ directory may not exist — ignore
     }
   }
 

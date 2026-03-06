@@ -48,9 +48,9 @@ function collectNetFindings(folder: vscode.WorkspaceFolder): FindingEntry[] {
     return raw.map((f: any) => ({
       file: f.file ?? "",
       message: f.message ?? "",
-      code: f.code,
+      code: f.code ?? f.ruleId,
       severity: f.severity ?? "warning",
-      line: f.line ?? 1,
+      line: f.line ?? 1, 
       column: f.column ?? 1,
     }));
   } catch {
