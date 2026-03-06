@@ -1,57 +1,40 @@
 {
   "name": "flusec",
-  "displayName": "flusec",
-  "description": "flutter vs code extension",
-  "version": "0.0.1",
+  "displayName": "Flusec IVD",
+  "description": "Flutter LLM-Driven Input Validation Security Extension",
+  "version": "1.0.0",
   "engines": {
     "vscode": "^1.105.0"
   },
   "categories": [
-    "Other"
+    "Programming Languages",
+    "Linters"
   ],
   "activationEvents": [
-    "onLanguage:dart",
-    "onCommand:flusec.scanFile",
-    "onCommand:flusec.manageRules",
-    "onCommand:flusec.openFindings",
-    "onCommand:flusec.updateRulePacks"
+    "onLanguage:dart"
   ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
         "command": "flusec.scanFile",
-        "title": "Flusec: Scan current file for secrets"
+        "title": "Flusec: Scan Current File for IVD Issues",
+        "icon": "resources/programming-security-svgrepo-com.svg"
       },
       {
-        "command": "flusec.manageRules",
-        "title": "Open HSD Rule Manager"
+        "command": "flusec.manageIvdRules",
+        "title": "Open IVD Rule Manager"
       },
       {
-        "command": "flusec.openFindings",
-        "title": "Open HSD Dashboard"
-      },
-      {
-        "command": "flusec.updateRulePacks",
-        "title": "Flusec: Update Rule Packs (Base Rules + Heuristics)"
+        "command": "flusec.openIvdFindings",
+        "title": "Open IVD Dashboard"
       }
     ],
-    "configuration": {
-      "title": "FLUSEC",
-      "properties": {
-        "flusec.ruleRepoBaseUrl": {
-          "type": "string",
-          "default": "https://raw.githubusercontent.com/FLUSEC-25-26/flusec-rulepacks/main",
-          "description": "Base URL for flusec-rulepacks raw files...",
-          "scope": "application"
-        }
-      }
-    },
     "viewsContainers": {
       "activitybar": [
         {
           "id": "flusec",
-          "title": "FLUSEC",
+          "title": "FLUSEC IVD",
           "icon": "resources/programming-security-svgrepo-com.svg"
         }
       ]
@@ -60,7 +43,7 @@
       "flusec": [
         {
           "id": "flusecNavView",
-          "name": "FLUSEC Navigation"
+          "name": "IVD Navigation"
         }
       ]
     }
@@ -78,25 +61,19 @@
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "package": "npm run check-types && npm run lint && node esbuild.js --production",
-    "compile-tests": "tsc -p . --outDir out",
-    "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "npm run compile-tests && npm run compile && npm run lint",
     "check-types": "tsc --noEmit",
-    "lint": "eslint src",
-    "test": "vscode-test"
+    "lint": "eslint src"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
     "@types/vscode": "^1.105.0",
-    "@typescript-eslint/eslint-plugin": "^8.45.0",
-    "@typescript-eslint/parser": "^8.45.0",
-    "@vscode/test-cli": "^0.0.11",
-    "@vscode/test-electron": "^2.5.2",
-    "esbuild": "^0.25.10",
-    "eslint": "^9.36.0",
+    "@typescript-eslint/eslint-plugin": "^8.22.0",
+    "@typescript-eslint/parser": "^8.22.0",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.15.0",
     "npm-run-all": "^4.1.5",
-    "typescript": "^5.9.3"
+    "typescript": "^5.7.0"
   },
   "dependencies": {
     "node-fetch": "^2.7.0"
