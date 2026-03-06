@@ -1,9 +1,9 @@
-// dart-analyzer/bin/analyzer.dart
-
+import 'dart:convert';
 import 'dart:io';
 import 'package:analyzer/dart/analysis/utilities.dart';
 import 'package:dart_analyzer/core/output.dart';
-import 'package:dart_analyzer/ivd/index.dart'; // Keeping IVD Module
+import 'package:dart_analyzer/core/paths.dart';
+import 'package:dart_analyzer/ivd/index.dart';
 
 void main(List<String> args) {
   if (args.isEmpty) {
@@ -13,25 +13,37 @@ void main(List<String> args) {
 
   final filePath = args.first;
   final file = File(filePath);
-
   if (!file.existsSync()) {
     print('Error: File not found at $filePath');
     return;
   }
 
-  // 1. Parse Code
+  // 1. Load IVD Rules from JSON
+  final rulesFile = RulesPathResolver.resolveRulesFile(
+    'input_validation_rules.json',
+  );
+  List<Map<String, dynamic>> ivdRules = [];
+
+  if (rulesFile.existsSync()) {
+    try {
+      ivdRules = (jsonDecode(rulesFile.readAsStringSync()) as List)
+          .cast<Map<String, dynamic>>();
+    } catch (e) {
+      stderr.writeln('Error parsing IVD rules: $e');
+    }
+  }
+
+  // 2. Parse Code
   final content = file.readAsStringSync();
   final result = parseString(content: content, path: filePath);
   final unit = result.unit;
 
-  // 2. Run IVD Visitor (Input Validation)
-  // This focuses strictly on identifying missing or weak validation logic
-  final ivdVisitor = IvdVisitor(filePath);
+  // 3. Run IVD Visitor with loaded rules
+  final ivdVisitor = IvdVisitor(filePath, ivdRules);
   unit.accept(ivdVisitor);
 
-  // 3. Output Findings
+  // 4. Output Findings
   final allIssues = ivdVisitor.issues;
-
   OutputWriter.printStdout(allIssues);
   OutputWriter.writeFindingsJson(
     filePath: filePath,
