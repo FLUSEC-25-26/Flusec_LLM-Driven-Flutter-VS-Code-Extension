@@ -33,6 +33,18 @@
     ]
   },
   {
+    "id": "FLUSEC.IVD.FILE_IO",
+    "name": "Unsafe File Operation",
+    "severity": "high",
+    "description": "Direct file path or content manipulation detected. Ensure paths and data are sanitized.",
+    "targetFunctions": [
+      "File",
+      "writeAsString",
+      "writeAsBytes",
+      "writeAsStringSync"
+    ]
+  },
+  {
     "id": "FLUSEC.IVD.FORM",
     "name": "Missing Form Validation",
     "severity": "medium",
