@@ -29,15 +29,15 @@ function enqueueLLMRequest(key: string, message: string, codeSnippet: string, ur
     }
   });
 
-  if (!processingQueue) processQueue();
+  if (!processingQueue) {processQueue();}
 }
 
 async function processQueue() {
-  if (processingQueue) return;
+  if (processingQueue) {return;}
   processingQueue = true;
   while (llmQueue.length > 0) {
     const job = llmQueue.shift();
-    if (job) await job();
+    if (job) {await job();}
   }
   processingQueue = false;
 }
@@ -50,7 +50,7 @@ function formatFeedbackForHover(raw: string): vscode.MarkdownString {
     const obj = JSON.parse(raw);
     md.appendMarkdown(`### 💡 Security Feedback (IVD)\n\n`);
 
-    if (obj.why) md.appendMarkdown(`**Vulnerability**: ${obj.why}\n\n`);
+    if (obj.why) {md.appendMarkdown(`**Vulnerability**: ${obj.why}\n\n`);}
 
     if (Array.isArray(obj.fix)) {
       md.appendMarkdown(`**Recommended Fix**:\n`);

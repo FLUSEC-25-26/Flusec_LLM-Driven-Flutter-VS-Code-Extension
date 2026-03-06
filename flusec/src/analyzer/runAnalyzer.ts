@@ -21,7 +21,7 @@ export async function runAnalyzer(doc: vscode.TextDocument, context: vscode.Exte
     clearFeedbackForDocument(doc.uri);
 
     const folder = findWorkspaceFolderForDoc(doc);
-    if (!folder) return;
+    if (!folder) {return;}
 
     const findingsFile = findingsPathForFolder(folder);
     // Use context.extensionPath to reliably find the bin folder
@@ -43,8 +43,8 @@ export async function runAnalyzer(doc: vscode.TextDocument, context: vscode.Exte
             [doc.fileName],
             { shell: true, cwd: analyzerCwd, maxBuffer: 10 * 1024 * 1024 },
             (err, stdout, stderr) => {
-                if (err) return reject(err);
-                if (stderr) console.warn("Analyzer Stderr:", stderr);
+                if (err) {return reject(err);}
+                if (stderr) {console.warn("Analyzer Stderr:", stderr);}
                 resolve(stdout.trim());
             }
         );
@@ -60,7 +60,7 @@ export async function runAnalyzer(doc: vscode.TextDocument, context: vscode.Exte
     let findings: any[] = [];
     try {
         findings = JSON.parse(stdout);
-        if (!Array.isArray(findings)) findings = [];
+        if (!Array.isArray(findings)) {findings = [];}
     } catch (e) {
         console.error("JSON Parse failed:", e);
         return;

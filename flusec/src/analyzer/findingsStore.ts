@@ -45,7 +45,7 @@ export function refreshDiagnosticsFromFindings(fp: string) {
     const map = new Map<string, vscode.Diagnostic[]>();
     for (const f of raw) {
         const file = String(f.file || "");
-        if (!file) continue;
+        if (!file) {continue;}
 
         const line = Math.max(0, (f.line ?? 1) - 1);
         const col = Math.max(0, (f.column ?? 1) - 1);
@@ -88,7 +88,7 @@ export function upsertFindingsForDoc(
     if (fs.existsSync(findingsFilePath)) {
         try {
             all = JSON.parse(fs.readFileSync(findingsFilePath, "utf8"));
-            if (!Array.isArray(all)) all = [];
+            if (!Array.isArray(all)) {all = [];}
         } catch {
             all = [];
         }
