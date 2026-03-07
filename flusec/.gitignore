@@ -17,3 +17,6 @@ Thumbs.db
 
 # Misc
 .env
+
+/src/config.ts
+/src/config.js
