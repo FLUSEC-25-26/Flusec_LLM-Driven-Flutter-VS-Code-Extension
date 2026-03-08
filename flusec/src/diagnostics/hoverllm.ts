@@ -5,7 +5,7 @@
 // - request queue (to avoid too many parallel calls)
 // - JSON → Markdown formatting for hover
 // - VS Code hover provider registration
-// - Component-aware routing: HSD / NET / IDS each have their own LLM prompt
+// - Component-aware routing: HSD / NET / IDS / IIV each have their own LLM prompt
 //
 // Exposes helpers to reset state when a new analyzer run starts.
 
@@ -13,6 +13,7 @@ import * as vscode from "vscode";
 import { getLLMFeedback } from "../hsd/llm.js";
 import { getNetLLMFeedback } from "../net/llm.js";
 import { getIdsLLMFeedback } from "../ids/llm.js";
+import { getIivLLMFeedback } from "../iiv/llm.js"; // IIV import added
 
 // Feedback cache keyed by: "<uri>:<line>:<character>"
 const feedbackCache = new Map<string, string>();
@@ -32,15 +33,17 @@ function makeKey(uri: vscode.Uri, range: vscode.Range): string {
  * Detect which component a diagnostic belongs to based on its ruleId.
  *
  * Rule ID prefixes:
- *   - FLUSEC.NET*  → net
- *   - FLUSEC.IDS*  → ids
- *   - Everything else (FLUSEC.SEC*, FLUSEC.JWT, FLUSEC.SEC.H*, etc.) → hsd
+ * - FLUSEC.NET* → net
+ * - FLUSEC.IDS* → ids
+ * - FLUSEC.IIV* → iiv
+ * - Everything else (FLUSEC.SEC*, FLUSEC.JWT, FLUSEC.SEC.H*, etc.) → hsd
  */
-function detectComponent(diag: vscode.Diagnostic): "hsd" | "net" | "ids" {
+function detectComponent(diag: vscode.Diagnostic): "hsd" | "net" | "ids" | "iiv" {
   const ruleId = String(diag.code ?? "");
 
-  if (ruleId.startsWith("FLUSEC.NET")) {return "net";}
-  if (ruleId.startsWith("FLUSEC.IDS")) {return "ids";}
+  if (ruleId.startsWith("FLUSEC.NET")) { return "net"; }
+  if (ruleId.startsWith("FLUSEC.IDS")) { return "ids"; }
+  if (ruleId.startsWith("FLUSEC.IIV")) { return "iiv"; }
 
   // Default: HSD
   return "hsd";
@@ -56,7 +59,7 @@ function enqueueLLMRequest(
   codeSnippet: string,
   uri: vscode.Uri,
   range: vscode.Range,
-  component: "hsd" | "net" | "ids"
+  component: "hsd" | "net" | "ids" | "iiv"
 ) {
   llmQueue.push(async () => {
     try {
@@ -74,6 +77,9 @@ function enqueueLLMRequest(
         feedbackStr = idsFeedback
           ? JSON.stringify(idsFeedback)
           : "No feedback returned by LLM.";
+      } else if (component === "iiv") {
+        // IIV component LLM — input validation focused prompt
+        feedbackStr = await getIivLLMFeedback(message, codeSnippet);
       } else {
         // HSD component LLM — hardcoded secrets focused prompt (default)
         feedbackStr = await getLLMFeedback(message, codeSnippet);
@@ -141,8 +147,8 @@ async function processQueue() {
 /**
  * Parse LLM JSON response (if possible) into a Markdown hover.
  * Handles both formats:
- *   HSD: { why, fix, maintainability, example }
- *   NET/IDS: { why, risk, fix, example }
+ * HSD: { why, fix, maintainability, example }
+ * NET/IDS/IIV: { why, risk, fix, example }
  * Fallback: show raw string.
  */
 function formatFeedbackForHover(raw: string): vscode.MarkdownString {
@@ -158,7 +164,7 @@ function formatFeedbackForHover(raw: string): vscode.MarkdownString {
       md.appendMarkdown(`**Why**: ${obj.why}\n\n`);
     }
 
-    // NET/IDS specific: risk field
+    // NET/IDS/IIV specific: risk field
     if (obj.risk) {
       md.appendMarkdown(`**Security Impact**: ${obj.risk}\n\n`);
     }
@@ -195,7 +201,7 @@ function formatFeedbackForHover(raw: string): vscode.MarkdownString {
  * When user hovers over a diagnostic, we either:
  * - show cached feedback
  * - or enqueue a new LLM request (routed to the correct component LLM)
- *   and show a loading message.
+ * and show a loading message.
  */
 export function registerHoverProvider(context: vscode.ExtensionContext) {
   const provider = vscode.languages.registerHoverProvider("dart", {

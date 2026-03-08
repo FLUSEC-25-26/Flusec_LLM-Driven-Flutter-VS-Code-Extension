@@ -5,9 +5,9 @@
 // - executing the Dart analyzer.exe
 // - parsing JSON findings from stdout
 // - creating diagnostics for the current document
-// - updating hsd_findings.json, net_findings.json & ids_findings.json via findingsStore
+// - updating hsd_findings.json, net_findings.json, ids_findings.json & iiv_findings.json via findingsStore
 // - resetting LLM hover state for this document
-// - sync rulepack + write effective workspace rule files (HSD + NET + IDS)
+// - sync rulepack + write effective workspace rule files (HSD + NET + IDS + IIV)
 // - PROJECT SCAN: scan all .dart files in lib/ in a single analyzer process
 
 import * as vscode from "vscode";
@@ -45,9 +45,14 @@ import {
   writeIdsWorkspaceData,
 } from "../rules/idsRulePack.js";
 
+// IIV rulepack sync + workspace effective rule generation
+import {
+  syncIivRulePack,
+  writeIivWorkspaceData,
+} from "../rules/iivRulePack.js";
+
 /**
  * Return workspace folder for a document.
- * If none is directly associated, fallback to the first workspace folder.
  */
 export function findWorkspaceFolderForDoc(
   doc: vscode.TextDocument
@@ -60,7 +65,6 @@ export function findWorkspaceFolderForDoc(
 
 /**
  * Compute the .out directory for a given workspace folder.
- * <root>/.flusec/.out/
  */
 export function findingsOutDir(folder: vscode.WorkspaceFolder): string {
   return path.join(folder.uri.fsPath, ".flusec", ".out");
@@ -68,7 +72,6 @@ export function findingsOutDir(folder: vscode.WorkspaceFolder): string {
 
 /**
  * HSD component findings path.
- * <root>/.flusec/.out/hsd_findings.json
  */
 export function hsdFindingsPathForFolder(
   folder: vscode.WorkspaceFolder
@@ -78,7 +81,6 @@ export function hsdFindingsPathForFolder(
 
 /**
  * NET component findings path.
- * <root>/.flusec/.out/net_findings.json
  */
 export function netFindingsPathForFolder(
   folder: vscode.WorkspaceFolder
@@ -88,12 +90,20 @@ export function netFindingsPathForFolder(
 
 /**
  * IDS component findings path.
- * <root>/.flusec/.out/ids_findings.json
  */
 export function idsFindingsPathForFolder(
   folder: vscode.WorkspaceFolder
 ): string {
   return path.join(findingsOutDir(folder), "ids_findings.json");
+}
+
+/**
+ * IIV component findings path.
+ */
+export function iivFindingsPathForFolder(
+  folder: vscode.WorkspaceFolder
+): string {
+  return path.join(findingsOutDir(folder), "iiv_findings.json");
 }
 
 /**
@@ -124,20 +134,20 @@ async function syncAndWriteAllRules(
     console.error("[FLUSEC] syncIdsRulePack (scan) failed:", e);
   });
   writeIdsWorkspaceData(context, folderFsPath);
+
+  await syncIivRulePack(context).catch((e) => {
+    console.error("[FLUSEC] syncIivRulePack (scan) failed:", e);
+  });
+  writeIivWorkspaceData(context, folderFsPath);
 }
 
 /**
  * Run the external Dart analyzer.exe against a document.
- * Called by extension.ts on:
- * - manual scan
- * - save
- * - debounced typing
  */
 export async function runAnalyzer(
   doc: vscode.TextDocument,
   context: vscode.ExtensionContext
 ): Promise<void> {
-  // Clear LLM queue/state and feedback cache for this document.
   resetLLMState();
   clearFeedbackForDocument(doc.uri);
 
@@ -149,7 +159,6 @@ export async function runAnalyzer(
     return;
   }
 
-  // Sync rulepacks + write effective workspace rule files for ALL components
   await syncAndWriteAllRules(context, folder.uri.fsPath);
 
   const analyzerPath = resolveAnalyzerPath();
@@ -161,14 +170,10 @@ export async function runAnalyzer(
     return;
   }
 
-  // Set cwd = <workspace>/.flusec
   const analyzerCwd = path.join(folder.uri.fsPath, ".flusec");
-
-  // Ensure output folder exists
   const outDir = findingsOutDir(folder);
   fs.mkdirSync(outDir, { recursive: true });
 
-  // Spawn the analyzer directly
   const stdout = await new Promise<string>((resolve, reject) => {
     const proc = spawn(analyzerPath, [doc.fileName], {
       cwd: analyzerCwd,
@@ -256,21 +261,23 @@ export async function runAnalyzer(
     diags.push(diag);
   }
 
-  // Update diagnostics
   diagCollection.set(doc.uri, diags);
 
   // Split findings by component and write to separate files
   const hsdFindings = findings.filter((f: any) => (f.component ?? "hsd") === "hsd");
   const netFindings = findings.filter((f: any) => f.component === "net");
   const idsFindings = findings.filter((f: any) => f.component === "ids");
+  const iivFindings = findings.filter((f: any) => f.component === "iiv");
 
   const hsdPath = hsdFindingsPathForFolder(folder);
   const netPath = netFindingsPathForFolder(folder);
   const idsPath = idsFindingsPathForFolder(folder);
+  const iivPath = iivFindingsPathForFolder(folder);
 
   upsertFindingsForDoc(hsdPath, doc, hsdFindings);
   upsertFindingsForDoc(netPath, doc, netFindings);
   upsertFindingsForDoc(idsPath, doc, idsFindings);
+  upsertFindingsForDoc(iivPath, doc, iivFindings);
 }
 
 
@@ -285,6 +292,7 @@ export interface ProjectScanResult {
   hsdCount: number;
   netCount: number;
   idsCount: number;
+  iivCount: number;
 }
 
 export async function runProjectAnalyzer(
@@ -403,14 +411,17 @@ export async function runProjectAnalyzer(
   const hsdFindings = findings.filter((f: any) => (f.component ?? "hsd") === "hsd");
   const netFindings = findings.filter((f: any) => f.component === "net");
   const idsFindings = findings.filter((f: any) => f.component === "ids");
+  const iivFindings = findings.filter((f: any) => f.component === "iiv");
 
   const hsdPath = hsdFindingsPathForFolder(folder);
   const netPath = netFindingsPathForFolder(folder);
   const idsPath = idsFindingsPathForFolder(folder);
+  const iivPath = iivFindingsPathForFolder(folder);
 
   writeFindingsFile(hsdPath, hsdFindings);
   writeFindingsFile(netPath, netFindings);
   writeFindingsFile(idsPath, idsFindings);
+  writeFindingsFile(iivPath, iivFindings);
 
   const filesWithIssues = findingsByFile.size;
 
@@ -421,6 +432,7 @@ export async function runProjectAnalyzer(
     hsdCount: hsdFindings.length,
     netCount: netFindings.length,
     idsCount: idsFindings.length,
+    iivCount: iivFindings.length,
   };
 }
 

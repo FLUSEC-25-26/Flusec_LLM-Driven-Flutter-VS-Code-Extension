@@ -1,7 +1,7 @@
 // src/extension.ts
 //
 // FLUSEC VS Code Extension — main entry point.
-// Now supports: HSD + NET + IDS (Insecure Data Storage)
+// Now supports: HSD + NET + IDS + IIV (Insufficient Input Validation)
 // Features: Single file scan + Full project scan
 
 import * as vscode from "vscode";
@@ -14,6 +14,7 @@ import {
   hsdFindingsPathForFolder,
   netFindingsPathForFolder,
   idsFindingsPathForFolder,
+  iivFindingsPathForFolder,
 } from "./analyzer/runAnalyzer.js";
 import { diagCollection } from "./analyzer/findingsStore.js";
 import { registerHoverProvider } from "./diagnostics/hoverllm.js";
@@ -25,6 +26,9 @@ import { openNetDashboard } from "./web/net/dasboard.js";
 
 // IDS dashboard
 import { openIDSDashboard } from "./web/ids/dashboard.js";
+
+// IIV dashboard
+import { openIIVDashboard } from "./web/iiv/dashboard.js";
 
 import { registerFlusecNavigationView } from "./ui/flusecNavigation.js";
 import { uploadFindings } from './cloud/uploadFindings.js';
@@ -39,13 +43,17 @@ import { syncNetRulePack, writeNetWorkspaceData } from "./rules/netRulePack.js";
 // IDS rulepack
 import { syncIdsRulePack, writeIdsWorkspaceData } from "./rules/idsRulePack.js";
 
+// IIV rulepack
+import { syncIivRulePack, writeIivWorkspaceData } from "./rules/iivRulePack.js";
+
 
 let lastDartDoc: vscode.TextDocument | undefined;
 
 // We only want to clear findings once per VS Code session.
 let clearedFindingsThisSession = false;
 
-// Delete hsd_findings.json, net_findings.json & ids_findings.json for all workspace folders ONCE per session
+// Delete hsd_findings.json, net_findings.json, ids_findings.json & iiv_findings.json
+// for all workspace folders ONCE per session
 function clearFindingsForAllWorkspaceFoldersOnce() {
   if (clearedFindingsThisSession) { return; }
 
@@ -59,6 +67,7 @@ function clearFindingsForAllWorkspaceFoldersOnce() {
         hsdFindingsPathForFolder(folder),
         netFindingsPathForFolder(folder),
         idsFindingsPathForFolder(folder),
+        iivFindingsPathForFolder(folder),
       ]) {
         if (fs.existsSync(fp)) {
           fs.unlinkSync(fp);
@@ -94,7 +103,7 @@ function writeAllWorkspaceData(context: vscode.ExtensionContext) {
     writeHsdWorkspaceData(context, f.uri.fsPath);
     writeNetWorkspaceData(context, f.uri.fsPath);
     writeIdsWorkspaceData(context, f.uri.fsPath);
-    // Future: writeIivWorkspaceData(context, f.uri.fsPath);
+    writeIivWorkspaceData(context, f.uri.fsPath);
   }
 }
 
@@ -123,8 +132,11 @@ async function syncAllRulePacks(
     console.error("[FLUSEC] syncIdsRulePack failed:", e);
   }
 
-  // Future:
-  // try { await syncIivRulePack(context, opts); } catch (e) { ... }
+  try {
+    await syncIivRulePack(context, opts);
+  } catch (e) {
+    console.error("[FLUSEC] syncIivRulePack failed:", e);
+  }
 }
 
 // ─── Activate ────────────────────────────────────────────────────────────────
@@ -212,7 +224,7 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // ─── Full project scan (all components: HSD + NET + IDS) ─────────────
+  // ─── Full project scan (all components: HSD + NET + IDS + IIV) ───────
   context.subscriptions.push(
     vscode.commands.registerCommand("flusec.scanProject", async () => {
       const folder = vscode.workspace.workspaceFolders?.[0];
@@ -244,7 +256,7 @@ export async function activate(context: vscode.ExtensionContext) {
               `Project scan complete.`,
               `Files: ${result.totalFiles} scanned, ${result.filesWithIssues} with issues.`,
               `Issues: ${result.totalIssues} total`,
-              `(HSD: ${result.hsdCount}, NET: ${result.netCount}, IDS: ${result.idsCount})`,
+              `(HSD: ${result.hsdCount}, NET: ${result.netCount}, IDS: ${result.idsCount}, IIV: ${result.iivCount})`,
             ].join(" ");
 
             vscode.window.showInformationMessage(`FLUSEC: ${msg}`);
@@ -275,6 +287,11 @@ export async function activate(context: vscode.ExtensionContext) {
   // Dashboard (IDS)
   context.subscriptions.push(
     vscode.commands.registerCommand("flusec.openIDSDashboard", () => openIDSDashboard(context))
+  );
+
+  // Dashboard (IIV)
+  context.subscriptions.push(
+    vscode.commands.registerCommand("flusec.openIIVDashboard", () => openIIVDashboard(context))
   );
 
   // Upload findings
@@ -332,7 +349,7 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Hover provider (LLM feedback — routes to HSD/NET/IDS based on ruleId)
+  // Hover provider (LLM feedback — routes to HSD/NET/IDS/IIV based on ruleId)
   registerHoverProvider(context);
 
   // Navigation view

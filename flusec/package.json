@@ -10,17 +10,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onLanguage:dart",
-    "onCommand:flusec.scanFile",
-    "onCommand:flusec.scanProject",
-    "onCommand:flusec.manageRules",
-    "onCommand:flusec.openFindings",
-    "onCommand:flusec.openNetDashboard",
-    "onCommand:flusec.openIDSDashboard",
-    "onCommand:flusec.updateRulePacks",
-    "onCommand:flusec.loginToTeam",
-    "onCommand:flusec.logoutFromTeam",
-    "onCommand:flusec.uploadFindings"
+    "onLanguage:dart"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -64,6 +54,10 @@
       {
         "command": "flusec.logoutFromTeam",
         "title": "FluSec: Logout from Team"
+      },
+      {
+        "command": "flusec.openIIVDashboard",
+        "title": "FLUSEC: Open Input Validation Dashboard"
       }
     ],
     "configuration": {
