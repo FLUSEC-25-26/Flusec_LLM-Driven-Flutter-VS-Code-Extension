@@ -77,6 +77,45 @@ export function refreshDiagnosticsFromFindings(fp: string) {
  * then refresh diagnostics.
  * THIS WAS THE MISSING EXPORT
  */
+// export function upsertFindingsForDoc(
+//     findingsFilePath: string,
+//     doc: vscode.TextDocument,
+//     newFindings: any[]
+// ) {
+//     ensureDirForFile(findingsFilePath);
+//     let all: any[] = [];
+    
+//     if (fs.existsSync(findingsFilePath)) {
+//         try {
+//             all = JSON.parse(fs.readFileSync(findingsFilePath, "utf8"));
+//             if (!Array.isArray(all)) all = [];
+//         } catch {
+//             all = [];
+//         }
+//     }
+
+//     const filePath = doc.fileName;
+//     // Remove old findings for this specific file to avoid duplicates
+//     all = all.filter((x) => x?.file !== filePath);
+
+//     for (const f of newFindings) {
+//         const lineIdx = Math.max(0, f.line - 1);
+//         const lineText = doc.lineAt(lineIdx).text;
+//         all.push({
+//             file: filePath,
+//             line: f.line,
+//             column: f.column,
+//             endColumn: lineText.length,
+//             ruleId: f.ruleId,
+//             message: f.message,
+//             severity: f.severity || "warning"
+//         });
+//     }
+
+//     fs.writeFileSync(findingsFilePath, JSON.stringify(all, null, 2), "utf8");
+//     refreshDiagnosticsFromFindings(findingsFilePath);
+// }
+
 export function upsertFindingsForDoc(
     findingsFilePath: string,
     doc: vscode.TextDocument,
@@ -89,25 +128,27 @@ export function upsertFindingsForDoc(
         try {
             all = JSON.parse(fs.readFileSync(findingsFilePath, "utf8"));
             if (!Array.isArray(all)) all = [];
-        } catch {
-            all = [];
-        }
+        } catch { all = []; }
     }
 
     const filePath = doc.fileName;
-    // Remove old findings for this specific file to avoid duplicates
+    // Remove old findings for this specific file
     all = all.filter((x) => x?.file !== filePath);
 
     for (const f of newFindings) {
-        const lineIdx = Math.max(0, f.line - 1);
-        const lineText = doc.lineAt(lineIdx).text;
+        const lineIdx = Math.max(0, (f.line ?? 1) - 1);
+        let lineLength = 0;
+        try {
+            lineLength = doc.lineAt(lineIdx).text.length;
+        } catch { lineLength = 10; }
+
         all.push({
             file: filePath,
-            line: f.line,
-            column: f.column,
-            endColumn: lineText.length,
-            ruleId: f.ruleId,
-            message: f.message,
+            line: f.line ?? 1,
+            column: f.column ?? 1,
+            endColumn: lineLength,
+            ruleId: f.ruleId || "FLUSEC.IVD.UNKNOWN",
+            message: f.message || "Potential input validation issue",
             severity: f.severity || "warning"
         });
     }

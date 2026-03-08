@@ -762,14 +762,14 @@ var require_url_state_machine = __commonJS({
       return url.replace(/\u0009|\u000A|\u000D/g, "");
     }
     function shortenPath(url) {
-      const path5 = url.path;
-      if (path5.length === 0) {
+      const path6 = url.path;
+      if (path6.length === 0) {
         return;
       }
-      if (url.scheme === "file" && path5.length === 1 && isNormalizedWindowsDriveLetter(path5[0])) {
+      if (url.scheme === "file" && path6.length === 1 && isNormalizedWindowsDriveLetter(path6[0])) {
         return;
       }
-      path5.pop();
+      path6.pop();
     }
     function includesCredentials(url) {
       return url.username !== "" || url.password !== "";
@@ -3047,7 +3047,7 @@ __export(extension_exports, {
 module.exports = __toCommonJS(extension_exports);
 var vscode7 = __toESM(require("vscode"));
 var fs5 = __toESM(require("fs"));
-var path4 = __toESM(require("path"));
+var path5 = __toESM(require("path"));
 
 // src/analyzer/runAnalyzer.ts
 var vscode3 = __toESM(require("vscode"));
@@ -3118,15 +3118,20 @@ function upsertFindingsForDoc(findingsFilePath, doc, newFindings) {
   const filePath = doc.fileName;
   all = all.filter((x) => x?.file !== filePath);
   for (const f of newFindings) {
-    const lineIdx = Math.max(0, f.line - 1);
-    const lineText = doc.lineAt(lineIdx).text;
+    const lineIdx = Math.max(0, (f.line ?? 1) - 1);
+    let lineLength = 0;
+    try {
+      lineLength = doc.lineAt(lineIdx).text.length;
+    } catch {
+      lineLength = 10;
+    }
     all.push({
       file: filePath,
-      line: f.line,
-      column: f.column,
-      endColumn: lineText.length,
-      ruleId: f.ruleId,
-      message: f.message,
+      line: f.line ?? 1,
+      column: f.column ?? 1,
+      endColumn: lineLength,
+      ruleId: f.ruleId || "FLUSEC.IVD.UNKNOWN",
+      message: f.message || "Potential input validation issue",
       severity: f.severity || "warning"
     });
   }
@@ -3426,75 +3431,80 @@ function openIvdRuleManager(context) {
 // src/web/ivd/dashboard.ts
 var vscode5 = __toESM(require("vscode"));
 var fs4 = __toESM(require("fs"));
+var path4 = __toESM(require("path"));
 var currentPanel;
+var findingsWatcher;
+var isDisposed = true;
 function openIvdDashboard(context) {
   const column = vscode5.window.activeTextEditor?.viewColumn ?? vscode5.ViewColumn.One;
-  if (currentPanel) {
+  if (currentPanel && !isDisposed) {
     currentPanel.reveal(column);
     return;
   }
+  isDisposed = false;
   currentPanel = vscode5.window.createWebviewPanel(
     "flusecIvdDashboard",
-    "\u{1F6E1}\uFE0F Input Validation Dashboard",
+    "\u{1F6E1}\uFE0F IVD Security Insights",
     column,
     {
       enableScripts: true,
-      retainContextWhenHidden: true
+      retainContextWhenHidden: true,
+      localResourceRoots: [vscode5.Uri.file(path4.join(context.extensionPath, "src", "web"))]
     }
   );
   const webview = currentPanel.webview;
-  const ivdRoot = vscode5.Uri.joinPath(context.extensionUri, "src", "web", "ivd");
-  const webRoot = vscode5.Uri.joinPath(context.extensionUri, "src", "web");
-  const htmlPath = vscode5.Uri.joinPath(ivdRoot, "dashboard.html");
-  const cssPath = vscode5.Uri.joinPath(webRoot, "css", "dashboard.css");
-  const cssUri = webview.asWebviewUri(cssPath);
-  let htmlContent = `<html><body>Dashboard not found</body></html>`;
-  if (fs4.existsSync(htmlPath.fsPath)) {
-    htmlContent = fs4.readFileSync(htmlPath.fsPath, "utf8").replace(/{{cssUri}}/g, cssUri.toString()).replace(/{{cspSource}}/g, webview.cspSource);
+  let folder = vscode5.workspace.workspaceFolders?.[0];
+  if (!folder && vscode5.window.activeTextEditor) {
+    folder = vscode5.workspace.getWorkspaceFolder(vscode5.window.activeTextEditor.document.uri);
   }
-  webview.html = htmlContent;
-  const folder = vscode5.workspace.workspaceFolders?.[0];
   if (!folder) {
-    vscode5.window.showErrorMessage("Flusec: No workspace folder open.");
+    vscode5.window.showErrorMessage("FLUSEC: Please open a Folder (File > Open Folder) to use the dashboard.");
+    isDisposed = true;
+    currentPanel.dispose();
     return;
   }
   const findingsPath = findingsPathForFolder(folder);
-  function sendFindings() {
-    let data = [];
-    try {
-      if (fs4.existsSync(findingsPath)) {
-        const raw = JSON.parse(
-          fs4.readFileSync(findingsPath, "utf8")
-        );
-        data = Array.isArray(raw) ? raw : [];
-      }
-    } catch (err) {
-      console.error("Error reading findings.json", err);
-    }
-    if (currentPanel) {
-      currentPanel.webview.postMessage({
-        command: "loadFindings",
-        data
-      });
-    }
+  const htmlFile = path4.join(context.extensionPath, "src", "web", "ivd", "dashboard.html");
+  let htmlContent = `<html><body><h1>HTML not found at ${htmlFile}</h1></body></html>`;
+  if (fs4.existsSync(htmlFile)) {
+    const cssUri = webview.asWebviewUri(vscode5.Uri.file(path4.join(context.extensionPath, "src", "web", "css", "dashboard.css")));
+    htmlContent = fs4.readFileSync(htmlFile, "utf8").replace(/{{cspSource}}/g, webview.cspSource).replace(/{{cssUri}}/g, cssUri.toString());
   }
-  webview.onDidReceiveMessage((message) => {
-    if (message.command === "ready") {
-      sendFindings();
+  webview.html = htmlContent;
+  const sendFindings = () => {
+    if (isDisposed || !currentPanel) return;
+    let data = [];
+    if (fs4.existsSync(findingsPath)) {
+      try {
+        const raw = JSON.parse(fs4.readFileSync(findingsPath, "utf8"));
+        data = Array.isArray(raw) ? raw : [];
+      } catch (e) {
+        console.error("Parse error:", e);
+      }
     }
-  });
-  currentPanel.onDidChangeViewState((e) => {
-    if (e.webviewPanel.visible) {
-      sendFindings();
+    try {
+      currentPanel.webview.postMessage({ command: "loadFindings", data });
+    } catch (err) {
+      console.warn("Caught webview disposed error.");
     }
-  });
-  if (fs4.existsSync(findingsPath)) {
-    fs4.watch(findingsPath, () => {
-      sendFindings();
+  };
+  if (!findingsWatcher && fs4.existsSync(findingsPath)) {
+    findingsWatcher = fs4.watch(findingsPath, (eventType) => {
+      if (eventType === "change" && !isDisposed) {
+        sendFindings();
+      }
     });
   }
+  webview.onDidReceiveMessage((msg) => {
+    if (msg.command === "ready") sendFindings();
+  });
   currentPanel.onDidDispose(() => {
+    isDisposed = true;
     currentPanel = void 0;
+    if (findingsWatcher) {
+      findingsWatcher.close();
+      findingsWatcher = void 0;
+    }
   }, null, context.subscriptions);
 }
 
@@ -3633,8 +3643,8 @@ function clearFindingsForAllWorkspaceFoldersOnce() {
       if (fs5.existsSync(findingsPath)) {
         fs5.unlinkSync(findingsPath);
       }
-      const outDir = path4.dirname(findingsPath);
-      const analyzerDir = path4.dirname(outDir);
+      const outDir = path5.dirname(findingsPath);
+      const analyzerDir = path5.dirname(outDir);
       if (fs5.existsSync(outDir) && fs5.readdirSync(outDir).length === 0) {
         fs5.rmdirSync(outDir);
       }

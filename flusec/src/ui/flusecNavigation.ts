@@ -2,7 +2,6 @@
 
 import * as vscode from "vscode";
 
-// Define the valid IDs for our components - Removed 'hsd'
 type ComponentId = "ivd";
 
 class FlusecNavItem extends vscode.TreeItem {

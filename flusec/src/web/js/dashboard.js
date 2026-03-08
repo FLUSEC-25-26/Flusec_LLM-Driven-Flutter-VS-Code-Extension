@@ -1,4 +1,4 @@
-// src/web/ivd/js/dashboard.js
+// src/web/js/dashboard.js
 
 // VS Code webview API
 const vscode = acquireVsCodeApi();
@@ -23,7 +23,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-// Listen for messages from extension
+// Listen for messages from extension (dashboard.ts)
 window.addEventListener("message", (e) => {
   const { command, data } = e.data || {};
   if (command === "loadFindings") {
@@ -36,6 +36,7 @@ window.addEventListener("message", (e) => {
 function render() {
   renderCounters();
   renderFindingsTable();
+  renderHotspots();
   renderCharts();
 }
 
@@ -46,16 +47,36 @@ function renderCounters() {
   ).length;
   const warn = total - err;
 
+  // Complexity buckets based on numeric complexity
+  let lowCx = 0,
+    medCx = 0,
+    highCx = 0;
+
+  findings.forEach((f) => {
+    const cx = typeof f.complexity === "number" ? f.complexity : 0;
+    if (cx > 0 && cx <= 5) {
+      lowCx++;
+    } else if (cx > 5 && cx <= 10) {
+      medCx++;
+    } else if (cx > 10) {
+      highCx++;
+    }
+  });
+
+  // Secrets inside *_test.dart
+  const testSecrets = findings.filter((f) =>
+    String(f.file || "").endsWith("_test.dart")
+  ).length;
+
   const counters = document.getElementById("counters");
-  // Updated with explicit IVD labeling for your security research project
   counters.innerHTML = `
     <div class="kpi-row">
       <div class="kpi">
-        <span class="kpi-label">Total IVD findings</span>
+        <span class="kpi-label">Total findings</span>
         <span class="kpi-value">${total}</span>
       </div>
       <div class="kpi">
-        <span class="kpi-label">Critical Vulnerabilities</span>
+        <span class="kpi-label">Errors</span>
         <span class="kpi-value" style="color:#f44747">${err}</span>
       </div>
       <div class="kpi">
@@ -63,33 +84,105 @@ function renderCounters() {
         <span class="kpi-value" style="color:#e5e510">${warn}</span>
       </div>
     </div>
+    <div class="kpi-row" style="margin-top:6px;">
+      <div class="kpi">
+        <span class="kpi-label">Secrets by complexity</span>
+        <span class="kpi-value">
+          low: ${lowCx} • medium: ${medCx} • high: ${highCx}
+        </span>
+      </div>
+    </div>
+    <div class="kpi-row" style="margin-top:6px;">
+      <div class="kpi">
+        <span class="kpi-label">Secrets in test files</span>
+        <span class="kpi-value">
+          ${testSecrets} <span style="color:#999;">( *_test.dart )</span>
+        </span>
+      </div>
+    </div>
   `;
 }
 
 function renderFindingsTable() {
   const tbody = document.querySelector("#tbl tbody");
-  if (!tbody) {
-    return; // Added curly braces for ESLint consistency
-  }
   tbody.innerHTML = "";
 
   findings.forEach((f) => {
     const tr = document.createElement("tr");
 
+    const cx =
+      typeof f.complexity === "number" ? `Cx=${f.complexity}` : "";
+    const depth =
+      typeof f.nestingDepth === "number" ? `,Depth=${f.nestingDepth}` : "";
+    const size =
+      typeof f.functionLoc === "number" ? `,Size=${f.functionLoc} LOC` : "";
+
+    const metrics = cx || depth || size ? cx + depth + size : "";
+
     tr.innerHTML = `
       <td>${escapeHtml(f.severity || "")}</td>
-      <td>${escapeHtml(f.ruleName || f.ruleId || "Input Validation")}</td>
+      <td>${escapeHtml(f.ruleName || f.ruleId || "")}</td>
       <td>${escapeHtml(f.message || "")}</td>
       <td>
         <a href="#"
-            onclick="reveal('${f.file}', ${f.line || 1}, ${f.column || 1}); return false;">
+           onclick="reveal('${f.file}', ${f.line || 1}, ${
+      f.column || 1
+    }); return false;">
           ${escapeHtml(shorten(f.file || ""))}
         </a>
       </td>
       <td>${f.line || ""}</td>
       <td>${escapeHtml(f.functionName || "")}</td>
+      <td>${escapeHtml(metrics)}</td>
     `;
 
+    tbody.appendChild(tr);
+  });
+}
+
+function renderHotspots() {
+  const tbody = document.querySelector("#tblHotspots tbody");
+  tbody.innerHTML = "";
+
+  // 1) Only findings that have complexity > 0
+  const candidates = findings.filter((f) => {
+    return typeof f.complexity === "number" && f.complexity > 0;
+  });
+
+  if (candidates.length === 0) {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      '<td colspan="6" style="color:#aaa;">No complexity data available.</td>';
+    tbody.appendChild(tr);
+    return;
+  }
+
+  // 2) Sort by complexity (desc), then nesting depth (desc)
+  candidates.sort((a, b) => {
+    const cxA = typeof a.complexity === "number" ? a.complexity : 0;
+    const cxB = typeof b.complexity === "number" ? b.complexity : 0;
+    if (cxB !== cxA) {
+      return cxB - cxA;
+    }
+
+    const dA = typeof a.nestingDepth === "number" ? a.nestingDepth : 0;
+    const dB = typeof b.nestingDepth === "number" ? b.nestingDepth : 0;
+    return dB - dA;
+  });
+
+  // 3) Take top 15 worst functions
+  const hotspots = candidates.slice(0, 15);
+
+  hotspots.forEach((f) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(f.functionName || "<anonymous>")}</td>
+      <td>${escapeHtml(shorten(f.file || ""))}</td>
+      <td>${f.line || ""}</td>
+      <td>${typeof f.complexity === "number" ? f.complexity : ""}</td>
+      <td>${typeof f.nestingDepth === "number" ? f.nestingDepth : ""}</td>
+      <td>${typeof f.functionLoc === "number" ? f.functionLoc : ""}</td>
+    `;
     tbody.appendChild(tr);
   });
 }
@@ -123,7 +216,7 @@ function topCounts(arr, keyFn, topN = 8, mapLbl = (x) => x) {
 function drawBar(id, data) {
   const cvs = document.getElementById(id);
   if (!cvs) {
-    return; // ESLint fix
+    return;
   }
 
   const ctx = cvs.getContext("2d");
