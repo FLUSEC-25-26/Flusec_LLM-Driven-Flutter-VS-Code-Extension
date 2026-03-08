@@ -3084,7 +3084,9 @@ function refreshDiagnosticsFromFindings(fp) {
   const map = /* @__PURE__ */ new Map();
   for (const f of raw) {
     const file = String(f.file || "");
-    if (!file) continue;
+    if (!file) {
+      continue;
+    }
     const line = Math.max(0, (f.line ?? 1) - 1);
     const col = Math.max(0, (f.column ?? 1) - 1);
     const endCol = col + 10;
@@ -3110,7 +3112,9 @@ function upsertFindingsForDoc(findingsFilePath, doc, newFindings) {
   if (fs.existsSync(findingsFilePath)) {
     try {
       all = JSON.parse(fs.readFileSync(findingsFilePath, "utf8"));
-      if (!Array.isArray(all)) all = [];
+      if (!Array.isArray(all)) {
+        all = [];
+      }
     } catch {
       all = [];
     }
@@ -3230,14 +3234,20 @@ function enqueueLLMRequest(key, message, codeSnippet, uri, range) {
       feedbackCache.set(key, "\u26A0\uFE0F Error fetching LLM feedback.");
     }
   });
-  if (!processingQueue) processQueue();
+  if (!processingQueue) {
+    processQueue();
+  }
 }
 async function processQueue() {
-  if (processingQueue) return;
+  if (processingQueue) {
+    return;
+  }
   processingQueue = true;
   while (llmQueue.length > 0) {
     const job = llmQueue.shift();
-    if (job) await job();
+    if (job) {
+      await job();
+    }
   }
   processingQueue = false;
 }
@@ -3249,9 +3259,11 @@ function formatFeedbackForHover(raw) {
     md.appendMarkdown(`### \u{1F4A1} Security Feedback (IVD)
 
 `);
-    if (obj.why) md.appendMarkdown(`**Vulnerability**: ${obj.why}
+    if (obj.why) {
+      md.appendMarkdown(`**Vulnerability**: ${obj.why}
 
 `);
+    }
     if (Array.isArray(obj.fix)) {
       md.appendMarkdown(`**Recommended Fix**:
 `);
@@ -3321,7 +3333,9 @@ async function runAnalyzer(doc, context) {
   resetLLMState();
   clearFeedbackForDocument(doc.uri);
   const folder = findWorkspaceFolderForDoc(doc);
-  if (!folder) return;
+  if (!folder) {
+    return;
+  }
   const findingsFile = findingsPathForFolder(folder);
   const analyzerPath = path2.join(context.extensionPath, "dart-analyzer", "bin", "analyzer.exe");
   if (!fs2.existsSync(analyzerPath)) {
@@ -3338,8 +3352,12 @@ async function runAnalyzer(doc, context) {
       [doc.fileName],
       { shell: true, cwd: analyzerCwd, maxBuffer: 10 * 1024 * 1024 },
       (err, stdout2, stderr) => {
-        if (err) return reject(err);
-        if (stderr) console.warn("Analyzer Stderr:", stderr);
+        if (err) {
+          return reject(err);
+        }
+        if (stderr) {
+          console.warn("Analyzer Stderr:", stderr);
+        }
         resolve(stdout2.trim());
       }
     );
@@ -3352,7 +3370,9 @@ async function runAnalyzer(doc, context) {
   let findings = [];
   try {
     findings = JSON.parse(stdout);
-    if (!Array.isArray(findings)) findings = [];
+    if (!Array.isArray(findings)) {
+      findings = [];
+    }
   } catch (e) {
     console.error("JSON Parse failed:", e);
     return;
