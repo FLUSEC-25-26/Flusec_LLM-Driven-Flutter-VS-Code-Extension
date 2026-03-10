@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <title>FLUSEC – Network Dashboard</title>
+  <!-- CORRECT: stylesheet link -->
   <link rel="stylesheet" href="{{styleHref}}">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 </head>
@@ -30,6 +31,10 @@
           <div class="card-title">Workspace</div>
           <div class="card-value">Active</div>
         </div>
+        <div class="card">
+          <div class="card-title">—</div>
+          <div class="card-value">—</div>
+        </div>
       </div>
     </section>
 
@@ -37,7 +42,7 @@
       <input id="filterInput" type="text" class="input" placeholder="Search message / file / rule" />
     </section>
 
-    <!-- Warnings chart -->
+    <!-- Warnings chart (existing) -->
     <section class="charts">
       <h2>Warnings per Rule</h2>
       <div class="card">
@@ -48,11 +53,10 @@
       </div>
     </section>
 
-    <!-- Network dependency analysis -->
+    <!-- Network dependency analysis (existing) -->
     <section class="charts">
       <h2>Network Dependency Analysis</h2>
 
-      <!-- Health Index KPI -->
       <div class="card">
         <h3>Health Index</h3>
         <div class="kpi" aria-label="Network Dependency Health">
@@ -75,6 +79,36 @@
       </div>
     </section>
 
+    <!-- NEW: Fallback Detection Analysis (BAR CHART) -->
+    <section class="charts">
+      <h2>Fallback Detection Analysis</h2>
+
+      <div class="card">
+        <h3>Fallback Findings by Rule</h3>
+
+        <!-- Severity KPI chips -->
+        <div class="chips-row" role="group" aria-label="Fallback severity counters">
+          <span class="chip chip-high" id="chip-high">High: 0</span>
+          <span class="chip chip-medium" id="chip-medium">Medium: 0</span>
+        </div>
+
+        <div style="position:relative; width:100%; height:360px;">
+          <canvas id="chart-fallback-by-rule" aria-label="Bar chart of fallback findings by rule"></canvas>
+          <!-- “No data” overlay (auto-hides when counts > 0) -->
+          <div id="fallback-no-data"
+               style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:12px;">
+            No fallback counts yet. Call <code>updateFallbackChart({...})</code>.
+          </div>
+        </div>
+
+        <p class="small-note">
+          Includes enabled fallback rules: protocol downgrade, debug HTTP fallback, weak TLS fallback, WebView mixed content.
+          The chart updates via <code>window.updateFallbackChart(counts)</code> or
+          <code>postMessage({ type: 'flusec:updateFallbackCounts', counts })</code>, and also auto‑syncs from the “Findings” list.
+        </p>
+      </div>
+    </section>
+
     <section class="issues">
       <h2>Findings</h2>
       <ul id="issues-list" class="issues-list"></ul>
@@ -85,7 +119,205 @@
     <small>FLUSEC © 2025 • Insecure Network Communication Detection</small>
   </footer>
 
-  <!-- Load local Chart.js (UMD/minified). The nonce is provided by dashboard.ts -->
+  <!-- CORRECT: Chart.js include -->
   <script nonce="{{nonce}}" src="{{chartHref}}"></script>
+
+  <!-- Fallback BAR chart bootstrap -->
+  <script nonce="{{nonce}}">
+    (function () {
+      // Prevent double init if the webview re-renders.
+      if (window.__FLUSEC_FALLBACK_BOOTSTRAPPED__) return;
+      window.__FLUSEC_FALLBACK_BOOTSTRAPPED__ = true;
+
+      // Wait for Chart.js
+      function whenChartReady(cb) {
+        if (window.Chart) return cb();
+        const tick = () => (window.Chart ? cb() : requestAnimationFrame(tick));
+        requestAnimationFrame(tick);
+      }
+
+      whenChartReady(() => {
+        const FALLBACK_RULES = [
+          { id: "FLUSEC.NETWORK.TRY_CATCH_DOWNGRADE",   checkKey: "try_catch_downgrade",   name: "Protocol Downgrade in Try/Catch", severity: "high",   enabled: true },
+          { id: "FLUSEC.NETWORK.DEBUG_MODE_FALLBACK",   checkKey: "debug_mode_fallback",   name: "Environment HTTP Fallback",       severity: "medium", enabled: true },
+          { id: "FLUSEC.NETWORK.WEAK_TLS_FALLBACK",     checkKey: "weak_tls_fallback",     name: "Weak TLS Protocol Fallback",      severity: "high",   enabled: true },
+          { id: "FLUSEC.NETWORK.WEBVIEW_MIXED_CONTENT", checkKey: "webview_mixed_content", name: "WebView Mixed Content Allowed",   severity: "medium", enabled: true }
+        ].filter(r => r.enabled);
+
+        const ID_TO_KEY = Object.fromEntries(FALLBACK_RULES.map(r => [r.id, r.checkKey]));
+        const KEY_SET   = new Set(FALLBACK_RULES.map(r => r.checkKey));
+
+        const labels  = FALLBACK_RULES.map(r => r.name);
+        const base    = FALLBACK_RULES.reduce((a, r) => (a[r.checkKey] = 0, a), {});
+        const colorOf = (sev) => (sev === 'high' ? '#ef4444' : sev === 'medium' ? '#f59e0b' : '#3b82f6');
+        const colors  = FALLBACK_RULES.map(r => colorOf(r.severity));
+        const canvas  = document.getElementById('chart-fallback-by-rule');
+        if (!canvas) return;
+
+        let counts = { ...base, ...(window.FLUSEC_FALLBACK_COUNTS || {}) };
+
+        function getChart() {
+          if (window.__FLUSEC_FALLBACK_CHART__) return window.__FLUSEC_FALLBACK_CHART__;
+          const ctx = canvas.getContext('2d');
+          const ch = new Chart(ctx, {
+            type: 'bar',
+            data: {
+              labels,
+              datasets: [{
+                label: 'Findings',
+                data: FALLBACK_RULES.map(r => counts[r.checkKey] || 0),
+                backgroundColor: colors.map(c => c + 'CC'),
+                borderColor: colors,
+                borderWidth: 1,
+                borderRadius: 6,
+                borderSkipped: false,
+                barThickness: 'flex',
+                maxBarThickness: 24
+              }]
+            },
+            options: {
+              indexAxis: 'y',
+              responsive: true,
+              maintainAspectRatio: false,
+              layout: { padding: 8 },
+              scales: {
+                x: {
+                  beginAtZero: true,
+                  ticks: {
+                    precision: 0,
+                    stepSize: 1,
+                    color: getComputedStyle(document.documentElement).getPropertyValue('--muted') || '#a0a0a0'
+                  },
+                  grid: { color: 'rgba(160,160,160,0.15)' }
+                },
+                y: {
+                  ticks: {
+                    color: getComputedStyle(document.documentElement).getPropertyValue('--fg') || '#eee'
+                  },
+                  grid: { display: false }
+                }
+              },
+              plugins: {
+                // Bring back “decorations” – legend per rule with severity + count
+                legend: {
+                  display: true,
+                  position: 'right',
+                  labels: {
+                    generateLabels: (chart) => {
+                      const ds = chart.data.datasets[0];
+                      return chart.data.labels.map((label, i) => {
+                        const val  = ds.data[i] || 0;
+                        const rule = FALLBACK_RULES[i];
+                        return {
+                          text: `${label} (${rule.severity}) — ${val}`,
+                          fillStyle: ds.backgroundColor[i],
+                          strokeStyle: ds.borderColor[i],
+                          lineWidth: 1,
+                          hidden: false,
+                          index: i
+                        };
+                      });
+                    }
+                  }
+                },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => {
+                      const rule = FALLBACK_RULES[ctx.dataIndex];
+                      const val  = ctx.raw || 0;
+                      return `${rule.name}: ${val} (${rule.severity})`;
+                    }
+                  }
+                }
+              },
+              animation: { duration: 180 }
+            }
+          });
+          window.__FLUSEC_FALLBACK_CHART__ = ch;
+          return ch;
+        }
+
+        function updateChips(cur) {
+          let high = 0, medium = 0;
+          FALLBACK_RULES.forEach(r => {
+            const v = cur[r.checkKey] || 0;
+            if (r.severity === 'high')   high   += v;
+            if (r.severity === 'medium') medium += v;
+          });
+          const chipHigh   = document.getElementById('chip-high');
+          const chipMedium = document.getElementById('chip-medium');
+          if (chipHigh)   chipHigh.textContent   = `High: ${high}`;
+          if (chipMedium) chipMedium.textContent = `Medium: ${medium}`;
+        }
+
+        function setCounts(newCounts) {
+          const overlay = document.getElementById('fallback-no-data');
+          counts = { ...base, ...(newCounts || {}) };
+          const chart = getChart();
+          chart.data.datasets[0].data = FALLBACK_RULES.map(r => counts[r.checkKey] || 0);
+          requestAnimationFrame(() => chart.update());
+          updateChips(counts);
+          if (overlay) overlay.style.display = Object.values(counts).some(v => v > 0) ? 'none' : 'flex';
+        }
+
+        // Public update APIs (keep your integration options)
+        window.updateFallbackChart = setCounts;
+        window.addEventListener('message', (event) => {
+          const msg = event.data || {};
+          if (msg && msg.type === 'flusec:updateFallbackCounts' && msg.counts) {
+            setCounts(msg.counts);
+          }
+        });
+
+        // --- Auto-derive counts from the Findings list (no TS changes needed) ---
+        const list = document.getElementById('issues-list');
+
+        function deriveCountsFromIssuesList() {
+          if (!list) return { ...base };
+          const cur = { ...base };
+
+          // Prefer structured chips: <span class="rule">RULE_ID or checkKey</span>
+          const ruleNodes = list.querySelectorAll('.rule');
+          ruleNodes.forEach(node => {
+            const text = (node.textContent || '').trim();
+            const key  = ID_TO_KEY[text] || (KEY_SET.has(text) ? text : null);
+            if (key) cur[key] = (cur[key] || 0) + 1;
+          });
+
+          // Fallback: text scan if no .rule chips are present
+          if (Object.values(cur).every(v => v === 0)) {
+            const text = (list.innerText || '');
+            for (const [id, key] of Object.entries(ID_TO_KEY)) {
+              const rx = new RegExp(id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+              const matches = text.match(rx);
+              if (matches) cur[key] = matches.length;
+            }
+            for (const key of KEY_SET) {
+              const rx = new RegExp(`\\b${key}\\b`, 'g');
+              const m = text.match(rx);
+              if (m) cur[key] = Math.max(cur[key], m.length);
+            }
+          }
+
+          return cur;
+        }
+
+        function startListObserver() {
+          if (!list) return;
+          // Initial pass
+          setCounts(deriveCountsFromIssuesList());
+          // Observe future changes
+          const obs = new MutationObserver(() => {
+            setCounts(deriveCountsFromIssuesList());
+          });
+          obs.observe(list, { childList: true, subtree: true, characterData: true });
+        }
+
+        // Initial render + observer
+        setCounts(counts);
+        startListObserver();
+      });
+    })();
+  </script>
 </body>
 </html>

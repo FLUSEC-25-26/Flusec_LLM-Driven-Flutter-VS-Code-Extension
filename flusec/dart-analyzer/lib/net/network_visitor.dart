@@ -3,9 +3,11 @@
 // AST visitor for Insecure Network Communication component.
 //
 // REFACTORED: All detection ALGORITHMS are preserved exactly from the original.
-// The only change is that rule IDs, messages, and severities now come from
-// NetworkRulesEngine (loaded from insecure_network_rules.json or defaults)
-// instead of being hardcoded strings in this file.
+// Added new detection logic for network fallbacks (Try/Catch downgrades, 
+// kDebugMode leaks, Weak TLS fallbacks, and WebView Mixed Content).
+// 
+// Rule IDs, messages, and severities come from NetworkRulesEngine 
+// (loaded from insecure_network_rules.json or defaults).
 
 import 'dart:io';
 import 'package:analyzer/dart/ast/ast.dart';
@@ -70,6 +72,12 @@ class NetworkVisitor extends RecursiveAstVisitor<void> {
     if (src.contains('ChannelCredentials.insecure(')) {
       _emit(node, 'grpc_insecure',
             context: 'Insecure gRPC channel credentials. Prefer secure credentials.');
+    }
+
+    // --- WebView Mixed Content Fallback ---
+    if (src.contains('MixedContentMode.alwaysAllow')) {
+      _emit(node, 'webview_mixed_content',
+          context: 'WebView fallback: MixedContentMode.alwaysAllow permits insecure HTTP content inside HTTPS pages.');
     }
 
     super.visitMethodInvocation(node);
@@ -151,6 +159,11 @@ class NetworkVisitor extends RecursiveAstVisitor<void> {
     if (ident == 'badCertificateCallback') {
       _emit(node, 'insecure_tls_callback');
     }
+    // WebView Mixed Content Fallback
+    if (prefix == 'MixedContentMode' && ident == 'alwaysAllow') {
+      _emit(node, 'webview_mixed_content',
+          context: 'WebView fallback: MixedContentMode.alwaysAllow permits insecure HTTP content inside HTTPS pages.');
+    }
 
     super.visitPrefixedIdentifier(node);
   }
@@ -160,6 +173,11 @@ class NetworkVisitor extends RecursiveAstVisitor<void> {
     _propAccess++;
     if (node.propertyName.name == 'badCertificateCallback') {
       _emit(node, 'insecure_tls_callback');
+    }
+    // WebView Mixed Content Fallback
+    if (node.toSource().contains('MixedContentMode.alwaysAllow')) {
+      _emit(node, 'webview_mixed_content',
+          context: 'WebView fallback: MixedContentMode.alwaysAllow permits insecure HTTP content inside HTTPS pages.');
     }
     super.visitPropertyAccess(node);
   }
@@ -184,6 +202,16 @@ class NetworkVisitor extends RecursiveAstVisitor<void> {
             context: 'badCertificateCallback assigned: disables TLS certificate validation.');
     }
 
+    // --- TLS Protocol Downgrade Fallback ---
+    final lhsSource = node.leftHandSide.toSource();
+    if (lhsSource.contains('minimumTlsProtocol')) {
+      final rhsSource = node.rightHandSide.toSource().toLowerCase();
+      if (rhsSource.contains('tls1_0') || rhsSource.contains('tls1_1')) {
+        _emit(node, 'weak_tls_fallback',
+            context: 'SecurityContext allows fallback to weak TLS protocol (TLS 1.0/1.1). Require TLS 1.2+.');
+      }
+    }
+
     super.visitAssignmentExpression(node);
   }
 
@@ -195,6 +223,45 @@ class NetworkVisitor extends RecursiveAstVisitor<void> {
       _emit(node, 'http_client_usage');
     }
     super.visitInstanceCreationExpression(node);
+  }
+
+  // --- Logic-Based Downgrades (Try/Catch) Fallback ---
+  @override
+  void visitTryStatement(TryStatement node) {
+    final tryBody = node.body.toSource().toLowerCase();
+    
+    // Check if the 'try' block attempts a secure HTTPS connection
+    if (tryBody.contains('https://')) {
+      for (final catchClause in node.catchClauses) {
+        final catchBody = catchClause.toSource().toLowerCase();
+        
+        // If the 'catch' block falls back to HTTP, it's a downgrade!
+        if (catchBody.contains('http://') && _isInsecureHttpUrl('http://')) {
+          _emit(node, 'try_catch_downgrade',
+              context: 'Protocol downgrade: try block uses HTTPS, but catch block falls back to insecure HTTP.');
+        }
+      }
+    }
+    super.visitTryStatement(node);
+  }
+
+  // --- Environment Toggles (kDebugMode) Fallback ---
+  @override
+  void visitConditionalExpression(ConditionalExpression node) {
+    final condition = node.condition.toSource();
+    
+    // Check if the condition relies on Flutter's kDebugMode
+    if (condition.contains('kDebugMode')) {
+      final thenExpr = node.thenExpression.toSource().toLowerCase();
+      final elseExpr = node.elseExpression.toSource().toLowerCase();
+
+      // If either branch results in an http:// string, flag it
+      if (thenExpr.contains('http://') || elseExpr.contains('http://')) {
+        _emit(node, 'debug_mode_fallback',
+            context: 'Environment toggle (kDebugMode) allows fallback to plain HTTP.');
+      }
+    }
+    super.visitConditionalExpression(node);
   }
 
   // ---- helpers ----

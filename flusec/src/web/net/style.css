@@ -180,6 +180,41 @@ canvas#chart-cd-in {
   height: 320px;
 }
 
+/* ---- NEW: Fallback bar chart + chips ---- */
+canvas#chart-fallback-by-rule {
+  width: 100%;
+  height: 360px; /* taller for horizontal bars */
+}
+
+.chips-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-weight: 700;
+  font-size: 12px;
+  background: rgba(255,255,255,0.03);
+}
+.chip-high {
+  color: #250000;
+  background: rgba(239, 68, 68, 0.15);   /* --badge-error with alpha */
+  border-color: rgba(239, 68, 68, 0.55);
+}
+.chip-medium {
+  color: #231400;
+  background: rgba(245, 158, 11, 0.15);  /* --badge-warning with alpha */
+  border-color: rgba(245, 158, 11, 0.55);
+}
+
 /* Footer */
 .footer {
   padding: 12px 20px;
