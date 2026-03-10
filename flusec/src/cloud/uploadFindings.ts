@@ -11,6 +11,7 @@ import {
   hsdFindingsPathForFolder,
   netFindingsPathForFolder,
   idsFindingsPathForFolder,
+  iivFindingsPathForFolder,
 } from '../analyzer/runAnalyzer.js';
 import { getStoredToken, getStoredTeamId } from './auth.js';
 
@@ -78,8 +79,22 @@ function normaliseIds(raw: any[]): RawFinding[] {
     title: r.message ?? r.title ?? 'Insecure Data Storage',
     description: r.description,
     severity: normaliseSeverity(r.severity ?? r.riskLevel ?? r.dataType),
-    file_path: r.filePath ?? r.file_path,
-    line_number: r.lineNumber ?? r.line_number,
+    file_path: r.filePath ?? r.file_path ?? r.file,
+    line_number: r.lineNumber ?? r.line_number ?? r.line,
+    code_snippet: r.codeSnippet ?? r.code_snippet,
+  }));
+}
+
+// Normalise IIV/IVS findings (Insufficient Input Validation → module 'IVS')
+function normaliseIiv(raw: any[]): RawFinding[] {
+  return raw.map(r => ({
+    module: 'IVS',
+    rule_id: r.ruleId ?? r.rule_id ?? r.code,
+    title: r.message ?? r.title ?? 'Insufficient Input Validation',
+    description: r.description,
+    severity: normaliseSeverity(r.severity ?? r.riskLevel),
+    file_path: r.filePath ?? r.file_path ?? r.file,
+    line_number: r.lineNumber ?? r.line_number ?? r.line,
     code_snippet: r.codeSnippet ?? r.code_snippet,
   }));
 }
@@ -130,12 +145,14 @@ export async function uploadFindings(context: vscode.ExtensionContext) {
         const hsdRaw = readJsonArray(hsdFindingsPathForFolder(folder));
         const netRaw = readJsonArray(netFindingsPathForFolder(folder));
         const idsRaw = readJsonArray(idsFindingsPathForFolder(folder));
+        const iivRaw = readJsonArray(iivFindingsPathForFolder(folder));
 
-        // Normalise to unified format
+        // Normalise to unified format (IIV → IVS module)
         const findings: RawFinding[] = [
           ...normaliseHsd(hsdRaw),
           ...normaliseNet(netRaw),
           ...normaliseIds(idsRaw),
+          ...normaliseIiv(iivRaw),
         ];
 
         if (findings.length === 0) {
