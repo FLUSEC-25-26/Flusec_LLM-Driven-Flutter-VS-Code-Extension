@@ -28,6 +28,10 @@
       {
         "command": "flusec.openIvdFindings",
         "title": "Open IVD Dashboard"
+      },
+      {
+        "command": "flusec.openArcDashboard",
+        "title": "FLUSEC: Open Architecture Dashboard"
       }
     ],
     "viewsContainers": {

@@ -1,0 +1,19 @@
+[
+  {
+    "file": "C:\\Users\\lahir\\OneDrive\\Desktop\\test\\llm\\bad_cohesion.dart",
+    "line": 3,
+    "column": 1,
+    "ruleId": "FLUSEC.ARC.COHESION",
+    "ruleName": "FLUSEC.ARC.COHESION",
+    "severity": "warning",
+    "nodeKind": "",
+    "context": "",
+    "message": "Low Cohesion: 3 out of 4 methods in \"UserProfileDashboard\" do not interact with any class variables. Consider splitting this class or making these methods static/external.",
+    "snippet": "class UserProfileDashboard {",
+    "functionName": "UserProfileDashboard",
+    "complexity": null,
+    "nestingDepth": null,
+    "functionLoc": null,
+    "fingerprint": "19224a22"
+  }
+]

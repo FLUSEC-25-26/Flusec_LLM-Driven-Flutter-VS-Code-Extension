@@ -762,14 +762,14 @@ var require_url_state_machine = __commonJS({
       return url.replace(/\u0009|\u000A|\u000D/g, "");
     }
     function shortenPath(url) {
-      const path6 = url.path;
-      if (path6.length === 0) {
+      const path7 = url.path;
+      if (path7.length === 0) {
         return;
       }
-      if (url.scheme === "file" && path6.length === 1 && isNormalizedWindowsDriveLetter(path6[0])) {
+      if (url.scheme === "file" && path7.length === 1 && isNormalizedWindowsDriveLetter(path7[0])) {
         return;
       }
-      path6.pop();
+      path7.pop();
     }
     function includesCredentials(url) {
       return url.username !== "" || url.password !== "";
@@ -3045,9 +3045,9 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
-var vscode7 = __toESM(require("vscode"));
-var fs5 = __toESM(require("fs"));
-var path5 = __toESM(require("path"));
+var vscode8 = __toESM(require("vscode"));
+var fs6 = __toESM(require("fs"));
+var path6 = __toESM(require("path"));
 
 // src/analyzer/runAnalyzer.ts
 var vscode3 = __toESM(require("vscode"));
@@ -3136,7 +3136,12 @@ function upsertFindingsForDoc(findingsFilePath, doc, newFindings) {
       endColumn: lineLength,
       ruleId: f.ruleId || "FLUSEC.IVD.UNKNOWN",
       message: f.message || "Potential input validation issue",
-      severity: f.severity || "warning"
+      severity: f.severity || "warning",
+      // 🛡️ CRITICAL: Save the extra metadata so your dashboards can use them!
+      functionName: f.functionName ?? null,
+      complexity: f.complexity ?? null,
+      nestingDepth: f.nestingDepth ?? null,
+      functionLoc: f.functionLoc ?? null
     });
   }
   fs.writeFileSync(findingsFilePath, JSON.stringify(all, null, 2), "utf8");
@@ -3362,19 +3367,28 @@ async function runAnalyzer(doc, context) {
       }
     );
   });
-  if (!stdout.startsWith("[") && !stdout.startsWith("{")) {
-    console.error("Analyzer error output:", stdout);
-    vscode3.window.showErrorMessage(`FLUSEC Analyzer Error: ${stdout.substring(0, 60)}`);
-    return;
-  }
   let findings = [];
   try {
-    findings = JSON.parse(stdout);
+    const jsonMatch = stdout.match(/\[([\s\S]*?)\]/);
+    if (jsonMatch) {
+      findings = JSON.parse(jsonMatch[0]);
+    } else {
+      const singleMatch = stdout.match(/\{([\s\S]*?)\}/);
+      if (singleMatch) {
+        findings = [JSON.parse(singleMatch[0])];
+      } else {
+        console.error("Analyzer error/no JSON output:", stdout);
+        vscode3.window.showErrorMessage(`FLUSEC Analyzer Error: No valid JSON found. Check debug console.`);
+        return;
+      }
+    }
     if (!Array.isArray(findings)) {
       findings = [];
     }
   } catch (e) {
     console.error("JSON Parse failed:", e);
+    console.error("Raw Analyzer Output was:", stdout);
+    vscode3.window.showErrorMessage("FLUSEC: Failed to parse analyzer output.");
     return;
   }
   const diags = [];
@@ -3492,7 +3506,10 @@ function openIvdDashboard(context) {
   }
   webview.html = htmlContent;
   const sendFindings = () => {
-    if (isDisposed || !currentPanel) return;
+    if (isDisposed || !currentPanel) {
+      return;
+    }
+    ;
     let data = [];
     if (fs4.existsSync(findingsPath)) {
       try {
@@ -3516,7 +3533,9 @@ function openIvdDashboard(context) {
     });
   }
   webview.onDidReceiveMessage((msg) => {
-    if (msg.command === "ready") sendFindings();
+    if (msg.command === "ready") {
+      sendFindings();
+    }
   });
   currentPanel.onDidDispose(() => {
     isDisposed = true;
@@ -3548,11 +3567,17 @@ var FlusecNavItem = class extends vscode6.TreeItem {
 var FlusecNavigationProvider = class {
   _onDidChangeTreeData = new vscode6.EventEmitter();
   onDidChangeTreeData = this._onDidChangeTreeData.event;
+  // 2. Added the Architecture (ARC) component to the main list
   components = [
     {
       id: "ivd",
       label: "Input Validation (IVD)",
-      icon: new vscode6.ThemeIcon("checklist")
+      icon: new vscode6.ThemeIcon("shield")
+    },
+    {
+      id: "arc",
+      label: "Architecture Insights (ARC)",
+      icon: new vscode6.ThemeIcon("symbol-class")
     }
   ];
   getTreeItem(element) {
@@ -3592,7 +3617,7 @@ var FlusecNavigationProvider = class {
       return null;
     }
     const candidate = parts[1];
-    if (candidate === "ivd") {
+    if (candidate === "ivd" || candidate === "arc") {
       return candidate;
     }
     return null;
@@ -3631,6 +3656,25 @@ var FlusecNavigationProvider = class {
           )
         ];
       }
+      // 4. Added the action buttons for the ARC component
+      case "arc": {
+        return [
+          new FlusecNavItem(
+            "Cohesion Dashboard",
+            vscode6.TreeItemCollapsibleState.None,
+            {
+              nodeType: "action",
+              componentId,
+              tooltip: "View Class Cohesion & Architecture Metrics",
+              icon: new vscode6.ThemeIcon("graph-scatter"),
+              command: {
+                command: "flusec.openArcDashboard",
+                title: "Open Cohesion Dashboard"
+              }
+            }
+          )
+        ];
+      }
     }
     return [];
   }
@@ -3646,6 +3690,91 @@ function registerFlusecNavigationView(context) {
   });
 }
 
+// src/web/arc/dashboard.ts
+var vscode7 = __toESM(require("vscode"));
+var fs5 = __toESM(require("fs"));
+var path5 = __toESM(require("path"));
+var currentPanel2;
+var findingsWatcher2;
+var isDisposed2 = true;
+function openArcDashboard(context) {
+  const column = vscode7.window.activeTextEditor?.viewColumn ?? vscode7.ViewColumn.One;
+  if (currentPanel2 && !isDisposed2) {
+    currentPanel2.reveal(column);
+    return;
+  }
+  isDisposed2 = false;
+  currentPanel2 = vscode7.window.createWebviewPanel(
+    "flusecArcDashboard",
+    "\u{1F3D7}\uFE0F Architecture Insights",
+    column,
+    {
+      enableScripts: true,
+      retainContextWhenHidden: true,
+      localResourceRoots: [vscode7.Uri.file(path5.join(context.extensionPath, "src", "web"))]
+    }
+  );
+  const webview = currentPanel2.webview;
+  let folder = vscode7.workspace.workspaceFolders?.[0];
+  if (!folder && vscode7.window.activeTextEditor) {
+    folder = vscode7.workspace.getWorkspaceFolder(vscode7.window.activeTextEditor.document.uri);
+  }
+  if (!folder) {
+    vscode7.window.showErrorMessage("FLUSEC: Please open a Folder to view Architecture Insights.");
+    isDisposed2 = true;
+    currentPanel2.dispose();
+    return;
+  }
+  const findingsPath = findingsPathForFolder(folder);
+  const htmlFile = path5.join(context.extensionPath, "src", "web", "arc", "dashboard.html");
+  let htmlContent = `<html><body><h1>HTML not found at ${htmlFile}</h1></body></html>`;
+  if (fs5.existsSync(htmlFile)) {
+    const cssUri = webview.asWebviewUri(vscode7.Uri.file(path5.join(context.extensionPath, "src", "web", "css", "dashboard.css")));
+    htmlContent = fs5.readFileSync(htmlFile, "utf8").replace(/{{cspSource}}/g, webview.cspSource).replace(/{{cssUri}}/g, cssUri.toString());
+  }
+  webview.html = htmlContent;
+  const sendFindings = () => {
+    if (isDisposed2 || !currentPanel2) {
+      return;
+    }
+    ;
+    let data = [];
+    if (fs5.existsSync(findingsPath)) {
+      try {
+        const raw = JSON.parse(fs5.readFileSync(findingsPath, "utf8"));
+        data = Array.isArray(raw) ? raw.filter((f) => f.ruleId && f.ruleId.startsWith("FLUSEC.ARC")) : [];
+      } catch (e) {
+        console.error("Parse error:", e);
+      }
+    }
+    try {
+      currentPanel2.webview.postMessage({ command: "loadFindings", data });
+    } catch (err) {
+      console.warn("Caught webview disposed error.");
+    }
+  };
+  if (!findingsWatcher2 && fs5.existsSync(findingsPath)) {
+    findingsWatcher2 = fs5.watch(findingsPath, (eventType) => {
+      if (eventType === "change" && !isDisposed2) {
+        sendFindings();
+      }
+    });
+  }
+  webview.onDidReceiveMessage((msg) => {
+    if (msg.command === "ready") {
+      sendFindings();
+    }
+  });
+  currentPanel2.onDidDispose(() => {
+    isDisposed2 = true;
+    currentPanel2 = void 0;
+    if (findingsWatcher2) {
+      findingsWatcher2.close();
+      findingsWatcher2 = void 0;
+    }
+  }, null, context.subscriptions);
+}
+
 // src/extension.ts
 var lastDartDoc;
 var clearedFindingsThisSession = false;
@@ -3653,23 +3782,23 @@ function clearFindingsForAllWorkspaceFoldersOnce() {
   if (clearedFindingsThisSession) {
     return;
   }
-  const folders = vscode7.workspace.workspaceFolders ?? [];
+  const folders = vscode8.workspace.workspaceFolders ?? [];
   if (!folders.length) {
     return;
   }
   try {
     for (const folder of folders) {
       const findingsPath = findingsPathForFolder(folder);
-      if (fs5.existsSync(findingsPath)) {
-        fs5.unlinkSync(findingsPath);
+      if (fs6.existsSync(findingsPath)) {
+        fs6.unlinkSync(findingsPath);
       }
-      const outDir = path5.dirname(findingsPath);
-      const analyzerDir = path5.dirname(outDir);
-      if (fs5.existsSync(outDir) && fs5.readdirSync(outDir).length === 0) {
-        fs5.rmdirSync(outDir);
+      const outDir = path6.dirname(findingsPath);
+      const analyzerDir = path6.dirname(outDir);
+      if (fs6.existsSync(outDir) && fs6.readdirSync(outDir).length === 0) {
+        fs6.rmdirSync(outDir);
       }
-      if (fs5.existsSync(analyzerDir) && fs5.readdirSync(analyzerDir).length === 0) {
-        fs5.rmdirSync(analyzerDir);
+      if (fs6.existsSync(analyzerDir) && fs6.readdirSync(analyzerDir).length === 0) {
+        fs6.rmdirSync(analyzerDir);
       }
     }
   } catch (e) {
@@ -3681,51 +3810,56 @@ async function activate(context) {
   context.subscriptions.push(diagCollection);
   clearFindingsForAllWorkspaceFoldersOnce();
   context.subscriptions.push(
-    vscode7.workspace.onDidChangeWorkspaceFolders(() => {
+    vscode8.workspace.onDidChangeWorkspaceFolders(() => {
       clearFindingsForAllWorkspaceFoldersOnce();
     })
   );
   context.subscriptions.push(
-    vscode7.workspace.onDidOpenTextDocument((doc) => {
+    vscode8.workspace.onDidOpenTextDocument((doc) => {
       if (doc.languageId === "dart") {
         lastDartDoc = doc;
       }
     })
   );
   context.subscriptions.push(
-    vscode7.commands.registerCommand("flusec.scanFile", async () => {
-      const active = vscode7.window.activeTextEditor;
+    vscode8.commands.registerCommand("flusec.scanFile", async () => {
+      const active = vscode8.window.activeTextEditor;
       let target;
       if (active && active.document.languageId === "dart") {
         target = active.document;
       } else if (lastDartDoc) {
         target = lastDartDoc;
       } else {
-        const dartDocs = vscode7.workspace.textDocuments.filter((d) => d.languageId === "dart");
+        const dartDocs = vscode8.workspace.textDocuments.filter((d) => d.languageId === "dart");
         if (dartDocs.length > 0) {
           target = dartDocs[0];
         }
       }
       if (!target) {
-        vscode7.window.showInformationMessage("FLUSEC: Open a Dart file first to scan.");
+        vscode8.window.showInformationMessage("FLUSEC: Open a Dart file first to scan.");
         return;
       }
       try {
         await runAnalyzer(target, context);
-        vscode7.window.setStatusBarMessage(`FLUSEC: IVD Scan completed for ${target.fileName}`, 3e3);
+        vscode8.window.setStatusBarMessage(`FLUSEC: IVD Scan completed for ${target.fileName}`, 3e3);
       } catch (e) {
-        vscode7.window.showErrorMessage("FLUSEC: Scan failed: " + String(e));
+        vscode8.window.showErrorMessage("FLUSEC: Scan failed: " + String(e));
       }
     })
   );
   context.subscriptions.push(
-    vscode7.commands.registerCommand("flusec.manageIvdRules", () => openIvdRuleManager(context))
+    vscode8.commands.registerCommand("flusec.manageIvdRules", () => openIvdRuleManager(context))
   );
   context.subscriptions.push(
-    vscode7.commands.registerCommand("flusec.openIvdFindings", () => openIvdDashboard(context))
+    vscode8.commands.registerCommand("flusec.openIvdFindings", () => openIvdDashboard(context))
   );
   context.subscriptions.push(
-    vscode7.workspace.onDidSaveTextDocument(async (doc) => {
+    vscode8.commands.registerCommand("flusec.openArcDashboard", () => {
+      openArcDashboard(context);
+    })
+  );
+  context.subscriptions.push(
+    vscode8.workspace.onDidSaveTextDocument(async (doc) => {
       if (doc.languageId === "dart") {
         lastDartDoc = doc;
         await runAnalyzer(doc, context);
@@ -3734,7 +3868,7 @@ async function activate(context) {
   );
   let typingTimeout;
   context.subscriptions.push(
-    vscode7.workspace.onDidChangeTextDocument((event) => {
+    vscode8.workspace.onDidChangeTextDocument((event) => {
       const doc = event.document;
       if (doc.languageId !== "dart") {
         return;

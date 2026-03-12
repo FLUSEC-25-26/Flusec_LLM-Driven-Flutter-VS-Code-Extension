@@ -187,7 +187,7 @@ export function openIvdDashboard(context: vscode.ExtensionContext) {
 
     // --- SAFE SENDER ---
     const sendFindings = () => {
-        if (isDisposed || !currentPanel) return;
+        if (isDisposed || !currentPanel) {return;};
 
         let data: any[] = [];
         if (fs.existsSync(findingsPath)) {
@@ -214,7 +214,7 @@ export function openIvdDashboard(context: vscode.ExtensionContext) {
     }
 
     webview.onDidReceiveMessage((msg) => {
-        if (msg.command === "ready") sendFindings();
+        if (msg.command === "ready") {sendFindings();}
     });
 
     // --- STRICT CLEANUP ---
