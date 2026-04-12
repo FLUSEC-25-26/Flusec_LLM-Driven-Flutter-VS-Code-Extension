@@ -50,9 +50,9 @@
               cyclomatic complexity (Cx), nesting depth, and size (LOC).
             </p>
             <p class="small-note">
-              Use it to answer questions like:
-              “Where do secrets live in complex code?” and
-              “Which files and rules are the highest-risk hotspots?”.
+              <strong>Taint analysis</strong> tracks where secrets flow after
+              declaration — to network requests, function arguments, return
+              values, or other variables.
             </p>
           </div>
         </div>
@@ -87,6 +87,89 @@
               helping you prioritize secure refactoring.
             </p>
           </div>
+        </div>
+      </section>
+
+      <!-- CHARTS: SECRET TYPE CLASSIFICATION -->
+      <section class="section charts">
+        <h2 class="section-title">Secret Type Classification</h2>
+        <div class="row">
+          <div class="card">
+            <h3 class="card-title">Secrets by Type</h3>
+            <canvas
+              id="chartSecretTypes"
+              aria-label="Bar chart of findings by secret type"
+            ></canvas>
+            <p class="small-note">
+              Classifies detected secrets into categories: API keys, passwords,
+              JWT tokens, database credentials, OAuth secrets, Firebase keys,
+              encryption keys, and generic secrets.
+            </p>
+          </div>
+
+          <div class="card">
+            <h3 class="card-title">Secret Type × Severity</h3>
+            <canvas
+              id="chartSecretTypeSeverity"
+              aria-label="Stacked chart of secret type by severity"
+            ></canvas>
+            <p class="small-note">
+              Shows which secret types are flagged as errors vs warnings,
+              helping prioritize remediation by risk category.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAINT FLOW ANALYSIS -->
+      <section class="section charts">
+        <h2 class="section-title">Taint Flow Analysis</h2>
+        <div class="row">
+          <div class="card">
+            <h3 class="card-title">Taint Sink Distribution</h3>
+            <canvas
+              id="chartTaintSinks"
+              aria-label="Bar chart of taint sink types"
+            ></canvas>
+            <p class="small-note">
+              Shows where hardcoded secrets flow after declaration.
+              Network requests are highest risk. Storage and logging
+              sinks are excluded (handled by IDS component).
+            </p>
+          </div>
+
+          <div class="card">
+            <h3 class="card-title">Taint Flow Summary</h3>
+            <div id="taintSummary">Loading…</div>
+            <p class="small-note">
+              Secrets with taint flows are more dangerous — they actively
+              travel to sinks that could expose them externally.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAINT FLOW DETAILS TABLE -->
+      <section class="section taint-details">
+        <div class="card">
+          <h3 class="card-title">Taint Flow Details</h3>
+          <p class="small-note">
+            Secrets that flow to one or more sinks. Click a file link to
+            navigate to the source. Each row shows the full flow path from
+            declaration to usage.
+          </p>
+          <table id="tblTaintFlows">
+            <thead>
+              <tr>
+                <th>Secret (Source)</th>
+                <th>File</th>
+                <th>Line</th>
+                <th>Secret Type</th>
+                <th>Flow Path</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
         </div>
       </section>
 
@@ -166,6 +249,7 @@
               <button class="filter-tab" data-filter="highCx">High Cx</button>
               <button class="filter-tab" data-filter="mediumCx">Medium Cx</button>
               <button class="filter-tab" data-filter="lowCx">Low Cx</button>
+              <button class="filter-tab" data-filter="hasTaint">Has Taint Flow</button>
               <button class="filter-tab" data-filter="tests">Test files</button>
             </div>
           </div>
@@ -175,11 +259,13 @@
               <tr>
                 <th>Severity</th>
                 <th>Rule</th>
+                <th>Secret Type</th>
                 <th>Message</th>
                 <th>File</th>
                 <th>Line</th>
                 <th>Function</th>
                 <th>Metrics</th>
+                <th>Taint</th>
               </tr>
             </thead>
             <tbody></tbody>

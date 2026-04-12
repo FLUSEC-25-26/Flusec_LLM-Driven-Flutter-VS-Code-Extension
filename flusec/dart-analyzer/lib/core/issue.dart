@@ -1,14 +1,9 @@
 // lib/core/issue.dart
 //
-// Shared model used by the analyzer output.
-// Even though ONLY your HSD module currently fills functionName/complexity,
-// keeping the Issue model in core makes it easy to integrate other components later.
-//
-// Other components idea (future):
-// - insecure_network module can also output Issue(ruleId/message/severity/line/column)
-// - insecure_storage module can output Issue(...)
-// - input_validation module can output Issue(...)
-// They may set functionName/complexity as null (or compute their own later).
+// Shared model used by ALL analyzer components.
+// HSD fills functionName/complexity/nestingDepth/functionLoc/secretType/taintFlow.
+// IDS fills riskLevel/dataType/storageContext.
+// Other components (network/validation) can set them to null.
 
 class Issue {
   final String filePath;
@@ -18,12 +13,31 @@ class Issue {
   final int line;
   final int column;
 
-  // Your contribution: where the secret is located and how complex that context is.
+  // HSD contribution: where the finding is located and how complex that context is.
   // Other components can ignore these fields or later reuse them.
-  final String? functionName; // enclosing function/method name, if any
-  final int? complexity; // cyclomatic complexity of that executable
-  final int? nestingDepth; /// Maximum nesting depth (if/for/while/switch/try) inside the enclosing function/method. Higher depth usually means harder-to-understand logic.
-  final int? functionLoc; /// Approximate number of lines in the enclosing function/method.Helps estimate refactoring effort for removing the secret.
+  final String? functionName;
+  final int? complexity;
+  final int? nestingDepth;
+  final int? functionLoc;
+
+  /// HSD contribution: what type of secret was detected.
+  /// Values: API_KEY, SECRET_KEY, JWT_TOKEN, PASSWORD, DATABASE_CREDENTIAL,
+  ///         OAUTH_SECRET, FIREBASE_KEY, ENCRYPTION_KEY, GENERIC_SECRET
+  final String? secretType;
+
+  /// HSD contribution: simplified taint analysis — where the secret flows.
+  /// Each entry is a Map with: type, line, column, description.
+  /// Null or empty if no flow detected or not applicable.
+  final List<Map<String, dynamic>>? taintFlow;
+
+  /// IDS contribution: risk classification and storage metadata.
+  final String? riskLevel;      // CRITICAL | HIGH | MEDIUM | LOW
+  final String? dataType;       // e.g. PASSWORD, API_KEY, GENERIC_SENSITIVE
+  final String? storageContext; // e.g. shared_prefs, file, sqlite, log
+
+  /// Which component produced this issue.
+  /// Values: 'hsd', 'net', 'ids', 'iiv'
+  final String component;
 
   Issue(
     this.filePath,
@@ -34,7 +48,13 @@ class Issue {
     this.column, {
     this.functionName,
     this.complexity,
-    this.nestingDepth, 
+    this.nestingDepth,
     this.functionLoc,
+    this.secretType,
+    this.taintFlow,
+    this.riskLevel,
+    this.dataType,
+    this.storageContext,
+    this.component = 'hsd',
   });
 }

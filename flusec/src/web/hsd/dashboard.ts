@@ -1,17 +1,17 @@
-// src/ui/dashboard.ts
+// src/web/hsd/dashboard.ts
 //
-// Webview dashboard for showing all findings from findings.json.
-// - Reads findings.json (same path as analyzer)
+// Webview dashboard for showing HSD findings from hsd_findings.json.
+// - Reads hsd_findings.json (HSD component only)
 // - Shows charts + maintainability hotspots + full table
 // - Exports a PDF report (summary + charts data + findings table)
 
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
-import { findingsPathForFolder } from "../../analyzer/runAnalyzer.js";
+import { hsdFindingsPathForFolder } from "../../analyzer/runAnalyzer.js";
 
 /**
- * Open the Flusec Findings dashboard webview.
+ * Open the Flusec HSD Findings dashboard webview.
  */
 export function openDashboard(context: vscode.ExtensionContext) {
   const panel = vscode.window.createWebviewPanel(
@@ -65,11 +65,11 @@ export function openDashboard(context: vscode.ExtensionContext) {
     return;
   }
 
-  // MUST match the path logic used in the analyzer.
-  const findingsPath = findingsPathForFolder(folder);
+  // Read from hsd_findings.json (HSD component only)
+  const findingsPath = hsdFindingsPathForFolder(folder);
 
   /**
-   * Read findings.json and send data to the webview.
+   * Read hsd_findings.json and send data to the webview.
    */
   const sendFindings = () => {
     let data: any[] = [];
@@ -124,7 +124,7 @@ export function openDashboard(context: vscode.ExtensionContext) {
         );
       }
     } else if (cmd === "refresh") {
-      // Re-read findings.json and push to webview
+      // Re-read hsd_findings.json and push to webview
       sendFindings();
     } else if (cmd === "rescanActiveFile") {
       // Use existing scan command, then reload findings

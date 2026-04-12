@@ -1,13 +1,16 @@
 // lib/hsd/secret_visitor.dart
 //
-// AST visitor for your HSD module.
+// AST visitor for the HSD module.
 // It searches places where hardcoded string literals appear and asks RulesEngine
 // if that literal looks like a secret.
 //
-// IMPORTANT: Your original behavior is preserved, including:
+// IMPORTANT: Original behavior is preserved, including:
 // - ignoring insecure storage sinks by returning early in _maybeReport
 // - scanning VariableDeclaration, AssignmentExpression, MapLiteralEntry,
 //   ArgumentList, and ListLiteral
+//
+// NEW: After detecting a secret in a VariableDeclaration or AssignmentExpression,
+// runs simplified taint analysis to track where the secret flows.
 
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/token.dart';
@@ -17,6 +20,7 @@ import '../core/issue.dart';
 import 'hardcoded_secrets_rules.dart';
 import 'function_utils.dart';
 import 'complexity.dart';
+import 'taint_tracker.dart';
 
 class SecretVisitor extends RecursiveAstVisitor<void> {
   final RulesEngine engine;
@@ -26,7 +30,15 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
   final List<Issue> issues = [];
   final Set<String> _seen = {};
 
+  /// The parsed CompilationUnit — needed for taint tracking line resolution.
+  CompilationUnit? _unit;
+
   SecretVisitor(this.engine, this.raw, this.filePath);
+
+  /// Set the CompilationUnit after parsing. Must be called before visiting.
+  void setUnit(CompilationUnit unit) {
+    _unit = unit;
+  }
 
   /// Produce a stable node "kind name" without "Impl" suffix.
   String _nodeKindName(AstNode node) {
@@ -37,10 +49,8 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
   }
 
   /// Walk up AST tree to detect if inside insecure storage sinks.
-  /// NOTE: Your current logic uses this as a FILTER (skip reporting inside these sinks).
-  ///
-  /// Other components idea (future):
-  /// - insecure_storage module might REPORT these sinks instead of skipping.
+  /// NOTE: Current logic uses this as a FILTER (skip reporting inside these sinks).
+  /// The IDS component handles reporting these sinks.
   bool _isInsideInsecureStorageCall(AstNode node) {
     AstNode? current = node;
 
@@ -92,11 +102,45 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
     return false;
   }
 
-    /// Decide if a node/value should become an Issue.
-  void _maybeReport(AstNode node, String? value, String contextName) {
+  /// Run taint tracking for a variable with the given name.
+  /// Returns the flow steps as JSON-serializable maps, or null if no flows.
+  List<Map<String, dynamic>>? _runTaintTracking(
+    AstNode declarationNode,
+    String variableName,
+    int sourceLine,
+  ) {
+    if (_unit == null) return null;
+    if (variableName.isEmpty) return null;
+
+    try {
+      final steps = trackTaintFlow(
+        taintedVarName: variableName,
+        declarationNode: declarationNode,
+        unit: _unit!,
+        sourceLine: sourceLine,
+      );
+
+      if (steps.isEmpty) return null;
+
+      return steps.map((s) => s.toJson()).toList();
+    } catch (e) {
+      // Taint tracking is best-effort; don't fail the entire scan
+      return null;
+    }
+  }
+
+  /// Decide if a node/value should become an Issue.
+  /// [taintVarName] is the variable name for taint tracking (only set for
+  /// VariableDeclaration and AssignmentExpression).
+  void _maybeReport(
+    AstNode node,
+    String? value,
+    String contextName, {
+    String? taintVarName,
+  }) {
     if (value == null || value.isEmpty) return;
 
-    // Preserving your original behavior exactly:
+    // Preserving original behavior exactly:
     if (_isInsideInsecureStorageCall(node)) return;
 
     final nodeKind = _nodeKindName(node);
@@ -107,16 +151,16 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
     final key = '$filePath:${loc.$1}:${loc.$2}:${hit.ruleId}';
 
     if (_seen.add(key)) {
-      // Your feature: compute enclosing function name & metrics
+      // Compute enclosing function name & metrics
       String? fnName;
       int? complexity;
       String? complexityLevel;
 
-      // NEW numeric metrics
+      // Numeric metrics
       int? nestingDepth;
       int? functionLoc;
 
-      // NEW human-readable levels
+      // Human-readable levels
       String? nestingLevel;
       String? sizeLevel;
 
@@ -125,22 +169,22 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
         fnName = FunctionUtils.executableName(exec);
 
         // Treat "<anonymous>" as "no name" for the user-facing message
-      if (fnName == '<anonymous>') {
-        fnName = null;
-      }
+        if (fnName == '<anonymous>') {
+          fnName = null;
+        }
 
-        // numeric complexity score
+        // Numeric complexity score
         final score = Complexity.computeCyclomaticComplexity(exec);
         complexity = score;
 
-        // human-readable level (low / medium / high)
+        // Human-readable level (low / medium / high)
         complexityLevel = Complexity.levelFor(score);
 
-        // NEW: numeric nesting depth + size
+        // Numeric nesting depth + size
         nestingDepth = Complexity.computeMaxNestingDepth(exec);
         functionLoc = Complexity.computeFunctionLoc(exec);
 
-        // NEW: human-readable levels
+        // Human-readable levels
         if (nestingDepth != null) {
           nestingLevel = Complexity.nestingLevelFor(nestingDepth);
         }
@@ -149,12 +193,13 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
         }
       }
 
-      // Build a nice human-readable message:
-      //
-      // Example:
-      // "Hardcoded API key in function loginUser
-      //  (Function complexity: high, nesting: medium, size: medium)"
-      //
+      // Run taint tracking if we have a variable name
+      List<Map<String, dynamic>>? taintFlow;
+      if (taintVarName != null && taintVarName.isNotEmpty) {
+        taintFlow = _runTaintTracking(node, taintVarName, loc.$1);
+      }
+
+      // Build a nice human-readable message
       final baseMessage = hit.message;
       final buffer = StringBuffer(baseMessage);
 
@@ -163,8 +208,7 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
         buffer.write(' in function ${fnName.trim()}');
       }
 
-      // Collect labels like:
-      //  "complexity: high", "nesting: medium", "size: medium"
+      // Collect labels
       final details = <String>[];
       if (complexityLevel != null) {
         details.add('complexity: $complexityLevel');
@@ -180,6 +224,17 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
         buffer.write(' (Function ${details.join(', ')})');
       }
 
+      // Add taint flow summary to message if flows were found
+      if (taintFlow != null && taintFlow.isNotEmpty) {
+        final flowCount = taintFlow.length;
+        // Collect unique sink types
+        final sinkTypes = taintFlow
+            .map((s) => s['type'] as String)
+            .toSet()
+            .toList();
+        buffer.write(' [Flows to $flowCount sink(s): ${sinkTypes.join(", ")}]');
+      }
+
       final annotatedMessage = buffer.toString();
 
       issues.add(Issue(
@@ -191,8 +246,10 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
         loc.$2,
         functionName: fnName,
         complexity: complexity,
-        nestingDepth: nestingDepth, // numeric
-        functionLoc: functionLoc,   // numeric
+        nestingDepth: nestingDepth,
+        functionLoc: functionLoc,
+        secretType: hit.secretType,
+        taintFlow: taintFlow,
       ));
     }
   }
@@ -231,14 +288,15 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
   }
 
   // ---------------------------
-  // Visit points (your original scan coverage)
+  // Visit points (scan coverage)
   // ---------------------------
 
   @override
   void visitVariableDeclaration(VariableDeclaration node) {
     final name = _nameFrom(node.name);
     final v = _stringFromExpression(node.initializer);
-    _maybeReport(node, v, name);
+    // Pass variable name for taint tracking
+    _maybeReport(node, v, name, taintVarName: name);
     super.visitVariableDeclaration(node);
   }
 
@@ -246,7 +304,8 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
   void visitAssignmentExpression(AssignmentExpression node) {
     final leftName = _lhsName(node.leftHandSide);
     final v = _stringFromExpression(node.rightHandSide);
-    _maybeReport(node, v, leftName);
+    // Pass LHS name for taint tracking
+    _maybeReport(node, v, leftName, taintVarName: leftName);
     super.visitAssignmentExpression(node);
   }
 
@@ -254,6 +313,7 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
   void visitMapLiteralEntry(MapLiteralEntry node) {
     final keyName = node.key.toSource();
     final v = _stringFromExpression(node.value);
+    // No taint tracking for map entries (value is inline, not a named variable)
     _maybeReport(node, v, keyName);
     super.visitMapLiteralEntry(node);
   }
@@ -271,6 +331,7 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
         value = _stringFromExpression(arg);
       }
 
+      // No taint tracking for inline arguments (not assigned to a variable)
       _maybeReport(arg, value, context);
     }
     super.visitArgumentList(node);

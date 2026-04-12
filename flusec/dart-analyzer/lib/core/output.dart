@@ -4,11 +4,8 @@
 // - Minimal stdout payload (VS Code extension reads this)
 // - Rich ".out/findings.json" payload for dashboards / diagnostics
 //
-// NOTE ABOUT OTHER COMPONENTS (future integration):
-// When other modules are added (network/storage/validation), they should produce
-// List<Issue> as well. Then analyzer.dart will merge all issues and call
-// OutputWriter.printStdout(...) + OutputWriter.writeFindingsJson(...)
-// ONE TIME. That is how you keep only ONE analyzer.exe.
+// ALL components (hsd/net/ids/iiv) produce List<Issue>.
+// analyzer.dart merges all issues and calls OutputWriter ONCE.
 
 import 'dart:convert';
 import 'dart:io';
@@ -28,11 +25,21 @@ class OutputWriter {
               'message': i.message,
               'line': i.line,
               'column': i.column,
-              // Your extra metadata:
+              // HSD metadata (null for other components unless they compute it):
               'functionName': i.functionName,
               'complexity': i.complexity,
               'nestingDepth': i.nestingDepth,
               'functionLoc': i.functionLoc,
+              // HSD secret type classification:
+              'secretType': i.secretType,
+              // HSD taint flow (null if no flows detected):
+              'taintFlow': i.taintFlow,
+              // Which component produced this finding:
+              'component': i.component,
+              // IDS metadata (null for non-IDS components):
+              'riskLevel': i.riskLevel,
+              'dataType': i.dataType,
+              'storageContext': i.storageContext,
             })
         .toList();
 
@@ -40,7 +47,6 @@ class OutputWriter {
   }
 
   /// Write the richer findings JSON to ".out/findings.json" in the current folder.
-  /// Matches your original behavior exactly.
   static void writeFindingsJson({
     required String filePath,
     required String content,
@@ -64,11 +70,16 @@ class OutputWriter {
           'message': i.message,
           'snippet': snippet,
 
-          // Your contribution:
+          // HSD contribution:
           'functionName': i.functionName,
           'complexity': i.complexity,
           'nestingDepth': i.nestingDepth,
           'functionLoc': i.functionLoc,
+          'secretType': i.secretType,
+          'taintFlow': i.taintFlow,
+
+          // Component tag:
+          'component': i.component,
 
           // Deterministic grouping key:
           'fingerprint': _fingerprint(
@@ -86,7 +97,6 @@ class OutputWriter {
       outDir.createSync(recursive: true);
 
       final outFile = File(path.join(outDir.path, 'findings.json'));
-      // 🔍 DEBUG — add THESE TWO LINES
       stderr.writeln('DEBUG analyzer cwd = ${Directory.current.path}');
       stderr.writeln('DEBUG writing to = ${outFile.absolute.path}');
 
@@ -101,7 +111,7 @@ class OutputWriter {
   }
 
   // ---------------------------
-  // Helpers (copied from your original analyzer.dart)
+  // Helpers
   // ---------------------------
 
   static String _lineSnippet(String source, int line1) {
@@ -110,9 +120,6 @@ class OutputWriter {
     return lines[line1 - 1].trim();
   }
 
-  // Works with messages produced by your RulesEngine:
-  //  - "{ruleName} hardcoded in {nodeKind} in \"{context}\""
-  //  - "Possible hardcoded secret in {nodeKind}"
   static String? _ruleNameFromMessage(String msg) {
     final idx = msg.indexOf(' hardcoded in ');
     if (idx > 0) return msg.substring(0, idx);
@@ -148,7 +155,6 @@ class OutputWriter {
     return null;
   }
 
-  // Simple deterministic hash; fine for baselining and grouping
   static String _fingerprint(
     String file,
     int line,
