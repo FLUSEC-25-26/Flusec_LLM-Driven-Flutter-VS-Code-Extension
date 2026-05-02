@@ -1,11 +1,3 @@
-// src/ui/flusecNavigation.ts
-//
-// Sidebar tree-view for FLUSEC.
-// Registered in package.json under viewsContainers.activitybar → "flusec"
-// and views.flusec → "flusecNavView".
-//
-// Uses exact command IDs from package.json contributes.commands.
-
 import * as vscode from "vscode";
 
 interface NavItem {
@@ -19,11 +11,11 @@ const NAV_ITEMS: NavItem[] = [
   {
     label: "Scan Entire Project",
     command: "flusec.scanProject",
-    icon: "play-circle", 
+    icon: "play-circle",
   },
   {
     label: "Dashboards",
-    icon: "graph", 
+    icon: "graph",
     children: [
       {
         label: "Hardcoded Secrets (HSD)",
@@ -48,16 +40,11 @@ const NAV_ITEMS: NavItem[] = [
     ],
   },
   {
-    label: "Rules Management",
+    label: "Policies",
     icon: "checklist",
     children: [
       {
-        label: "HSD Rule Manager",
-        command: "flusec.manageRules",
-        icon: "settings-gear",
-      },
-      {
-        label: "Update Rule Packs",
+        label: "Sync Policies",
         command: "flusec.updateRulePacks",
         icon: "sync",
       },
@@ -95,8 +82,8 @@ class FlusecNavItem extends vscode.TreeItem {
         : vscode.TreeItemCollapsibleState.None
     );
 
-    this.tooltip = nav.label; // Tooltip now just shows the label
-    
+    this.tooltip = nav.label;
+
     if (nav.command) {
       this.command = {
         command: nav.command,
@@ -112,10 +99,13 @@ class FlusecNavItem extends vscode.TreeItem {
   }
 }
 
-class FlusecNavigationProvider implements vscode.TreeDataProvider<FlusecNavItem> {
+class FlusecNavigationProvider
+  implements vscode.TreeDataProvider<FlusecNavItem>
+{
   private _onDidChangeTreeData = new vscode.EventEmitter<
     FlusecNavItem | undefined | null | void
   >();
+
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
   refresh(): void {
@@ -130,18 +120,20 @@ class FlusecNavigationProvider implements vscode.TreeDataProvider<FlusecNavItem>
     if (element) {
       const children = element.nav.children || [];
       return Promise.resolve(children.map((item) => new FlusecNavItem(item)));
-    } else {
-      return Promise.resolve(NAV_ITEMS.map((item) => new FlusecNavItem(item)));
     }
+
+    return Promise.resolve(NAV_ITEMS.map((item) => new FlusecNavItem(item)));
   }
 }
 
-export function registerFlusecNavigationView(context: vscode.ExtensionContext): void {
+export function registerFlusecNavigationView(
+  context: vscode.ExtensionContext
+): void {
   const provider = new FlusecNavigationProvider();
 
   const treeView = vscode.window.createTreeView("flusecNavView", {
     treeDataProvider: provider,
-    showCollapseAll: true, 
+    showCollapseAll: true,
   });
 
   context.subscriptions.push(treeView);

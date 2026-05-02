@@ -27,29 +27,7 @@ import {
   clearFeedbackForDocument,
 } from "../diagnostics/hoverllm.js";
 
-// HSD rulepack sync + workspace effective rule generation
-import {
-  syncHsdRulePack,
-  writeHsdWorkspaceData,
-} from "../rules/hsdRulePack.js";
-
-// NET rulepack sync + workspace effective rule generation
-import {
-  syncNetRulePack,
-  writeNetWorkspaceData,
-} from "../rules/netRulePack.js";
-
-// IDS rulepack sync + workspace effective rule generation
-import {
-  syncIdsRulePack,
-  writeIdsWorkspaceData,
-} from "../rules/idsRulePack.js";
-
-// IIV rulepack sync + workspace effective rule generation
-import {
-  syncIivRulePack,
-  writeIivWorkspaceData,
-} from "../rules/iivRulePack.js";
+import { syncPoliciesForWorkspace } from "../policies/policySync.js";
 
 /**
  * Return workspace folder for a document.
@@ -120,25 +98,10 @@ async function syncAndWriteAllRules(
   context: vscode.ExtensionContext,
   folderFsPath: string
 ): Promise<void> {
-  await syncHsdRulePack(context).catch((e) => {
-    console.error("[FLUSEC] syncHsdRulePack (scan) failed:", e);
+  await syncPoliciesForWorkspace(context, folderFsPath, {
+    allowCachedFallback: true,
+    silent: false,
   });
-  writeHsdWorkspaceData(context, folderFsPath);
-
-  await syncNetRulePack(context).catch((e) => {
-    console.error("[FLUSEC] syncNetRulePack (scan) failed:", e);
-  });
-  writeNetWorkspaceData(context, folderFsPath);
-
-  await syncIdsRulePack(context).catch((e) => {
-    console.error("[FLUSEC] syncIdsRulePack (scan) failed:", e);
-  });
-  writeIdsWorkspaceData(context, folderFsPath);
-
-  await syncIivRulePack(context).catch((e) => {
-    console.error("[FLUSEC] syncIivRulePack (scan) failed:", e);
-  });
-  writeIivWorkspaceData(context, folderFsPath);
 }
 
 /**

@@ -1,8 +1,13 @@
 // src/extension.ts
 //
 // FLUSEC VS Code Extension — main entry point.
-// Now supports: HSD + NET + IDS + IIV (Insufficient Input Validation)
-// Features: Single file scan + Full project scan
+// Supports: HSD + NET + IDS + IIV
+// Features: Single file scan + Full project scan + Team sync + Policy sync
+//
+// Important runtime design:
+// - The extension must NOT require the web backend to be running just to activate.
+// - Policy sync is best-effort on startup.
+// - If backend sync fails, activation continues and the user can manually run "Sync Policies".
 
 import * as vscode from "vscode";
 import * as fs from "fs";
@@ -18,51 +23,33 @@ import {
 } from "./analyzer/runAnalyzer.js";
 import { diagCollection } from "./analyzer/findingsStore.js";
 import { registerHoverProvider } from "./diagnostics/hoverllm.js";
-import { openRuleManager } from "./ui/ruleManager/hardcoded_secrets/ruleManager.js";
 import { openDashboard } from "./web/hsd/dashboard.js";
-
-// NET dashboard
 import { openNetDashboard } from "./web/net/dasboard.js";
-
-// IDS dashboard
 import { openIDSDashboard } from "./web/ids/dashboard.js";
-
-// IIV dashboard
 import { openIIVDashboard } from "./web/iiv/dashboard.js";
-
 import { registerFlusecNavigationView } from "./ui/flusecNavigation.js";
-import { uploadFindings } from './cloud/uploadFindings.js';
-import { loginToTeam, logoutFromTeam } from './cloud/auth.js';
-
-// HSD rulepack
-import { syncHsdRulePack, writeHsdWorkspaceData } from "./rules/hsdRulePack.js";
-
-// NET rulepack
-import { syncNetRulePack, writeNetWorkspaceData } from "./rules/netRulePack.js";
-
-// IDS rulepack
-import { syncIdsRulePack, writeIdsWorkspaceData } from "./rules/idsRulePack.js";
-
-// IIV rulepack
-import { syncIivRulePack, writeIivWorkspaceData } from "./rules/iivRulePack.js";
-
+import { uploadFindings } from "./cloud/uploadFindings.js";
+import { loginToTeam, logoutFromTeam } from "./cloud/auth.js";
+import { syncPoliciesForAllWorkspaces } from "./policies/policySync.js";
 
 let lastDartDoc: vscode.TextDocument | undefined;
 
 // We only want to clear findings once per VS Code session.
 let clearedFindingsThisSession = false;
 
-// Delete hsd_findings.json, net_findings.json, ids_findings.json & iiv_findings.json
-// for all workspace folders ONCE per session
+// Delete local findings files for all workspace folders ONCE per session
 function clearFindingsForAllWorkspaceFoldersOnce() {
-  if (clearedFindingsThisSession) { return; }
+  if (clearedFindingsThisSession) {
+    return;
+  }
 
   const folders = vscode.workspace.workspaceFolders ?? [];
-  if (!folders.length) { return; }
+  if (!folders.length) {
+    return;
+  }
 
   try {
     for (const folder of folders) {
-      // Delete all component findings files
       for (const fp of [
         hsdFindingsPathForFolder(folder),
         netFindingsPathForFolder(folder),
@@ -75,7 +62,6 @@ function clearFindingsForAllWorkspaceFoldersOnce() {
         }
       }
 
-      // Clean up empty directories
       const outDir = findingsOutDir(folder);
       const analyzerDir = path.dirname(outDir);
 
@@ -84,7 +70,10 @@ function clearFindingsForAllWorkspaceFoldersOnce() {
         console.log("FLUSEC: deleted empty dir", outDir);
       }
 
-      if (fs.existsSync(analyzerDir) && fs.readdirSync(analyzerDir).length === 0) {
+      if (
+        fs.existsSync(analyzerDir) &&
+        fs.readdirSync(analyzerDir).length === 0
+      ) {
         fs.rmdirSync(analyzerDir);
         console.log("FLUSEC: deleted empty dir", analyzerDir);
       }
@@ -96,101 +85,99 @@ function clearFindingsForAllWorkspaceFoldersOnce() {
   clearedFindingsThisSession = true;
 }
 
-// ─── Helper: write ALL component workspace data ──────────────────────────────
-
-function writeAllWorkspaceData(context: vscode.ExtensionContext) {
-  for (const f of vscode.workspace.workspaceFolders ?? []) {
-    writeHsdWorkspaceData(context, f.uri.fsPath);
-    writeNetWorkspaceData(context, f.uri.fsPath);
-    writeIdsWorkspaceData(context, f.uri.fsPath);
-    writeIivWorkspaceData(context, f.uri.fsPath);
-  }
+// Best-effort policy preparation.
+// This should never be allowed to break extension activation.
+async function writeAllWorkspaceData(context: vscode.ExtensionContext) {
+  await syncPoliciesForAllWorkspaces(context, {
+    allowCachedFallback: true,
+    silent: false,
+  });
 }
 
-// ─── Helper: sync ALL component rulepacks ────────────────────────────────────
-
-async function syncAllRulePacks(
+async function tryPreparePolicies(
   context: vscode.ExtensionContext,
-  opts?: { force?: boolean }
-) {
-  // Sync each component independently — one failing shouldn't block others
+  source: "startup" | "periodic" | "workspace-change" | "post-login"
+): Promise<boolean> {
   try {
-    await syncHsdRulePack(context, opts);
-  } catch (e) {
-    console.error("[FLUSEC] syncHsdRulePack failed:", e);
-  }
+    await writeAllWorkspaceData(context);
 
-  try {
-    await syncNetRulePack(context, opts);
-  } catch (e) {
-    console.error("[FLUSEC] syncNetRulePack failed:", e);
-  }
+    if (source === "post-login") {
+      vscode.window.showInformationMessage(
+        "FLUSEC: Policies synced successfully after login."
+      );
+    }
 
-  try {
-    await syncIdsRulePack(context);
+    return true;
   } catch (e) {
-    console.error("[FLUSEC] syncIdsRulePack failed:", e);
-  }
+    const msg = `FLUSEC: Policy sync skipped (${source}). ${String(e)}`;
 
-  try {
-    await syncIivRulePack(context, opts);
-  } catch (e) {
-    console.error("[FLUSEC] syncIivRulePack failed:", e);
+    // Do not spam users during activation/background operations.
+    // Just log and continue.
+    if (source === "startup" || source === "periodic" || source === "workspace-change") {
+      console.warn(msg);
+      return false;
+    }
+
+    // post-login can show a warning because the user just completed login
+    vscode.window.showWarningMessage(msg);
+    return false;
   }
 }
 
-// ─── Activate ────────────────────────────────────────────────────────────────
+function captureInitialActiveDartEditor() {
+  const active = vscode.window.activeTextEditor;
+  if (active?.document.languageId === "dart") {
+    lastDartDoc = active.document;
+  }
+}
+
+async function safeRunSingleFileScan(
+  doc: vscode.TextDocument,
+  context: vscode.ExtensionContext,
+  opts?: { showSuccessMessage?: boolean }
+): Promise<void> {
+  try {
+    await runAnalyzer(doc, context);
+
+    if (opts?.showSuccessMessage) {
+      vscode.window.setStatusBarMessage(
+        `FLUSEC: Scan completed for ${doc.fileName}`,
+        3000
+      );
+    }
+  } catch (e) {
+    vscode.window.showErrorMessage("FLUSEC: Scan failed: " + String(e));
+    console.error("[FLUSEC] Single-file scan error:", e);
+  }
+}
 
 export async function activate(context: vscode.ExtensionContext) {
   // Ensure diagnostics collection is disposed when extension is deactivated.
   context.subscriptions.push(diagCollection);
 
-  // Keep your old cleanup behavior
+  // Keep old cleanup behavior
   clearFindingsForAllWorkspaceFoldersOnce();
 
-  // Mandatory remote sync for ALL components (safe offline)
-  await syncAllRulePacks(context);
+  // Track currently active editor if already open
+  captureInitialActiveDartEditor();
 
-  // Write workspace effective files for ALL components
-  writeAllWorkspaceData(context);
+  // ─── Commands ─────────────────────────────────────────────────────────────
 
-  // Periodic mandatory update (6 hours) for ALL components
-  const timer = setInterval(async () => {
-    try {
-      await syncAllRulePacks(context);
-      writeAllWorkspaceData(context);
-    } catch (e) {
-      console.error("[FLUSEC] periodic rulepack sync failed:", e);
-    }
-  }, 6 * 60 * 60 * 1000);
-
-  context.subscriptions.push({ dispose: () => clearInterval(timer) });
-
-  // If folders added later — write ALL component data
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeWorkspaceFolders(() => {
-      clearFindingsForAllWorkspaceFoldersOnce();
-      writeAllWorkspaceData(context);
-    })
-  );
-
-  // Track last Dart doc
-  context.subscriptions.push(
-    vscode.workspace.onDidOpenTextDocument((doc) => {
-      if (doc.languageId === "dart") { lastDartDoc = doc; }
-    })
-  );
-
-  // Force update rulepacks (ALL components)
+  // Manual policy sync
   context.subscriptions.push(
     vscode.commands.registerCommand("flusec.updateRulePacks", async () => {
       try {
-        await syncAllRulePacks(context, { force: true });
-        writeAllWorkspaceData(context);
-        vscode.window.showInformationMessage("FLUSEC: Rule packs updated for all components.");
+        await syncPoliciesForAllWorkspaces(context, {
+          allowCachedFallback: true,
+          silent: false,
+        });
+        vscode.window.showInformationMessage(
+          "FLUSEC: Policies synced successfully."
+        );
       } catch (e) {
-        console.error("[FLUSEC] updateRulePacks failed:", e);
-        vscode.window.showErrorMessage("FLUSEC: Rule pack update failed. Check console.");
+        vscode.window.showErrorMessage(
+          "FLUSEC: Failed to sync policies. " + String(e)
+        );
       }
     })
   );
@@ -201,11 +188,17 @@ export async function activate(context: vscode.ExtensionContext) {
       const active = vscode.window.activeTextEditor;
       let target: vscode.TextDocument | undefined;
 
-      if (active && active.document.languageId === "dart") { target = active.document; }
-      else if (lastDartDoc) { target = lastDartDoc; }
-      else {
-        const dartDocs = vscode.workspace.textDocuments.filter((d) => d.languageId === "dart");
-        if (dartDocs.length > 0) { target = dartDocs[0]; }
+      if (active && active.document.languageId === "dart") {
+        target = active.document;
+      } else if (lastDartDoc) {
+        target = lastDartDoc;
+      } else {
+        const dartDocs = vscode.workspace.textDocuments.filter(
+          (d) => d.languageId === "dart"
+        );
+        if (dartDocs.length > 0) {
+          target = dartDocs[0];
+        }
       }
 
       if (!target) {
@@ -215,21 +208,20 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      try {
-        await runAnalyzer(target, context);
-        vscode.window.setStatusBarMessage(`FLUSEC: Scan completed for ${target.fileName}`, 3000);
-      } catch (e) {
-        vscode.window.showErrorMessage("FLUSEC: Scan failed: " + String(e));
-      }
+      await safeRunSingleFileScan(target, context, {
+        showSuccessMessage: true,
+      });
     })
   );
 
-  // ─── Full project scan (all components: HSD + NET + IDS + IIV) ───────
+  // Full project scan
   context.subscriptions.push(
     vscode.commands.registerCommand("flusec.scanProject", async () => {
       const folder = vscode.workspace.workspaceFolders?.[0];
       if (!folder) {
-        vscode.window.showInformationMessage("FLUSEC: No workspace folder open.");
+        vscode.window.showInformationMessage(
+          "FLUSEC: No workspace folder open."
+        );
         return;
       }
 
@@ -251,9 +243,8 @@ export async function activate(context: vscode.ExtensionContext) {
           try {
             const result = await runProjectAnalyzer(context, folder, scanDir);
 
-            // Show summary
             const msg = [
-              `Project scan complete.`,
+              "Project scan complete.",
               `Files: ${result.totalFiles} scanned, ${result.filesWithIssues} with issues.`,
               `Issues: ${result.totalIssues} total`,
               `(HSD: ${result.hsdCount}, NET: ${result.netCount}, IDS: ${result.idsCount}, IIV: ${result.iivCount})`,
@@ -261,7 +252,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
             vscode.window.showInformationMessage(`FLUSEC: ${msg}`);
           } catch (e) {
-            vscode.window.showErrorMessage("FLUSEC: Project scan failed: " + String(e));
+            vscode.window.showErrorMessage(
+              "FLUSEC: Project scan failed: " + String(e)
+            );
             console.error("[FLUSEC] Project scan error:", e);
           }
         }
@@ -269,57 +262,83 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Rule manager (HSD)
+  // Dashboards
   context.subscriptions.push(
-    vscode.commands.registerCommand("flusec.manageRules", () => openRuleManager(context))
+    vscode.commands.registerCommand("flusec.openFindings", () =>
+      openDashboard(context)
+    )
   );
 
-  // Dashboard (HSD)
   context.subscriptions.push(
-    vscode.commands.registerCommand("flusec.openFindings", () => openDashboard(context))
+    vscode.commands.registerCommand("flusec.openNetDashboard", () =>
+      openNetDashboard(context)
+    )
   );
 
-  // Dashboard (NET)
   context.subscriptions.push(
-    vscode.commands.registerCommand("flusec.openNetDashboard", () => openNetDashboard(context))
+    vscode.commands.registerCommand("flusec.openIDSDashboard", () =>
+      openIDSDashboard(context)
+    )
   );
 
-  // Dashboard (IDS)
   context.subscriptions.push(
-    vscode.commands.registerCommand("flusec.openIDSDashboard", () => openIDSDashboard(context))
-  );
-
-  // Dashboard (IIV)
-  context.subscriptions.push(
-    vscode.commands.registerCommand("flusec.openIIVDashboard", () => openIIVDashboard(context))
+    vscode.commands.registerCommand("flusec.openIIVDashboard", () =>
+      openIIVDashboard(context)
+    )
   );
 
   // Upload findings
   context.subscriptions.push(
-    vscode.commands.registerCommand('flusec.uploadFindings', async () => {
+    vscode.commands.registerCommand("flusec.uploadFindings", async () => {
       try {
         await uploadFindings(context);
       } catch (e) {
-        vscode.window.showErrorMessage('FLUSEC: Upload failed: ' + String(e));
+        vscode.window.showErrorMessage(
+          "FLUSEC: Upload failed: " + String(e)
+        );
       }
     })
   );
 
-  // Login to FluSec Web Platform
+  // Login to team
   context.subscriptions.push(
-    vscode.commands.registerCommand('flusec.loginToTeam', async () => {
+    vscode.commands.registerCommand("flusec.loginToTeam", async () => {
       try {
         await loginToTeam(context);
+
+        // Best-effort policy sync after successful login
+        await tryPreparePolicies(context, "post-login");
       } catch (e) {
-        vscode.window.showErrorMessage('FLUSEC: Login failed: ' + String(e));
+        vscode.window.showErrorMessage(
+          "FLUSEC: Login failed: " + String(e)
+        );
       }
     })
   );
 
-  // Logout from FluSec Web Platform
+  // Logout from team
   context.subscriptions.push(
-    vscode.commands.registerCommand('flusec.logoutFromTeam', async () => {
+    vscode.commands.registerCommand("flusec.logoutFromTeam", async () => {
       await logoutFromTeam(context);
+    })
+  );
+
+  // ─── Event handlers ────────────────────────────────────────────────────────
+
+  // If folders added later — try best-effort policy preparation
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(async () => {
+      clearFindingsForAllWorkspaceFoldersOnce();
+      await tryPreparePolicies(context, "workspace-change");
+    })
+  );
+
+  // Track last Dart doc
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument((doc) => {
+      if (doc.languageId === "dart") {
+        lastDartDoc = doc;
+      }
     })
   );
 
@@ -328,7 +347,7 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.workspace.onDidSaveTextDocument(async (doc) => {
       if (doc.languageId === "dart") {
         lastDartDoc = doc;
-        await runAnalyzer(doc, context);
+        await safeRunSingleFileScan(doc, context);
       }
     })
   );
@@ -338,22 +357,40 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((event) => {
       const doc = event.document;
-      if (doc.languageId !== "dart") { return; }
+      if (doc.languageId !== "dart") {
+        return;
+      }
 
       lastDartDoc = doc;
 
       clearTimeout(typingTimeout);
       typingTimeout = setTimeout(() => {
-        runAnalyzer(doc, context);
+        void runAnalyzer(doc, context).catch((e) => {
+          console.error("[FLUSEC] Auto-scan failed:", e);
+        });
       }, 1500);
     })
   );
 
-  // Hover provider (LLM feedback — routes to HSD/NET/IDS/IIV based on ruleId)
-  registerHoverProvider(context);
+  // ─── Providers / UI ────────────────────────────────────────────────────────
 
-  // Navigation view
+  registerHoverProvider(context);
   registerFlusecNavigationView(context);
+
+  // ─── Background behavior ───────────────────────────────────────────────────
+
+  // Best-effort initial policy preparation.
+  // Important: do NOT fail activation if backend is unavailable.
+  await tryPreparePolicies(context, "startup");
+
+  // Periodic best-effort refresh (6 hours)
+  const timer = setInterval(() => {
+    void tryPreparePolicies(context, "periodic");
+  }, 6 * 60 * 60 * 1000);
+
+  context.subscriptions.push({
+    dispose: () => clearInterval(timer),
+  });
 }
 
 export function deactivate() {
