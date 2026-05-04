@@ -68,7 +68,7 @@ class DynamicRule {
         messageTemplate: r['messageTemplate'] as String?,
         regex: RegExp(
           pat,
-          caseSensitive: false,
+          caseSensitive: true,
           dotAll: true,
           multiLine: true,
         ),
