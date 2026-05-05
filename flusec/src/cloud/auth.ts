@@ -1,116 +1,230 @@
-// src/cloud/auth.ts
-//
-// Handles FluSec Web Platform authentication from VS Code.
-// Stores JWT and team info securely using VS Code SecretStorage.
-
 import * as vscode from 'vscode';
 import fetch from 'node-fetch';
-import { CONFIG } from '../config'; // Make sure this path points to your new config file
+import { CONFIG } from '../config';
 
 const SECRET_KEY_TOKEN = 'flusec.jwt';
 const SECRET_KEY_TEAM_ID = 'flusec.teamId';
+const SECRET_KEY_TEAM_CODE = 'flusec.teamCode';
+const SECRET_KEY_TEAM_NAME = 'flusec.teamName';
+const SECRET_KEY_TEAM_ROLE = 'flusec.teamRole';
 
-// ─── Token helpers ────────────────────────────────────────────────────────────
+type TeamRole = 'leader' | 'member' | 'viewer';
 
-export async function getStoredToken(context: vscode.ExtensionContext): Promise<string | undefined> {
-    return context.secrets.get(SECRET_KEY_TOKEN);
+type SupabasePasswordSession = {
+  access_token: string;
+};
+
+type ResolveCodePayload = {
+  team_id: string;
+  team_code: string;
+  team_name: string;
+  description?: string | null;
+  role: TeamRole;
+};
+
+type ResolveCodeSuccessResponse = {
+  data: ResolveCodePayload;
+};
+
+type ErrorResponse = {
+  error?: string;
+  error_description?: string;
+};
+
+async function readJsonSafe<T>(res: fetch.Response): Promise<T | null> {
+  try {
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
 }
 
-export async function getStoredTeamId(context: vscode.ExtensionContext): Promise<string | undefined> {
-    return context.secrets.get(SECRET_KEY_TEAM_ID);
+// ─── Stored session helpers ───────────────────────────────────────────────────
+
+export async function getStoredToken(
+  context: vscode.ExtensionContext
+): Promise<string | undefined> {
+  return context.secrets.get(SECRET_KEY_TOKEN);
 }
 
-async function storeSession(context: vscode.ExtensionContext, token: string, teamId: string) {
-    await context.secrets.store(SECRET_KEY_TOKEN, token);
-    await context.secrets.store(SECRET_KEY_TEAM_ID, teamId);
+export async function getStoredTeamId(
+  context: vscode.ExtensionContext
+): Promise<string | undefined> {
+  return context.secrets.get(SECRET_KEY_TEAM_ID);
+}
+
+export async function getStoredTeamCode(
+  context: vscode.ExtensionContext
+): Promise<string | undefined> {
+  return context.secrets.get(SECRET_KEY_TEAM_CODE);
+}
+
+export async function getStoredTeamName(
+  context: vscode.ExtensionContext
+): Promise<string | undefined> {
+  return context.secrets.get(SECRET_KEY_TEAM_NAME);
+}
+
+export async function getStoredTeamRole(
+  context: vscode.ExtensionContext
+): Promise<string | undefined> {
+  return context.secrets.get(SECRET_KEY_TEAM_ROLE);
+}
+
+async function storeSession(
+  context: vscode.ExtensionContext,
+  token: string,
+  teamId: string,
+  teamCode: string,
+  teamName: string,
+  role: string
+) {
+  await context.secrets.store(SECRET_KEY_TOKEN, token);
+  await context.secrets.store(SECRET_KEY_TEAM_ID, teamId);
+  await context.secrets.store(SECRET_KEY_TEAM_CODE, teamCode);
+  await context.secrets.store(SECRET_KEY_TEAM_NAME, teamName);
+  await context.secrets.store(SECRET_KEY_TEAM_ROLE, role);
 }
 
 export async function clearSession(context: vscode.ExtensionContext) {
-    await context.secrets.delete(SECRET_KEY_TOKEN);
-    await context.secrets.delete(SECRET_KEY_TEAM_ID);
+  await context.secrets.delete(SECRET_KEY_TOKEN);
+  await context.secrets.delete(SECRET_KEY_TEAM_ID);
+  await context.secrets.delete(SECRET_KEY_TEAM_CODE);
+  await context.secrets.delete(SECRET_KEY_TEAM_NAME);
+  await context.secrets.delete(SECRET_KEY_TEAM_ROLE);
 }
 
 // ─── Login flow ───────────────────────────────────────────────────────────────
 
 export async function loginToTeam(context: vscode.ExtensionContext) {
-    // Use the central config instead of VS Code settings
-    const endpoint = CONFIG.WEB_API_ENDPOINT.replace(/\/$/, '');
-    const supabaseUrl = CONFIG.SUPABASE_URL;
-    const supabaseAnonKey = CONFIG.SUPABASE_ANON_KEY;
+  const endpoint = CONFIG.WEB_API_ENDPOINT.replace(/\/$/, '');
+  const supabaseUrl = CONFIG.SUPABASE_URL.replace(/\/$/, '');
+  const supabaseAnonKey = CONFIG.SUPABASE_ANON_KEY;
 
-    // Step 1 — get email
-    const email = await vscode.window.showInputBox({
-        prompt: 'Enter your FluSec account email',
-        placeHolder: 'you@example.com',
-        ignoreFocusOut: true,
-    });
-    if (!email) { return; }
+  const email = await vscode.window.showInputBox({
+    prompt: 'Enter your FluSec account email',
+    placeHolder: 'you@example.com',
+    ignoreFocusOut: true,
+  });
+  if (!email) {
+    return;
+  }
 
-    // Step 2 — get password
-    const password = await vscode.window.showInputBox({
-        prompt: 'Enter your FluSec account password',
-        password: true,
-        ignoreFocusOut: true,
-    });
-    if (!password) { return; }
+  const password = await vscode.window.showInputBox({
+    prompt: 'Enter your FluSec account password',
+    password: true,
+    ignoreFocusOut: true,
+  });
+  if (!password) {
+    return;
+  }
 
-    // Step 3 — sign in via Supabase REST
-    await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: 'FLUSEC: Signing in…', cancellable: false },
-        async (progress) => {
-            try {
-                const signInRes = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'apikey': supabaseAnonKey,
-                    },
-                    body: JSON.stringify({ email, password }),
-                });
+  const teamCodeInput = await vscode.window.showInputBox({
+    prompt: 'Enter your Team ID (team code shown in the web app)',
+    placeHolder: 'FTA1008',
+    ignoreFocusOut: true,
+  });
+  if (!teamCodeInput) {
+    return;
+  }
 
-                if (!signInRes.ok) {
-                    const err = await signInRes.json() as { error_description?: string };
-                    vscode.window.showErrorMessage(`FLUSEC: Login failed — ${err.error_description ?? 'Invalid credentials'}`);
-                    return;
-                }
+  const teamCode = teamCodeInput.trim().toUpperCase();
 
-                const session = await signInRes.json() as { access_token: string };
-                const jwt = session.access_token;
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: 'FLUSEC: Signing in…',
+      cancellable: false,
+    },
+    async (progress) => {
+      try {
+        progress.report({ message: 'Signing in with Supabase…' });
 
-                progress.report({ message: 'Fetching your team…' });
+        const signInRes = await fetch(
+          `${supabaseUrl}/auth/v1/token?grant_type=password`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              apikey: supabaseAnonKey,
+            },
+            body: JSON.stringify({
+              email: email.trim(),
+              password,
+            }),
+          }
+        );
 
-                // Step 4 — get user's team membership from your FastAPI backend
-                const meRes = await fetch(`${endpoint}/api/auth/me`, {
-                    headers: { Authorization: `Bearer ${jwt}` },
-                });
-
-                if (!meRes.ok) {
-                    vscode.window.showErrorMessage('FLUSEC: Could not fetch profile. Is the FastAPI backend running?');
-                    return;
-                }
-
-                // Step 5 — prompt for team ID
-                const teamId = await vscode.window.showInputBox({
-                    prompt: 'Enter your Team ID (found in Team Settings on the web app)',
-                    placeHolder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
-                    ignoreFocusOut: true,
-                });
-                if (!teamId) { return; }
-
-                await storeSession(context, jwt, teamId.trim());
-                vscode.window.showInformationMessage(
-                    `✅ FLUSEC: Logged in! Run "FluSec: Sync Findings to Team" to upload your findings.`
-                );
-            } catch (e) {
-                vscode.window.showErrorMessage('FLUSEC: Login error — ' + String(e));
-            }
+        if (!signInRes.ok) {
+          const err = await readJsonSafe<ErrorResponse>(signInRes);
+          vscode.window.showErrorMessage(
+            `FLUSEC: Login failed — ${
+              err?.error_description ?? err?.error ?? 'Invalid credentials'
+            }`
+          );
+          return;
         }
-    );
+
+        const session = (await signInRes.json()) as SupabasePasswordSession;
+        const jwt = session.access_token;
+
+        progress.report({ message: `Resolving team code ${teamCode}…` });
+
+        const resolveRes = await fetch(`${endpoint}/api/teams/resolve-code`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${jwt}`,
+          },
+          body: JSON.stringify({
+            team_code: teamCode,
+          }),
+        });
+
+        if (!resolveRes.ok) {
+          const err = await readJsonSafe<ErrorResponse>(resolveRes);
+          vscode.window.showErrorMessage(
+            `FLUSEC: Could not resolve team code — ${
+              err?.error ?? err?.error_description ?? 'Team not found or access denied'
+            }`
+          );
+          return;
+        }
+
+        const resolveJson =
+          await readJsonSafe<ResolveCodeSuccessResponse>(resolveRes);
+
+        if (!resolveJson?.data) {
+          vscode.window.showErrorMessage(
+            'FLUSEC: Team lookup returned an invalid response.'
+          );
+          return;
+        }
+
+        const resolved = resolveJson.data;
+
+        await storeSession(
+          context,
+          jwt,
+          resolved.team_id,
+          resolved.team_code,
+          resolved.team_name,
+          resolved.role
+        );
+
+        vscode.window.showInformationMessage(
+          `FLUSEC: Logged in to ${resolved.team_name} (${resolved.team_code}) as ${resolved.role}.`
+        );
+      } catch (e) {
+        vscode.window.showErrorMessage('FLUSEC: Login error — ' + String(e));
+      }
+    }
+  );
 }
 
 // ─── Logout ───────────────────────────────────────────────────────────────────
 
 export async function logoutFromTeam(context: vscode.ExtensionContext) {
-    await clearSession(context);
-    vscode.window.showInformationMessage('FLUSEC: Logged out from team.');
+  await clearSession(context);
+  vscode.window.showInformationMessage('FLUSEC: Logged out from team.');
 }

@@ -1,9 +1,3 @@
-// src/cloud/uploadFindings.ts
-//
-// Upload findings from all components to the FluSec Web Platform.
-// Reads hsd_findings.json, net_findings.json, and ids_findings.json,
-// normalises them into the web API format, and POSTs to /api/findings/upload.
-
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import fetch from 'node-fetch';
@@ -15,26 +9,42 @@ import {
 } from '../analyzer/runAnalyzer.js';
 import { getStoredToken, getStoredTeamId } from './auth.js';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type Severity = 'critical' | 'high' | 'medium' | 'low';
 type Module = 'HSD' | 'SNC' | 'SDS' | 'IVS';
 
-interface RawFinding {
+interface TaintFlowStep {
+  type?: string;
+  line?: number | null;
+  column?: number | null;
+  description?: string | null;
+}
+
+interface UploadFinding {
   module: Module;
   rule_id?: string;
   title: string;
   description?: string;
-  severity: Severity;
+  severity: string;
+  original_severity?: string | null;
   file_path?: string;
   line_number?: number;
+  column_number?: number;
   code_snippet?: string;
+  function_name?: string | null;
+  complexity?: number | null;
+  nesting_depth?: number | null;
+  function_loc?: number | null;
+  secret_type?: string | null;
+  taint_flow?: TaintFlowStep[] | null;
+  risk_level?: string | null;
+  data_type?: string | null;
+  storage_context?: string | null;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 function readJsonArray(filePath: string): any[] {
-  if (!fs.existsSync(filePath)) { return []; }
+  if (!fs.existsSync(filePath)) {
+    return [];
+  }
+
   try {
     const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
     return Array.isArray(data) ? data : [];
@@ -43,71 +53,95 @@ function readJsonArray(filePath: string): any[] {
   }
 }
 
-// Normalise HSD findings to the web API schema
-function normaliseHsd(raw: any[]): RawFinding[] {
-  return raw.map(r => ({
-    module: 'HSD',
-    rule_id: r.ruleId ?? r.rule_id,
-    title: r.message ?? r.title ?? 'Hardcoded Secret Detected',
-    description: r.description,
-    severity: normaliseSeverity(r.severity ?? r.riskLevel),
-    file_path: r.filePath ?? r.file_path,
-    line_number: r.lineNumber ?? r.line_number,
-    code_snippet: r.codeSnippet ?? r.code_snippet,
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function asArray<T = unknown>(value: unknown): T[] | null {
+  return Array.isArray(value) ? (value as T[]) : null;
+}
+
+function getCodeSnippet(raw: any): string | undefined {
+  return (
+    asString(raw.codeSnippet) ??
+    asString(raw.code_snippet) ??
+    asString(raw.snippet)
+  );
+}
+
+function getRawSeverity(raw: any, fallback = 'warning'): string {
+  return (
+    asString(raw.original_severity) ??
+    asString(raw.originalSeverity) ??
+    asString(raw.severity) ??
+    asString(raw.riskLevel) ??
+    fallback
+  );
+}
+
+function baseFinding(raw: any, module: Module, defaultTitle: string): UploadFinding {
+  return {
+    module,
+    rule_id: asString(raw.rule_id) ?? asString(raw.ruleId) ?? asString(raw.code),
+    title: asString(raw.title) ?? asString(raw.message) ?? defaultTitle,
+    description: asString(raw.description),
+    severity: getRawSeverity(raw),
+    original_severity: getRawSeverity(raw),
+    file_path:
+      asString(raw.file_path) ??
+      asString(raw.filePath) ??
+      asString(raw.file),
+    line_number: asNumber(raw.line_number) ?? asNumber(raw.line),
+    column_number: asNumber(raw.column_number) ?? asNumber(raw.column),
+    code_snippet: getCodeSnippet(raw),
+  };
+}
+
+function normaliseHsd(raw: any[]): UploadFinding[] {
+  return raw.map((r) => ({
+    ...baseFinding(r, 'HSD', 'Hardcoded Secret Detected'),
+    function_name: asString(r.function_name) ?? asString(r.functionName),
+    complexity: asNumber(r.complexity) ?? null,
+    nesting_depth: asNumber(r.nesting_depth) ?? asNumber(r.nestingDepth) ?? null,
+    function_loc: asNumber(r.function_loc) ?? asNumber(r.functionLoc) ?? null,
+    secret_type: asString(r.secret_type) ?? asString(r.secretType) ?? null,
+    taint_flow: asArray<TaintFlowStep>(r.taint_flow ?? r.taintFlow),
+    risk_level: asString(r.risk_level) ?? asString(r.riskLevel) ?? null,
+    data_type: asString(r.data_type) ?? asString(r.dataType) ?? null,
+    storage_context: asString(r.storage_context) ?? asString(r.storageContext) ?? null,
   }));
 }
 
-// Normalise NET/SNC findings
-function normaliseNet(raw: any[]): RawFinding[] {
-  return raw.map(r => ({
-    module: 'SNC',
-    rule_id: r.ruleId ?? r.rule_id,
-    title: r.message ?? r.title ?? 'Insecure Network Configuration',
-    description: r.description,
-    severity: normaliseSeverity(r.severity ?? r.riskLevel),
-    file_path: r.filePath ?? r.file_path,
-    line_number: r.lineNumber ?? r.line_number,
-    code_snippet: r.codeSnippet ?? r.code_snippet,
+function normaliseNet(raw: any[]): UploadFinding[] {
+  return raw.map((r) => ({
+    ...baseFinding(r, 'SNC', 'Insecure Network Configuration'),
+    risk_level: asString(r.risk_level) ?? asString(r.riskLevel) ?? null,
+    data_type: asString(r.data_type) ?? asString(r.dataType) ?? null,
+    storage_context: asString(r.storage_context) ?? asString(r.storageContext) ?? null,
   }));
 }
 
-// Normalise IDS/SDS findings
-function normaliseIds(raw: any[]): RawFinding[] {
-  return raw.map(r => ({
-    module: 'SDS',
-    rule_id: r.ruleId ?? r.rule_id,
-    title: r.message ?? r.title ?? 'Insecure Data Storage',
-    description: r.description,
-    severity: normaliseSeverity(r.severity ?? r.riskLevel ?? r.dataType),
-    file_path: r.filePath ?? r.file_path ?? r.file,
-    line_number: r.lineNumber ?? r.line_number ?? r.line,
-    code_snippet: r.codeSnippet ?? r.code_snippet,
+function normaliseIds(raw: any[]): UploadFinding[] {
+  return raw.map((r) => ({
+    ...baseFinding(r, 'SDS', 'Insecure Data Storage'),
+    risk_level: asString(r.risk_level) ?? asString(r.riskLevel) ?? null,
+    data_type: asString(r.data_type) ?? asString(r.dataType) ?? null,
+    storage_context: asString(r.storage_context) ?? asString(r.storageContext) ?? null,
   }));
 }
 
-// Normalise IIV/IVS findings (Insufficient Input Validation → module 'IVS')
-function normaliseIiv(raw: any[]): RawFinding[] {
-  return raw.map(r => ({
-    module: 'IVS',
-    rule_id: r.ruleId ?? r.rule_id ?? r.code,
-    title: r.message ?? r.title ?? 'Insufficient Input Validation',
-    description: r.description,
-    severity: normaliseSeverity(r.severity ?? r.riskLevel),
-    file_path: r.filePath ?? r.file_path ?? r.file,
-    line_number: r.lineNumber ?? r.line_number ?? r.line,
-    code_snippet: r.codeSnippet ?? r.code_snippet,
+function normaliseIiv(raw: any[]): UploadFinding[] {
+  return raw.map((r) => ({
+    ...baseFinding(r, 'IVS', 'Insufficient Input Validation'),
+    risk_level: asString(r.risk_level) ?? asString(r.riskLevel) ?? null,
+    data_type: asString(r.data_type) ?? asString(r.dataType) ?? null,
+    storage_context: asString(r.storage_context) ?? asString(r.storageContext) ?? null,
   }));
 }
-
-function normaliseSeverity(raw: string | undefined): Severity {
-  const s = (raw ?? '').toLowerCase();
-  if (s === 'critical') { return 'critical'; }
-  if (s === 'high') { return 'high'; }
-  if (s === 'medium' || s === 'med') { return 'medium'; }
-  return 'low';
-}
-
-// ─── Main upload ──────────────────────────────────────────────────────────────
 
 export async function uploadFindings(context: vscode.ExtensionContext) {
   const folders = vscode.workspace.workspaceFolders;
@@ -116,7 +150,6 @@ export async function uploadFindings(context: vscode.ExtensionContext) {
     return;
   }
 
-  // Check auth
   const token = await getStoredToken(context);
   const teamId = await getStoredTeamId(context);
 
@@ -138,17 +171,19 @@ export async function uploadFindings(context: vscode.ExtensionContext) {
   let totalErrors = 0;
 
   await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Notification, title: 'FLUSEC: Syncing findings to team…', cancellable: false },
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: 'FLUSEC: Syncing findings to team…',
+      cancellable: false,
+    },
     async (progress) => {
       for (const folder of folders) {
-        // Read all component findings files
         const hsdRaw = readJsonArray(hsdFindingsPathForFolder(folder));
         const netRaw = readJsonArray(netFindingsPathForFolder(folder));
         const idsRaw = readJsonArray(idsFindingsPathForFolder(folder));
         const iivRaw = readJsonArray(iivFindingsPathForFolder(folder));
 
-        // Normalise to unified format (IIV → IVS module)
-        const findings: RawFinding[] = [
+        const findings: UploadFinding[] = [
           ...normaliseHsd(hsdRaw),
           ...normaliseNet(netRaw),
           ...normaliseIds(idsRaw),
@@ -160,14 +195,16 @@ export async function uploadFindings(context: vscode.ExtensionContext) {
           continue;
         }
 
-        progress.report({ message: `Uploading ${findings.length} findings from ${folder.name}…` });
+        progress.report({
+          message: `Uploading ${findings.length} findings from ${folder.name}…`,
+        });
 
         try {
           const res = await fetch(`${endpoint}/api/findings/upload`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`,
+              Authorization: `Bearer ${token}`,
             },
             body: JSON.stringify({
               team_id: teamId,
@@ -176,31 +213,42 @@ export async function uploadFindings(context: vscode.ExtensionContext) {
             }),
           });
 
+          const json = await res.json().catch(() => ({} as any));
+
           if (!res.ok) {
-            const err = await res.json() as { error?: string };
+            totalErrors += 1;
             vscode.window.showWarningMessage(
-              `FLUSEC: Upload failed for ${folder.name} — ${err.error ?? res.statusText}`
+              `FLUSEC: Failed to sync ${folder.name}: ${json?.error ?? `HTTP ${res.status}`}`
             );
-            totalErrors++;
-          } else {
-            const result = await res.json() as { data: { findings_count: number } };
-            totalUploaded += result.data.findings_count;
+            continue;
           }
+
+          totalUploaded += json?.data?.findings_count ?? findings.length;
         } catch (e) {
-          vscode.window.showWarningMessage(`FLUSEC: Network error for ${folder.name} — ${String(e)}`);
-          totalErrors++;
+          totalErrors += 1;
+          vscode.window.showWarningMessage(
+            `FLUSEC: Failed to sync ${folder.name}: ${String(e)}`
+          );
         }
       }
     }
   );
 
-  if (totalErrors === 0) {
-    vscode.window.showInformationMessage(
-      `✅ FLUSEC: Synced ${totalUploaded} finding(s) to your team dashboard!`
-    );
-  } else {
+  if (totalErrors > 0 && totalUploaded > 0) {
     vscode.window.showWarningMessage(
-      `FLUSEC: Sync completed with ${totalErrors} error(s). ${totalUploaded} finding(s) uploaded.`
+      `FLUSEC: Sync completed with warnings. Uploaded ${totalUploaded} findings, ${totalErrors} workspace(s) failed.`
     );
+    return;
   }
+
+  if (totalErrors > 0) {
+    vscode.window.showErrorMessage(
+      `FLUSEC: Sync failed. ${totalErrors} workspace(s) could not be uploaded.`
+    );
+    return;
+  }
+
+  vscode.window.showInformationMessage(
+    `FLUSEC: Sync completed successfully. Uploaded ${totalUploaded} findings.`
+  );
 }
