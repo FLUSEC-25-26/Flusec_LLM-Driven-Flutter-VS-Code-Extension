@@ -4,6 +4,11 @@
 //
 // REFACTORED to use IdsRulesEngine (loaded from JSON via rule repo)
 // and emit shared Issue objects with component: 'ids'.
+//
+// FIX:
+// - IDS no longer flags print(secret), debugPrint(token), or log(...) as storage issues
+// - logging is intentionally excluded from IDS because it is not persistence/storage
+// - sensitive argument checking is made more structured
 
 import 'dart:io';
 import 'package:analyzer/dart/ast/ast.dart';
@@ -63,6 +68,13 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
 
     // Check each rule
     for (final rule in rules.allRules) {
+      // IMPORTANT:
+      // Logging is not storage. Even if a JSON rule exists for logging_secrets,
+      // IDS should ignore it to avoid false positives such as print(secret).
+      if (rule.checkKey == 'logging_secrets') {
+        continue;
+      }
+
       // Check required imports
       if (rule.requiresImport.isNotEmpty) {
         final hasImport = rule.requiresImport.any((req) => imports.contains(req));
@@ -133,7 +145,7 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
 
     if (checkKey == 'sqlite_storage') {
       final m = node.methodName.name;
-      if (m == 'insert' || m == 'rawInsert') {
+      if (m == 'insert' || m == 'rawInsert' || m == 'update') {
         return _hasSensitiveArguments(node.argumentList);
       }
     }
@@ -163,17 +175,16 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
       }
     }
 
-    if (checkKey == 'logging_secrets') {
-      final m = node.methodName.name;
-      if (m == 'print' || m == 'debugPrint' || m == 'log') {
-        return _hasSensitiveArguments(node.argumentList);
-      }
-    }
+    // FIX:
+    // logging_secrets intentionally removed from IDS detection.
+    // print(secret), debugPrint(token), log(...) are not storage sinks.
 
     if (checkKey == 'unprotected_backup') {
       final m = node.methodName.name;
-      if (m.contains('backup') || m.contains('export') ||
-          m.contains('share') || m.contains('copy')) {
+      if (m.contains('backup') ||
+          m.contains('export') ||
+          m.contains('share') ||
+          m.contains('copy')) {
         return _hasSensitiveArguments(node.argumentList);
       }
     }
@@ -185,20 +196,98 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
     if (args == null) return false;
     for (final arg in args.arguments) {
       final s = arg.toString();
-      if (s.contains('localStorage') || s.contains('sessionStorage') || s.contains('document.cookie')) {
+      if (s.contains('localStorage') ||
+          s.contains('sessionStorage') ||
+          s.contains('document.cookie')) {
         return true;
       }
     }
     return false;
   }
 
+  bool _looksSensitiveIdentifier(String identifier) {
+    final normalized = identifier.trim();
+    if (normalized.isEmpty) return false;
+
+    if (sensitiveVariables.containsKey(normalized)) {
+      return true;
+    }
+
+    final analysis = variableAnalyzer.analyze(normalized);
+    return analysis.isSensitive && analysis.confidenceScore > 0.6;
+  }
+
+  bool _looksSensitiveStringValue(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) return false;
+
+    final nameAnalysis = variableAnalyzer.analyze(trimmed);
+    if (nameAnalysis.isSensitive && nameAnalysis.confidenceScore > 0.6) {
+      return true;
+    }
+
+    if (variableAnalyzer.isValueSensitive(trimmed)) {
+      return true;
+    }
+
+    return false;
+  }
+
   bool _hasSensitiveArguments(ArgumentList? args) {
     if (args == null) return false;
-    final keywords = ['password', 'token', 'api', 'secret', 'auth', 'key', 'credential'];
+
     for (final arg in args.arguments) {
-      final s = arg.toString().toLowerCase();
-      if (keywords.any((kw) => s.contains(kw))) return true;
+      // Direct variable reference, e.g. token, secret, password
+      if (arg is SimpleIdentifier) {
+        if (_looksSensitiveIdentifier(arg.name)) {
+          return true;
+        }
+      }
+
+      // String literal values
+      if (arg is SimpleStringLiteral) {
+        if (_looksSensitiveStringValue(arg.value)) {
+          return true;
+        }
+      }
+
+      // Named expressions such as value: token
+      if (arg is NamedExpression) {
+        final expression = arg.expression;
+
+        if (expression is SimpleIdentifier && _looksSensitiveIdentifier(expression.name)) {
+          return true;
+        }
+
+        if (expression is SimpleStringLiteral && _looksSensitiveStringValue(expression.value)) {
+          return true;
+        }
+
+        final fallbackText = expression.toString();
+        if (_looksSensitiveIdentifier(fallbackText)) {
+          return true;
+        }
+      }
+
+      // Fallback text analysis for maps/objects/other expressions
+      final rawText = arg.toString();
+
+      final identifiers = RegExp(r'\b[A-Za-z_][A-Za-z0-9_]*\b')
+          .allMatches(rawText)
+          .map((m) => m.group(0)!)
+          .toList();
+
+      for (final token in identifiers) {
+        if (_looksSensitiveIdentifier(token)) {
+          return true;
+        }
+      }
+
+      if (_looksSensitiveStringValue(rawText)) {
+        return true;
+      }
     }
+
     return false;
   }
 
@@ -209,8 +298,18 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
       if (current is MethodInvocation) {
         final m = current.methodName.name;
         final storageKeywords = [
-          'setString', 'setInt', 'setBool', 'set',
-          'write', 'save', 'store', 'put', 'insert', 'update'
+          'setString',
+          'setInt',
+          'setBool',
+          'setDouble',
+          'setStringList',
+          'set',
+          'write',
+          'save',
+          'store',
+          'put',
+          'insert',
+          'update',
         ];
         if (storageKeywords.any((kw) => m.contains(kw))) return true;
       }
@@ -228,7 +327,6 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
       'cache_storage': 'cache',
       'webview_storage': 'webview',
       'insecure_serialization': 'serialization',
-      'logging_secrets': 'log',
       'unprotected_backup': 'backup',
       'hardcoded_storage_keys': 'shared_prefs',
     };
@@ -242,9 +340,11 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
 
     final loc = unit.lineInfo.getLocation(node.offset);
 
-    // Determine data type via heuristic on the snippet
     final snippetEnd = (node.offset + node.length).clamp(0, sourceCode.length);
-    final snippet = sourceCode.substring(node.offset, snippetEnd).substring(0, 80.clamp(0, snippetEnd - node.offset));
+    final snippet = sourceCode
+        .substring(node.offset, snippetEnd)
+        .substring(0, 80.clamp(0, snippetEnd - node.offset));
+
     final heuristic = variableAnalyzer.analyze(snippet.toLowerCase());
 
     String dataType = rule.dataTypes.isNotEmpty ? rule.dataTypes.first : 'GENERIC_SENSITIVE';
@@ -276,6 +376,7 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
       dataType: dataType,
       storageContext: storageCtx,
     );
+
     issues.add(issue);
     stderr.writeln('[IDS] ${issue.ruleId} at ${issue.line}:${issue.column}');
   }

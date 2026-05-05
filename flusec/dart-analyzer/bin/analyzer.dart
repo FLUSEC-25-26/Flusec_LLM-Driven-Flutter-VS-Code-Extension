@@ -1,16 +1,3 @@
-// bin/analyzer.dart
-//
-// ONE analyzer.exe — runs ALL security components on a Dart file.
-//
-// Currently active:
-//   1. HSD  — Hardcoded Secrets Detection + Maintainability Metrics
-//   2. NET  — Insecure Network Communication Advisor
-//   3. IDS  — Insecure Data Storage Advisor
-//   4. IIV  — Insufficient Input Validation Advisor
-//
-// Each component produces List<Issue>. All issues are merged and output ONCE
-// via OutputWriter.printStdout() (which the VS Code extension reads from stdout).
-
 import 'dart:convert';
 import 'dart:io';
 
@@ -34,7 +21,10 @@ List<Map<String, dynamic>> _readRuleList(File f) {
   try {
     final raw = jsonDecode(f.readAsStringSync());
     if (raw is List) {
-      return raw.whereType<Map>().map((m) => m.cast<String, dynamic>()).toList();
+      return raw
+          .whereType<Map>()
+          .map((m) => m.cast<String, dynamic>())
+          .toList();
     }
   } catch (_) {}
   return const [];
@@ -77,7 +67,9 @@ List<Issue> _analyzeFile(String filePath) {
 
     final rawRules = _readRuleList(hsdRulesFile);
     if (rawRules.isNotEmpty) {
-      stderr.writeln('♻️ [HSD] Reloaded ${rawRules.length} rule(s) from ${hsdRulesFile.path}');
+      stderr.writeln(
+        '♻️ [HSD] Reloaded ${rawRules.length} rule(s) from ${hsdRulesFile.path}',
+      );
     } else {
       stderr.writeln('⚠️ [HSD] Rules file not found or empty.');
     }
@@ -110,13 +102,16 @@ List<Issue> _analyzeFile(String filePath) {
     final rawNetRules = _readRuleList(netRulesFile);
     if (rawNetRules.isNotEmpty) {
       netRulesEngine.loadRules(rawNetRules);
-      stderr.writeln('♻️ [NET] Loaded ${rawNetRules.length} rule(s) from ${netRulesFile.path}');
+      stderr.writeln(
+        '♻️ [NET] Loaded ${rawNetRules.length} rule(s) from ${netRulesFile.path}',
+      );
     } else {
       netRulesEngine.loadRules(const []);
       stderr.writeln('⚠️ [NET] No rules file found.');
     }
 
-    final netIssues = net.NetworkAnalyzer.run(unit, content, filePath, netRulesEngine);
+    final netIssues =
+        net.NetworkAnalyzer.run(unit, content, filePath, netRulesEngine);
 
     allIssues.addAll(netIssues);
     stderr.writeln('[NET] Found ${netIssues.length} issue(s).');
@@ -136,7 +131,9 @@ List<Issue> _analyzeFile(String filePath) {
     final rawIdsRules = _readRuleList(idsRulesFile);
     if (rawIdsRules.isNotEmpty) {
       idsRulesEngine.loadRules(rawIdsRules);
-      stderr.writeln('♻️ [IDS] Loaded ${rawIdsRules.length} rule(s) from ${idsRulesFile.path}');
+      stderr.writeln(
+        '♻️ [IDS] Loaded ${rawIdsRules.length} rule(s) from ${idsRulesFile.path}',
+      );
     } else {
       idsRulesEngine.loadRules(const []);
       stderr.writeln('⚠️ [IDS] No rules file found.');
@@ -164,18 +161,31 @@ List<Issue> _analyzeFile(String filePath) {
     final rawIivRules = _readRuleList(iivRulesFile);
     if (rawIivRules.isNotEmpty) {
       iivRulesEngine.loadRules(rawIivRules);
-      stderr.writeln('♻️ [IIV] Loaded ${rawIivRules.length} rule(s) from ${iivRulesFile.path}');
+      stderr.writeln(
+        '♻️ [IIV] Loaded ${rawIivRules.length} rule(s) from ${iivRulesFile.path}',
+      );
     } else {
       iivRulesEngine.loadRules(const []);
       stderr.writeln('⚠️ [IIV] No rules file found.');
     }
 
+    // Existing IIV rule-based visitor
     final iivVisitor = iiv.IivVisitor(unit, filePath, iivRulesEngine);
     unit.accept(iivVisitor);
     iivVisitor.debugCounters();
 
     allIssues.addAll(iivVisitor.issues);
-    stderr.writeln('[IIV] Found ${iivVisitor.issues.length} issue(s).');
+    stderr.writeln('[IIV] Input validation issues: ${iivVisitor.issues.length}');
+
+    // New cohesion visitor under IIV bucket
+    final cohesionVisitor = iiv.CohesionVisitor(filePath);
+    unit.accept(cohesionVisitor);
+
+    allIssues.addAll(cohesionVisitor.issues);
+    stderr.writeln('[IIV] Cohesion issues: ${cohesionVisitor.issues.length}');
+    stderr.writeln(
+      '[IIV] Found ${iivVisitor.issues.length + cohesionVisitor.issues.length} issue(s).',
+    );
   } catch (e, st) {
     stderr.writeln('⚠️ [IIV] Error during analysis: $e\n$st');
   }
@@ -226,7 +236,9 @@ void main(List<String> args) {
     }
 
     final dartFiles = _collectDartFiles(dir);
-    stderr.writeln('📁 Project scan: found ${dartFiles.length} Dart file(s) in ${dir.path}');
+    stderr.writeln(
+      '📁 Project scan: found ${dartFiles.length} Dart file(s) in ${dir.path}',
+    );
 
     final allIssues = <Issue>[];
     for (final f in dartFiles) {
@@ -237,7 +249,9 @@ void main(List<String> args) {
       }
     }
 
-    stderr.writeln('━━━ Total: ${allIssues.length} issue(s) from ${dartFiles.length} file(s) ━━━');
+    stderr.writeln(
+      '━━━ Total: ${allIssues.length} issue(s) from ${dartFiles.length} file(s) ━━━',
+    );
     OutputWriter.printStdout(allIssues);
     return;
   }
@@ -245,6 +259,8 @@ void main(List<String> args) {
   // Single file mode
   final allIssues = _analyzeFile(args.first);
 
-  stderr.writeln('━━━ Total: ${allIssues.length} issue(s) from all components ━━━');
+  stderr.writeln(
+    '━━━ Total: ${allIssues.length} issue(s) from all components ━━━',
+  );
   OutputWriter.printStdout(allIssues);
 }
