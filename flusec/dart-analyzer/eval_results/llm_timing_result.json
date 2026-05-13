@@ -1,0 +1,20 @@
+{
+  "model": "llama3.2:latest",
+  "testedFindings": 10,
+  "totalTimeSeconds": 282.81,
+  "averageTimeSeconds": 28.28,
+  "minimumTimeSeconds": 22.22,
+  "maximumTimeSeconds": 50.09,
+  "rawTimesMilliseconds": [
+    50087.87,
+    23337.8,
+    25490.76,
+    26164.89,
+    24611.77,
+    26394.57,
+    27898.52,
+    31073.3,
+    25533.99,
+    22221.45
+  ]
+}

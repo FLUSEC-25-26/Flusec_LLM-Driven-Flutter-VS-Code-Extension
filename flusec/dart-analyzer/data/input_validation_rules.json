@@ -1,0 +1,69 @@
+[
+  {
+    "id": "FLUSEC.IIV.001",
+    "name": "SQL Injection",
+    "checkKey": "sql_injection",
+    "severity": "warning",
+    "description": "Potential SQL Injection: String interpolation used in database query method. Use parameterized queries instead.",
+    "remediation": "Replace string interpolation with parameterized queries. Use positional arguments (?) in rawQuery/rawInsert/rawDelete/rawUpdate.",
+    "targetFunctions": [
+      "rawQuery",
+      "rawInsert",
+      "rawDelete",
+      "rawUpdate",
+      "execute"
+    ]
+  },
+  {
+    "id": "FLUSEC.IIV.002",
+    "name": "Command Injection",
+    "checkKey": "command_injection",
+    "severity": "warning",
+    "description": "Potential Command Injection: User input may be passed to a system process execution method.",
+    "remediation": "Never pass unsanitized user input to Process.run or Process.start. Use allow-lists for permitted commands and validate all arguments.",
+    "targetFunctions": [
+      "run",
+      "start",
+      "runSync"
+    ]
+  },
+  {
+    "id": "FLUSEC.IIV.003",
+    "name": "Unsafe File Upload",
+    "checkKey": "unsafe_file_upload",
+    "severity": "warning",
+    "description": "File upload method called without allowedExtensions filter. Unrestricted file types may lead to malicious file uploads.",
+    "remediation": "Always specify allowedExtensions when using file picker methods to restrict accepted file types (e.g., ['jpg', 'png', 'pdf']).",
+    "targetFunctions": [
+      "pickFiles",
+      "pickImage",
+      "pickVideo",
+      "pickMedia"
+    ]
+  },
+  {
+    "id": "FLUSEC.IIV.004",
+    "name": "Deep Link Poisoning",
+    "checkKey": "deep_link_poisoning",
+    "severity": "warning",
+    "description": "Deep link URI obtained without validation. Malicious URIs can redirect users or inject parameters.",
+    "remediation": "Validate and sanitize all deep link parameters before use. Check URI scheme, host, and path against an allow-list.",
+    "targetFunctions": [
+      "getInitialLink",
+      "onLink",
+      "getInitialUri",
+      "uriLinkStream"
+    ]
+  },
+  {
+    "id": "FLUSEC.IIV.005",
+    "name": "Missing Form Validation",
+    "checkKey": "missing_form_validation",
+    "severity": "warning",
+    "description": "TextFormField created without a validator function. User input will not be validated before submission.",
+    "remediation": "Add a validator parameter to TextFormField that checks input format, length, and content. Use RegExp for email, phone, and other structured inputs.",
+    "targetFunctions": [
+      "TextFormField"
+    ]
+  }
+]
