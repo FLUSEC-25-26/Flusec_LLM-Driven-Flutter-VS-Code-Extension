@@ -1,22 +1,35 @@
 // lib/ids/ids_rules.dart
 //
-// IDS Rules Engine — mirrors NetworkRulesEngine pattern.
-// Rules are loaded from insecure_data_storage_rules.json via the rule repo,
-// NOT hardcoded. This enables cloud-managed rule updates.
+// Policy-driven rules for the Insecure Data Storage (IDS) component.
+//
+// IMPORTANT:
+// - diagnosticSeverity controls VS Code presentation. FLUSEC currently uses
+//   warning for all security findings.
+// - securitySeverity describes the possible security impact.
+// - confidence describes how certain the detector is about the finding.
 
 import 'dart:io';
 
 class IdsRule {
   final String id;
-  final String checkKey; // e.g. 'shared_prefs', 'file_storage', etc.
+  final String checkKey;
   final String name;
   final String description;
-  final String severity; // warning | error
-  final String remediation;
-  final List<String> patterns;
+
+  /// VS Code diagnostic severity: error | warning | information | hint.
+  final String diagnosticSeverity;
+
+  /// Security impact: critical | high | medium | low.
+  final String securitySeverity;
+
+  /// Default detection confidence: high | medium | low.
+  final String defaultConfidence;
+
   final String category;
-  final List<String> dataTypes;
-  final String riskLevel; // CRITICAL | HIGH | MEDIUM | LOW
+  final String remediation;
+  final String? cwe;
+  final bool enabled;
+  final List<String> targetFunctions;
   final List<String> requiresImport;
 
   IdsRule({
@@ -24,14 +37,19 @@ class IdsRule {
     required this.checkKey,
     required this.name,
     required this.description,
-    required this.severity,
-    required this.remediation,
-    required this.patterns,
+    required this.diagnosticSeverity,
+    required this.securitySeverity,
+    required this.defaultConfidence,
     required this.category,
-    this.dataTypes = const [],
-    this.riskLevel = 'MEDIUM',
-    this.requiresImport = const [],
+    required this.remediation,
+    required this.cwe,
+    required this.enabled,
+    required this.targetFunctions,
+    required this.requiresImport,
   });
+
+  /// Backward-compatible alias used by older code.
+  String get severity => diagnosticSeverity;
 
   factory IdsRule.fromJson(Map<String, dynamic> json) {
     return IdsRule(
@@ -39,50 +57,74 @@ class IdsRule {
       checkKey: json['checkKey'] as String? ?? '',
       name: json['name'] as String? ?? '',
       description: json['description'] as String? ?? '',
-      severity: json['severity'] as String? ?? 'warning',
+      diagnosticSeverity:
+          json['diagnosticSeverity'] as String? ??
+          json['severity'] as String? ??
+          'warning',
+      securitySeverity: json['securitySeverity'] as String? ?? 'medium',
+      defaultConfidence: json['defaultConfidence'] as String? ?? 'medium',
+      category: json['category'] as String? ?? 'vulnerability',
       remediation: json['remediation'] as String? ?? '',
-      patterns: (json['patterns'] as List<dynamic>?)?.cast<String>() ?? [],
-      category: json['category'] as String? ?? 'insecure_storage',
-      dataTypes: (json['dataTypes'] as List<dynamic>?)?.cast<String>() ?? [],
-      riskLevel: json['riskLevel'] as String? ?? 'MEDIUM',
-      requiresImport:
-          (json['requiresImport'] as List<dynamic>?)?.cast<String>() ?? [],
+      cwe: json['cwe'] as String?,
+      enabled: json['enabled'] as bool? ?? true,
+      targetFunctions: _stringList(
+        json['targetFunctions'] ?? json['patterns'],
+      ),
+      requiresImport: _stringList(json['requiresImport']),
     );
+  }
+
+  static List<String> _stringList(dynamic value) {
+    if (value is! List) return const [];
+    return value.whereType<String>().toList(growable: false);
   }
 }
 
-/// Rules engine for IDS component — loaded from JSON (rule repo approach).
 class IdsRulesEngine {
-  final Map<String, IdsRule> _byKey = {};
+  final List<IdsRule> _rules = [];
 
-  /// Load rules from parsed JSON list (from insecure_data_storage_rules.json).
+  List<IdsRule> get allRules => List.unmodifiable(_rules);
+
   void loadRules(List<Map<String, dynamic>> rawRules) {
-    _byKey.clear();
-    for (final raw in rawRules) {
+    _rules.clear();
+
+    for (final json in rawRules) {
       try {
-        final rule = IdsRule.fromJson(raw);
-        if (rule.checkKey.isNotEmpty) {
-          _byKey[rule.checkKey] = rule;
+        final rule = IdsRule.fromJson(json);
+        if (rule.id.isNotEmpty && rule.checkKey.isNotEmpty) {
+          _rules.add(rule);
         }
-      } catch (e) {
-        stderr.writeln('[IDS] Warning: failed to load rule: $e');
+      } catch (error) {
+        stderr.writeln('[IDS] Failed to load a rule: $error');
       }
     }
-    stderr.writeln('[IDS] ✅ Loaded ${_byKey.length} storage rule(s).');
+
+    stderr.writeln('[IDS] Loaded ${_rules.length} storage rule(s).');
   }
 
-  IdsRule? ruleFor(String checkKey) => _byKey[checkKey];
-  String ruleId(String checkKey) =>
-      _byKey[checkKey]?.id ?? 'FLUSEC.IDS.UNKNOWN';
-  String message(String checkKey) =>
-      _byKey[checkKey]?.description ?? 'Insecure data storage detected.';
-  String severity(String checkKey) => _byKey[checkKey]?.severity ?? 'warning';
-  String riskLevel(String checkKey) => _byKey[checkKey]?.riskLevel ?? 'MEDIUM';
-  String remediation(String checkKey) => _byKey[checkKey]?.remediation ?? '';
-  List<String> dataTypes(String checkKey) => _byKey[checkKey]?.dataTypes ?? [];
-  List<String> patterns(String checkKey) => _byKey[checkKey]?.patterns ?? [];
-  List<String> requiresImport(String checkKey) =>
-      _byKey[checkKey]?.requiresImport ?? [];
+  IdsRule? ruleFor(String checkKey) {
+    for (final rule in _rules) {
+      if (rule.enabled && rule.checkKey == checkKey) return rule;
+    }
+    return null;
+  }
 
-  List<IdsRule> get allRules => _byKey.values.toList();
+  IdsRule? ruleForFunction(String functionName) {
+    for (final rule in _rules) {
+      if (rule.enabled && rule.targetFunctions.contains(functionName)) {
+        return rule;
+      }
+    }
+    return null;
+  }
+
+  String ruleId(String checkKey) =>
+      ruleFor(checkKey)?.id ?? 'FLUSEC.IDS.UNKNOWN';
+
+  String message(String checkKey) =>
+      ruleFor(checkKey)?.description ??
+      'Potential insecure storage of sensitive data.';
+
+  String severity(String checkKey) =>
+      ruleFor(checkKey)?.diagnosticSeverity ?? 'warning';
 }

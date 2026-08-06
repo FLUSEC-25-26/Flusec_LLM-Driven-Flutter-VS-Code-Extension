@@ -1,98 +1,183 @@
 // lib/ids/storage_visitor.dart
 //
-// AST visitor for detecting insecure data storage patterns.
+// IDS detects a storage event only when all of the following are present:
+//   1. sensitive-data evidence,
+//   2. an insecure persistence sink, and
+//   3. no recognized protection before the sink.
 //
-// REFACTORED to use IdsRulesEngine (loaded from JSON via rule repo)
-// and emit shared Issue objects with component: 'ids'.
-//
-// FIX:
-// - IDS no longer flags print(secret), debugPrint(token), or log(...) as storage issues
-// - logging is intentionally excluded from IDS because it is not persistence/storage
-// - sensitive argument checking is made more structured
+// IDS does not detect hardcoded secrets by itself. HSD owns vendor secret
+// patterns, entropy checks, and hardcoded-value classification.
 
 import 'dart:io';
+
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 
 import '../core/issue.dart';
-import 'ids_rules.dart';
 import 'heuristic_analyzer.dart';
+import 'ids_rules.dart';
 
 class StorageVisitor extends RecursiveAstVisitor<void> {
   final CompilationUnit unit;
-  final String filePath;
   final String sourceCode;
+  final String filePath;
   final IdsRulesEngine rules;
   final List<Issue> issues = [];
 
-  // Heuristic helpers
   final SensitiveVariableAnalyzer variableAnalyzer =
       SensitiveVariableAnalyzer();
-  final SeverityClassifier severityClassifier = SeverityClassifier();
+  final IdsSeverityClassifier severityClassifier = IdsSeverityClassifier();
 
-  // Track imports
   final Set<String> imports = {};
+  final Map<int, Map<String, Expression>> _initializersByScope = {};
+  final Map<int, Map<String, String>> _sensitiveTypesByScope = {};
+  final Map<int, Set<String>> _protectedVariablesByScope = {};
+  final Map<int, Map<String, String>> _directoryContextsByScope = {};
+  final Map<int, Map<String, String>> _fileContextsByScope = {};
+  final Set<String> _emitted = {};
 
-  // Track sensitive variables
-  final Map<String, String> sensitiveVariables = {};
-
-  // DEBUG counters
-  int _methods = 0, _strings = 0, _instances = 0, _variables = 0;
+  int _methods = 0;
+  int _variables = 0;
+  int _instances = 0;
 
   StorageVisitor(this.unit, this.sourceCode, this.filePath, this.rules);
 
+  // -------------------------------------------------------------------------
+  // Scope helpers
+  // -------------------------------------------------------------------------
+
+  int _scopeKey(AstNode node) {
+    AstNode? current = node;
+    while (current != null) {
+      if (current is FunctionDeclaration ||
+          current is MethodDeclaration ||
+          current is ConstructorDeclaration ||
+          current is FunctionExpression) {
+        return current.offset;
+      }
+      current = current.parent;
+    }
+    return -1;
+  }
+
+  Map<String, Expression> _scopeInitializers(AstNode node) {
+    return _initializersByScope.putIfAbsent(_scopeKey(node), () => {});
+  }
+
+  Map<String, String> _scopeSensitiveTypes(AstNode node) {
+    return _sensitiveTypesByScope.putIfAbsent(_scopeKey(node), () => {});
+  }
+
+  Set<String> _scopeProtectedVariables(AstNode node) {
+    return _protectedVariablesByScope.putIfAbsent(_scopeKey(node), () => {});
+  }
+
+  Map<String, String> _scopeDirectoryContexts(AstNode node) {
+    return _directoryContextsByScope.putIfAbsent(_scopeKey(node), () => {});
+  }
+
+  Map<String, String> _scopeFileContexts(AstNode node) {
+    return _fileContextsByScope.putIfAbsent(_scopeKey(node), () => {});
+  }
+
+  String? _getEnclosingFunctionName(AstNode node) {
+    AstNode? current = node;
+    while (current != null) {
+      if (current is FunctionDeclaration) return current.name.lexeme;
+      if (current is MethodDeclaration) return current.name.lexeme;
+      if (current is ConstructorDeclaration) {
+        final parent = current.parent;
+        if (parent is ClassDeclaration) return parent.name.lexeme;
+      }
+      current = current.parent;
+    }
+    return null;
+  }
+
+  // -------------------------------------------------------------------------
+  // Imports and local state tracking
+  // -------------------------------------------------------------------------
+
   @override
   void visitImportDirective(ImportDirective node) {
-    super.visitImportDirective(node);
     final uri = node.uri.stringValue;
     if (uri != null) imports.add(uri);
+    super.visitImportDirective(node);
   }
 
   @override
   void visitVariableDeclaration(VariableDeclaration node) {
-    super.visitVariableDeclaration(node);
     _variables++;
+    final name = node.name.lexeme;
+    final initializer = node.initializer;
 
-    final varName = node.name.toString();
-    final analysis = variableAnalyzer.analyze(varName);
-    if (analysis.isSensitive && analysis.confidenceScore > 0.5) {
-      sensitiveVariables[varName] = analysis.dataType;
+    if (initializer != null) {
+      _trackAssignment(name, initializer, node);
+    } else {
+      final result = variableAnalyzer.analyze(name);
+      if (result.isSensitive) {
+        _scopeSensitiveTypes(node)[name] = result.dataType;
+      }
+    }
+
+    super.visitVariableDeclaration(node);
+  }
+
+  @override
+  void visitAssignmentExpression(AssignmentExpression node) {
+    final left = node.leftHandSide;
+    if (left is SimpleIdentifier) {
+      _trackAssignment(left.name, node.rightHandSide, node);
+    }
+    super.visitAssignmentExpression(node);
+  }
+
+  void _trackAssignment(String name, Expression expression, AstNode context) {
+    _scopeInitializers(context)[name] = expression;
+
+    final nameResult = variableAnalyzer.analyze(name);
+    final expressionEvidence = _sensitivityOfExpression(expression, context);
+
+    if (nameResult.isSensitive) {
+      _scopeSensitiveTypes(context)[name] = nameResult.dataType;
+    } else if (expressionEvidence.isSensitive) {
+      _scopeSensitiveTypes(context)[name] = expressionEvidence.dataType;
+    }
+
+    if (_isProtectedExpression(expression, context)) {
+      _scopeProtectedVariables(context).add(name);
+    } else {
+      _scopeProtectedVariables(context).remove(name);
+    }
+
+    final directoryContext = _directoryContextFromExpression(expression, context);
+    if (directoryContext != null) {
+      _scopeDirectoryContexts(context)[name] = directoryContext;
+    }
+
+    final fileContext = _fileContextFromExpression(expression, context);
+    if (fileContext != null) {
+      _scopeFileContexts(context)[name] = fileContext;
     }
   }
+
+  // -------------------------------------------------------------------------
+  // Method and constructor detection
+  // -------------------------------------------------------------------------
 
   @override
   void visitMethodInvocation(MethodInvocation node) {
     _methods++;
     final methodName = node.methodName.name;
-    final targetType = node.target?.toString() ?? '';
-    final fullInvocation = '$targetType.$methodName';
 
-    // Check each rule
-    for (final rule in rules.allRules) {
-      // IMPORTANT:
-      // Logging is not storage. Even if a JSON rule exists for logging_secrets,
-      // IDS should ignore it to avoid false positives such as print(secret).
-      if (rule.checkKey == 'logging_secrets') {
-        continue;
-      }
-
-      // Check required imports
-      if (rule.requiresImport.isNotEmpty) {
-        final hasImport = rule.requiresImport.any(
-          (req) => imports.contains(req),
-        );
-        if (!hasImport) continue;
-      }
-
-      // Check if method matches any pattern
-      for (final pattern in rule.patterns) {
-        if (methodName.contains(pattern) || fullInvocation.contains(pattern)) {
-          if (_isSensitiveStorageOperation(node, rule)) {
-            _emit(node, rule.checkKey);
-            break;
-          }
-        }
-      }
+    if (_isSharedPreferencesWrite(node)) {
+      _checkSharedPreferences(node);
+    } else if (_isFileWrite(methodName)) {
+      _checkFileWrite(node);
+    } else if (_isSqliteWrite(node)) {
+      _checkSqliteWrite(node);
+    } else if (_isWebViewJavaScript(methodName)) {
+      _checkWebViewStorage(node);
     }
 
     super.visitMethodInvocation(node);
@@ -101,304 +186,531 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
   @override
   void visitInstanceCreationExpression(InstanceCreationExpression node) {
     _instances++;
-    final typeName = node.constructorName.type.toString();
-
-    if (typeName.contains('File')) {
-      final rule = rules.ruleFor('file_storage');
-      if (rule != null && _hasSensitiveArguments(node.argumentList)) {
-        _emit(node, 'file_storage');
-      }
-    }
-
+    // Constructing File or Directory objects alone is not an IDS finding.
     super.visitInstanceCreationExpression(node);
   }
 
-  @override
-  void visitSimpleStringLiteral(SimpleStringLiteral node) {
-    _strings++;
-    final value = node.value.toLowerCase();
+  // -------------------------------------------------------------------------
+  // SharedPreferences
+  // -------------------------------------------------------------------------
 
-    final sensitiveKeywords = [
-      'password',
-      'token',
-      'api_key',
-      'secret',
-      'auth',
-      'credential',
-    ];
-    if (sensitiveKeywords.any((kw) => value.contains(kw))) {
-      if (_isStorageContext(node.parent)) {
-        _emit(node, 'hardcoded_storage_keys');
-      }
-    }
-
-    super.visitSimpleStringLiteral(node);
-  }
-
-  // ---- Detection helpers ----
-
-  bool _isSensitiveStorageOperation(MethodInvocation node, IdsRule rule) {
-    final checkKey = rule.checkKey;
-
-    if (checkKey == 'shared_prefs') {
-      final target = node.target?.toString() ?? '';
-      if (target.contains('prefs') || target.contains('SharedPreferences')) {
-        return _hasSensitiveArguments(node.argumentList);
-      }
-    }
-
-    if (checkKey == 'file_storage') {
-      if (node.methodName.name.contains('write')) {
-        return _hasSensitiveArguments(node.argumentList);
-      }
-    }
-
-    if (checkKey == 'sqlite_storage') {
-      final m = node.methodName.name;
-      if (m == 'insert' || m == 'rawInsert' || m == 'update') {
-        return _hasSensitiveArguments(node.argumentList);
-      }
-    }
-
-    if (checkKey == 'external_storage') {
-      if (node.methodName.name.contains('getExternalStorage')) return true;
-    }
-
-    if (checkKey == 'cache_storage') {
-      final m = node.methodName.name;
-      if (m.contains('getTemporaryDirectory') ||
-          m.contains('getApplicationSupportDirectory')) {
-        return _hasSensitiveArguments(node.argumentList);
-      }
-    }
-
-    if (checkKey == 'webview_storage') {
-      final m = node.methodName.name;
-      if (m == 'runJavascript' || m == 'evaluateJavascript') {
-        return _hasWebStorageInJavaScript(node.argumentList);
-      }
-    }
-
-    if (checkKey == 'insecure_serialization') {
-      final m = node.methodName.name;
-      if (m == 'jsonEncode' || m == 'toJson') {
-        return _hasSensitiveArguments(node.argumentList);
-      }
-    }
-
-    // FIX:
-    // logging_secrets intentionally removed from IDS detection.
-    // print(secret), debugPrint(token), log(...) are not storage sinks.
-
-    if (checkKey == 'unprotected_backup') {
-      final m = node.methodName.name;
-      if (m.contains('backup') ||
-          m.contains('export') ||
-          m.contains('share') ||
-          m.contains('copy')) {
-        return _hasSensitiveArguments(node.argumentList);
-      }
-    }
-
-    return false;
-  }
-
-  bool _hasWebStorageInJavaScript(ArgumentList? args) {
-    if (args == null) return false;
-    for (final arg in args.arguments) {
-      final s = arg.toString();
-      if (s.contains('localStorage') ||
-          s.contains('sessionStorage') ||
-          s.contains('document.cookie')) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  bool _looksSensitiveIdentifier(String identifier) {
-    final normalized = identifier.trim();
-    if (normalized.isEmpty) return false;
-
-    if (sensitiveVariables.containsKey(normalized)) {
-      return true;
-    }
-
-    final analysis = variableAnalyzer.analyze(normalized);
-    return analysis.isSensitive && analysis.confidenceScore > 0.6;
-  }
-
-  bool _looksSensitiveStringValue(String value) {
-    final trimmed = value.trim();
-    if (trimmed.isEmpty) return false;
-
-    final nameAnalysis = variableAnalyzer.analyze(trimmed);
-    if (nameAnalysis.isSensitive && nameAnalysis.confidenceScore > 0.6) {
-      return true;
-    }
-
-    if (variableAnalyzer.isValueSensitive(trimmed)) {
-      return true;
-    }
-
-    return false;
-  }
-
-  bool _hasSensitiveArguments(ArgumentList? args) {
-    if (args == null) return false;
-
-    for (final arg in args.arguments) {
-      // Direct variable reference, e.g. token, secret, password
-      if (arg is SimpleIdentifier) {
-        if (_looksSensitiveIdentifier(arg.name)) {
-          return true;
-        }
-      }
-
-      // String literal values
-      if (arg is SimpleStringLiteral) {
-        if (_looksSensitiveStringValue(arg.value)) {
-          return true;
-        }
-      }
-
-      // Named expressions such as value: token
-      if (arg is NamedExpression) {
-        final expression = arg.expression;
-
-        if (expression is SimpleIdentifier &&
-            _looksSensitiveIdentifier(expression.name)) {
-          return true;
-        }
-
-        if (expression is SimpleStringLiteral &&
-            _looksSensitiveStringValue(expression.value)) {
-          return true;
-        }
-
-        final fallbackText = expression.toString();
-        if (_looksSensitiveIdentifier(fallbackText)) {
-          return true;
-        }
-      }
-
-      // Fallback text analysis for maps/objects/other expressions
-      final rawText = arg.toString();
-
-      final identifiers = RegExp(
-        r'\b[A-Za-z_][A-Za-z0-9_]*\b',
-      ).allMatches(rawText).map((m) => m.group(0)!).toList();
-
-      for (final token in identifiers) {
-        if (_looksSensitiveIdentifier(token)) {
-          return true;
-        }
-      }
-
-      if (_looksSensitiveStringValue(rawText)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  bool _isStorageContext(AstNode? node) {
-    if (node == null) return false;
-    AstNode? current = node;
-    while (current != null) {
-      if (current is MethodInvocation) {
-        final m = current.methodName.name;
-        final storageKeywords = [
-          'setString',
-          'setInt',
-          'setBool',
-          'setDouble',
-          'setStringList',
-          'set',
-          'write',
-          'save',
-          'store',
-          'put',
-          'insert',
-          'update',
-        ];
-        if (storageKeywords.any((kw) => m.contains(kw))) return true;
-      }
-      current = current.parent;
-    }
-    return false;
-  }
-
-  String _getStorageContext(String checkKey) {
-    const map = {
-      'shared_prefs': 'shared_prefs',
-      'file_storage': 'file',
-      'sqlite_storage': 'sqlite',
-      'external_storage': 'external_storage',
-      'cache_storage': 'cache',
-      'webview_storage': 'webview',
-      'insecure_serialization': 'serialization',
-      'unprotected_backup': 'backup',
-      'hardcoded_storage_keys': 'shared_prefs',
+  bool _isSharedPreferencesWrite(MethodInvocation node) {
+    const writeMethods = {
+      'setString',
+      'setInt',
+      'setDouble',
+      'setBool',
+      'setStringList',
     };
-    return map[checkKey] ?? 'unknown';
+
+    if (!writeMethods.contains(node.methodName.name)) return false;
+
+    final target = node.target?.toSource().toLowerCase() ?? '';
+    final likelyTarget = target.contains('prefs') ||
+        target.contains('preference') ||
+        imports.contains('package:shared_preferences/shared_preferences.dart');
+
+    return likelyTarget;
   }
 
-  /// Emit an issue using the rules engine.
-  void _emit(AstNode node, String checkKey) {
+  void _checkSharedPreferences(MethodInvocation node) {
+    final rule = rules.ruleFor('shared_prefs');
+    if (rule == null) return;
+
+    final positional = _positionalArguments(node.argumentList);
+    if (positional.length < 2) return;
+
+    final keyExpression = positional[0];
+    final valueExpression = positional[1];
+    final evidence = _storageValueEvidence(
+      valueExpression,
+      node,
+      keyExpression: keyExpression,
+    );
+
+    if (!evidence.isSensitive || evidence.isProtected) return;
+
+    _emit(
+      node,
+      rule,
+      dataType: evidence.dataType,
+      confidence: evidence.confidence,
+      storageContext: 'shared_prefs',
+      evidence: {
+        'sink': 'SharedPreferences.${node.methodName.name}',
+        'storageKey': keyExpression.toSource(),
+        'valueExpression': valueExpression.toSource(),
+        'sensitiveEvidence': evidence.reason,
+        'protectionDetected': false,
+        'analysisScope': 'same-function',
+      },
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // File, external-storage and cache writes
+  // -------------------------------------------------------------------------
+
+  bool _isFileWrite(String methodName) {
+    return const {
+      'writeAsString',
+      'writeAsStringSync',
+      'writeAsBytes',
+      'writeAsBytesSync',
+    }.contains(methodName);
+  }
+
+  void _checkFileWrite(MethodInvocation node) {
+    final positional = _positionalArguments(node.argumentList);
+    if (positional.isEmpty) return;
+
+    final valueExpression = positional.first;
+    final valueEvidence = _storageValueEvidence(valueExpression, node);
+    if (!valueEvidence.isSensitive || valueEvidence.isProtected) return;
+
+    final storageContext = _storageContextForFileTarget(node.target, node);
+    final checkKey = switch (storageContext) {
+      'external_storage' => 'external_storage',
+      'cache' => 'cache_storage',
+      _ => 'file_storage',
+    };
+
     final rule = rules.ruleFor(checkKey);
     if (rule == null) return;
 
-    final loc = unit.lineInfo.getLocation(node.offset);
+    _emit(
+      node,
+      rule,
+      dataType: valueEvidence.dataType,
+      confidence: valueEvidence.confidence,
+      storageContext: storageContext,
+      evidence: {
+        'sink': 'File.${node.methodName.name}',
+        'target': node.target?.toSource() ?? 'unknown file',
+        'valueExpression': valueExpression.toSource(),
+        'sensitiveEvidence': valueEvidence.reason,
+        'protectionDetected': false,
+        'analysisScope': 'same-function',
+      },
+    );
+  }
 
-    final snippetEnd = (node.offset + node.length).clamp(0, sourceCode.length);
-    final snippet = sourceCode
-        .substring(node.offset, snippetEnd)
-        .substring(0, 80.clamp(0, snippetEnd - node.offset));
+  String _storageContextForFileTarget(Expression? target, AstNode context) {
+    if (target == null) return 'file';
 
-    final heuristic = variableAnalyzer.analyze(snippet.toLowerCase());
-
-    String dataType = rule.dataTypes.isNotEmpty
-        ? rule.dataTypes.first
-        : 'GENERIC_SENSITIVE';
-    if (heuristic.isSensitive && heuristic.confidenceScore > 0.6) {
-      dataType = heuristic.dataType;
+    if (target is SimpleIdentifier) {
+      return _scopeFileContexts(context)[target.name] ?? 'file';
     }
 
-    final storageCtx = _getStorageContext(checkKey);
-    final riskLevel = severityClassifier.classify(
+    return _fileContextFromSource(target.toSource(), context) ?? 'file';
+  }
+
+  // -------------------------------------------------------------------------
+  // SQLite
+  // -------------------------------------------------------------------------
+
+  bool _isSqliteWrite(MethodInvocation node) {
+    const writeMethods = {'insert', 'update', 'rawInsert', 'rawUpdate'};
+    if (!writeMethods.contains(node.methodName.name)) return false;
+
+    final target = node.target?.toSource().toLowerCase() ?? '';
+    return target.contains('db') ||
+        target.contains('database') ||
+        imports.contains('package:sqflite/sqflite.dart');
+  }
+
+  void _checkSqliteWrite(MethodInvocation node) {
+    final rule = rules.ruleFor('sqlite_storage');
+    if (rule == null) return;
+
+    final positional = _positionalArguments(node.argumentList);
+    if (positional.isEmpty) return;
+
+    final candidateExpressions = node.methodName.name.startsWith('raw')
+        ? positional.skip(1)
+        : positional.skip(1);
+
+    for (final expression in candidateExpressions) {
+      final valueEvidence = _storageValueEvidence(expression, node);
+      if (!valueEvidence.isSensitive || valueEvidence.isProtected) continue;
+
+      _emit(
+        node,
+        rule,
+        dataType: valueEvidence.dataType,
+        confidence: valueEvidence.confidence,
+        storageContext: 'sqlite',
+        evidence: {
+          'sink': 'SQLite.${node.methodName.name}',
+          'valueExpression': expression.toSource(),
+          'sensitiveEvidence': valueEvidence.reason,
+          'protectionDetected': false,
+          'analysisScope': 'same-function',
+        },
+      );
+      return;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // WebView browser storage
+  // -------------------------------------------------------------------------
+
+  bool _isWebViewJavaScript(String methodName) {
+    return const {
+      'runJavascript',
+      'runJavaScript',
+      'evaluateJavascript',
+      'evaluateJavaScript',
+    }.contains(methodName);
+  }
+
+  void _checkWebViewStorage(MethodInvocation node) {
+    final rule = rules.ruleFor('webview_storage');
+    if (rule == null) return;
+
+    final positional = _positionalArguments(node.argumentList);
+    if (positional.isEmpty) return;
+
+    final script = positional.first;
+    final source = script.toSource();
+    final lower = source.toLowerCase();
+
+    final usesBrowserStorage = lower.contains('localstorage.setitem') ||
+        lower.contains('sessionstorage.setitem') ||
+        lower.contains('document.cookie');
+    if (!usesBrowserStorage) return;
+
+    final valueEvidence = _storageValueEvidence(script, node);
+    if (!valueEvidence.isSensitive || valueEvidence.isProtected) return;
+
+    _emit(
+      node,
+      rule,
+      dataType: valueEvidence.dataType,
+      confidence: valueEvidence.confidence,
+      storageContext: 'webview',
+      evidence: {
+        'sink': 'WebView.${node.methodName.name}',
+        'browserStorage': lower.contains('document.cookie')
+            ? 'document.cookie'
+            : lower.contains('sessionstorage')
+                ? 'sessionStorage'
+                : 'localStorage',
+        'sensitiveEvidence': valueEvidence.reason,
+        'protectionDetected': false,
+        'analysisScope': 'same-function',
+      },
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Sensitive-value and protection analysis
+  // -------------------------------------------------------------------------
+
+  List<Expression> _positionalArguments(ArgumentList argumentList) {
+    return argumentList.arguments
+        .where((argument) => argument is! NamedExpression)
+        .cast<Expression>()
+        .toList(growable: false);
+  }
+
+  _StorageValueEvidence _storageValueEvidence(
+    Expression expression,
+    AstNode context, {
+    Expression? keyExpression,
+  }) {
+    final protected = _isProtectedExpression(expression, context);
+    final expressionResult = _sensitivityOfExpression(expression, context);
+
+    if (expressionResult.isSensitive) {
+      return _StorageValueEvidence(
+        isSensitive: true,
+        isProtected: protected,
+        dataType: expressionResult.dataType,
+        confidence: _confidenceLabel(expressionResult.confidenceScore),
+        reason: expressionResult.matchedKeywords.isEmpty
+            ? 'sensitive expression'
+            : 'identifier: ${expressionResult.matchedKeywords.join(', ')}',
+      );
+    }
+
+    if (keyExpression != null) {
+      final keyResult = variableAnalyzer.analyze(keyExpression.toSource());
+      if (keyResult.isSensitive && !_isClearlyNonSensitiveLiteral(expression)) {
+        return _StorageValueEvidence(
+          isSensitive: true,
+          isProtected: protected,
+          dataType: keyResult.dataType,
+          confidence: 'medium',
+          reason: 'sensitive storage key: ${keyResult.matchedKeywords.join(', ')}',
+        );
+      }
+    }
+
+    return const _StorageValueEvidence.notSensitive();
+  }
+
+  SensitivityResult _sensitivityOfExpression(
+    Expression expression,
+    AstNode context, [
+    Set<String>? visited,
+  ]) {
+    final seen = visited ?? <String>{};
+    final sourceResult = variableAnalyzer.analyze(expression.toSource());
+    if (sourceResult.isSensitive) return sourceResult;
+
+    if (expression is SimpleIdentifier) {
+      if (!seen.add(expression.name)) {
+        return const SensitivityResult(
+          isSensitive: false,
+          dataType: 'GENERIC_SENSITIVE',
+          confidenceScore: 0,
+          matchedKeywords: [],
+        );
+      }
+
+      final trackedType = _scopeSensitiveTypes(context)[expression.name];
+      if (trackedType != null) {
+        return SensitivityResult(
+          isSensitive: true,
+          dataType: trackedType,
+          confidenceScore: 0.9,
+          matchedKeywords: [expression.name],
+        );
+      }
+
+      final initializer = _scopeInitializers(context)[expression.name];
+      if (initializer != null) {
+        return _sensitivityOfExpression(initializer, context, seen);
+      }
+    }
+
+    return const SensitivityResult(
+      isSensitive: false,
+      dataType: 'GENERIC_SENSITIVE',
+      confidenceScore: 0,
+      matchedKeywords: [],
+    );
+  }
+
+  bool _isProtectedExpression(
+    Expression expression,
+    AstNode context, [
+    Set<String>? visited,
+  ]) {
+    final seen = visited ?? <String>{};
+    final lower = expression.toSource().toLowerCase();
+
+    const protectionIndicators = [
+      'encrypt(',
+      '.encrypt(',
+      'encryptdata(',
+      'aesencrypt(',
+      'cipher.encrypt(',
+      'seal(',
+      'sealedbox',
+      'ciphertext',
+      'encryptedvalue',
+      'encrypted_value',
+    ];
+
+    if (protectionIndicators.any(lower.contains)) return true;
+
+    if (expression is SimpleIdentifier) {
+      if (_scopeProtectedVariables(context).contains(expression.name)) {
+        return true;
+      }
+
+      if (!seen.add(expression.name)) return false;
+      final initializer = _scopeInitializers(context)[expression.name];
+      if (initializer != null) {
+        return _isProtectedExpression(initializer, context, seen);
+      }
+    }
+
+    return false;
+  }
+
+  bool _isClearlyNonSensitiveLiteral(Expression expression) {
+    if (expression is BooleanLiteral ||
+        expression is IntegerLiteral ||
+        expression is DoubleLiteral ||
+        expression is NullLiteral) {
+      return true;
+    }
+
+    if (expression is SimpleStringLiteral) {
+      final value = expression.value.toLowerCase();
+      const safeValues = {
+        '',
+        'true',
+        'false',
+        'enabled',
+        'disabled',
+        'light',
+        'dark',
+        'system',
+      };
+      return safeValues.contains(value);
+    }
+
+    return false;
+  }
+
+  String _confidenceLabel(double score) {
+    if (score >= 0.9) return 'high';
+    if (score >= 0.7) return 'medium';
+    return 'low';
+  }
+
+  // -------------------------------------------------------------------------
+  // File/directory context tracking
+  // -------------------------------------------------------------------------
+
+  String? _directoryContextFromExpression(
+    Expression expression,
+    AstNode context,
+  ) {
+    final source = expression.toSource().toLowerCase();
+    if (source.contains('getexternalstoragedirectory') ||
+        source.contains('getexternalstoragedirectories')) {
+      return 'external_storage';
+    }
+
+    if (source.contains('gettemporarydirectory') ||
+        source.contains('getapplicationcachedirectory') ||
+        source.contains('directory.systemtemp')) {
+      return 'cache';
+    }
+
+    if (expression is SimpleIdentifier) {
+      return _scopeDirectoryContexts(context)[expression.name];
+    }
+
+    return null;
+  }
+
+  String? _fileContextFromExpression(Expression expression, AstNode context) {
+    if (expression is InstanceCreationExpression) {
+      final typeName = expression.constructorName.type.name.lexeme;
+      if (typeName != 'File') return null;
+
+      final positional = _positionalArguments(expression.argumentList);
+      if (positional.isEmpty) return 'file';
+      return _fileContextFromSource(positional.first.toSource(), context) ??
+          'file';
+    }
+
+    if (expression is SimpleIdentifier) {
+      return _scopeFileContexts(context)[expression.name];
+    }
+
+    return _fileContextFromSource(expression.toSource(), context);
+  }
+
+  String? _fileContextFromSource(String source, AstNode context) {
+    final lower = source.toLowerCase();
+    if (lower.contains('getexternalstoragedirectory') ||
+        lower.contains('getexternalstoragedirectories')) {
+      return 'external_storage';
+    }
+
+    if (lower.contains('gettemporarydirectory') ||
+        lower.contains('getapplicationcachedirectory') ||
+        lower.contains('directory.systemtemp')) {
+      return 'cache';
+    }
+
+    for (final entry in _scopeDirectoryContexts(context).entries) {
+      final pattern = RegExp('\\b${RegExp.escape(entry.key)}\\b');
+      if (pattern.hasMatch(source)) return entry.value;
+    }
+
+    return null;
+  }
+
+  // -------------------------------------------------------------------------
+  // Finding emission
+  // -------------------------------------------------------------------------
+
+  void _emit(
+    AstNode node,
+    IdsRule rule, {
+    required String dataType,
+    required String confidence,
+    required String storageContext,
+    required Map<String, dynamic> evidence,
+  }) {
+    final dedupeKey = '${rule.id}:${node.offset}';
+    if (!_emitted.add(dedupeKey)) return;
+
+    final location = unit.lineInfo.getLocation(node.offset);
+    final securitySeverity = severityClassifier.classify(
+      baseSeverity: rule.securitySeverity,
       dataType: dataType,
-      storageType: storageCtx,
-      isEncrypted: false,
-      isPublicStorage: checkKey == 'external_storage',
+      storageContext: storageContext,
     );
 
-    final issue = Issue(
-      filePath,
-      rules.ruleId(checkKey),
-      rules.message(checkKey),
-      rules.severity(checkKey),
-      loc.lineNumber,
-      loc.columnNumber,
-      functionName: null,
-      complexity: null,
-      nestingDepth: null,
-      functionLoc: null,
-      component: 'ids',
-      riskLevel: riskLevel,
-      dataType: dataType,
-      storageContext: storageCtx,
+    issues.add(
+      Issue(
+        filePath,
+        rule.id,
+        rule.description,
+        rule.diagnosticSeverity,
+        location.lineNumber,
+        location.columnNumber,
+        securitySeverity: securitySeverity,
+        confidence: confidence,
+        category: rule.category,
+        remediation: rule.remediation,
+        cwe: rule.cwe,
+        evidence: {
+          'checkKey': rule.checkKey,
+          'dataType': dataType,
+          'storageContext': storageContext,
+          ...evidence,
+        },
+        functionName: _getEnclosingFunctionName(node),
+        component: 'ids',
+        riskLevel: securitySeverity.toUpperCase(),
+        dataType: dataType,
+        storageContext: storageContext,
+      ),
     );
 
-    issues.add(issue);
-    stderr.writeln('[IDS] ${issue.ruleId} at ${issue.line}:${issue.column}');
+    stderr.writeln(
+      '[IDS] ${rule.id} at ${location.lineNumber}:${location.columnNumber}',
+    );
   }
 
   void debugCounters() {
     stderr.writeln(
-      '[IDS] counters: methods=$_methods strings=$_strings '
-      'instances=$_instances variables=$_variables',
+      '[IDS] counters: methods=$_methods variables=$_variables '
+      'instances=$_instances findings=${issues.length}',
     );
   }
+}
+
+class _StorageValueEvidence {
+  final bool isSensitive;
+  final bool isProtected;
+  final String dataType;
+  final String confidence;
+  final String reason;
+
+  const _StorageValueEvidence({
+    required this.isSensitive,
+    required this.isProtected,
+    required this.dataType,
+    required this.confidence,
+    required this.reason,
+  });
+
+  const _StorageValueEvidence.notSensitive()
+      : isSensitive = false,
+        isProtected = false,
+        dataType = 'GENERIC_SENSITIVE',
+        confidence = 'low',
+        reason = '';
 }

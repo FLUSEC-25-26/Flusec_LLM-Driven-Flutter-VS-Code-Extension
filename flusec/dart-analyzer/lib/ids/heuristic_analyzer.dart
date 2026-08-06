@@ -1,16 +1,17 @@
 // lib/ids/heuristic_analyzer.dart
 //
-// Heuristic analysis for sensitive variable naming and severity classification
+// Lightweight sensitive-data classification used by IDS.
+// This module intentionally does not perform vendor secret-pattern matching or
+// entropy-based hardcoded-secret detection. Those responsibilities belong to
+// the HSD component.
 
-/// Result of sensitive variable analysis
 class SensitivityResult {
   final bool isSensitive;
-  final String
-  dataType; // CREDENTIALS, PII, FINANCIAL, HEALTH, GENERIC_SENSITIVE
-  final double confidenceScore; // 0.0 to 1.0
+  final String dataType;
+  final double confidenceScore;
   final List<String> matchedKeywords;
 
-  SensitivityResult({
+  const SensitivityResult({
     required this.isSensitive,
     required this.dataType,
     required this.confidenceScore,
@@ -18,205 +19,164 @@ class SensitivityResult {
   });
 }
 
-/// Analyzes variable names to detect sensitive data
 class SensitiveVariableAnalyzer {
-  // Keyword categories with confidence weights
   static const Map<String, List<String>> keywordCategories = {
     'CREDENTIALS': [
       'password',
       'passwd',
       'pwd',
-      'pass',
       'secret',
       'token',
-      'auth',
-      'authentication',
-      'apikey',
-      'api_key',
-      'accesstoken',
+      'authToken',
+      'auth_token',
+      'accessToken',
       'access_token',
-      'refreshtoken',
+      'refreshToken',
       'refresh_token',
-      'bearer',
+      'bearerToken',
+      'bearer_token',
+      'apiKey',
+      'api_key',
       'credential',
       'credentials',
-      'key',
-      'privatekey',
+      'privateKey',
       'private_key',
-      'sessionid',
+      'sessionId',
       'session_id',
+      'sessionToken',
+      'session_token',
     ],
     'PII': [
-      'ssn',
-      'social',
-      'socialsecurity',
-      'social_security',
       'email',
-      'phone',
-      'phonenumber',
+      'phoneNumber',
       'phone_number',
-      'address',
-      'name',
-      'firstname',
+      'homeAddress',
+      'home_address',
+      'postalAddress',
+      'postal_address',
+      'firstName',
       'first_name',
-      'lastname',
+      'lastName',
       'last_name',
-      'dob',
-      'dateofbirth',
+      'fullName',
+      'full_name',
+      'dateOfBirth',
       'date_of_birth',
-      'birthdate',
+      'birthDate',
       'birth_date',
-      'license',
-      'passport',
-      'userid',
-      'user_id',
+      'passportNumber',
+      'passport_number',
+      'nationalId',
+      'national_id',
+      'nicNumber',
+      'nic_number',
     ],
     'FINANCIAL': [
-      'creditcard',
+      'creditCard',
       'credit_card',
-      'cardnumber',
+      'cardNumber',
       'card_number',
       'cvv',
       'cvc',
-      'pin',
-      'account',
-      'accountnumber',
-      'account_number',
-      'routing',
-      'routingnumber',
-      'routing_number',
-      'balance',
-      'payment',
-      'bank',
-      'bankaccount',
+      'bankAccount',
       'bank_account',
+      'accountNumber',
+      'account_number',
+      'routingNumber',
+      'routing_number',
       'iban',
-      'swift',
-      'sortcode',
-      'sort_code',
+      'swiftCode',
+      'swift_code',
     ],
     'HEALTH': [
-      'medical',
-      'health',
+      'medicalRecord',
+      'medical_record',
+      'healthData',
+      'health_data',
       'diagnosis',
       'prescription',
-      'medication',
-      'patient',
-      'doctor',
-      'hospital',
-      'insurance',
-      'healthrecord',
-      'health_record',
+      'patientRecord',
+      'patient_record',
+      'insuranceNumber',
+      'insurance_number',
     ],
   };
 
-  /// Analyze a variable name and return sensitivity result
-  SensitivityResult analyze(String variableName) {
-    final normalized = variableName.toLowerCase().replaceAll(
-      RegExp(r'[_\s-]'),
-      '',
-    );
-    final matchedKeywords = <String>[];
-    String? detectedType;
-    double maxConfidence = 0.0;
+  SensitivityResult analyze(String value) {
+    final normalized = _normalize(value);
+    final matches = <String>[];
+    var dataType = 'GENERIC_SENSITIVE';
+    var confidence = 0.0;
 
     for (final entry in keywordCategories.entries) {
-      final category = entry.key;
-      final keywords = entry.value;
+      for (final keyword in entry.value) {
+        final normalizedKeyword = _normalize(keyword);
+        if (!normalized.contains(normalizedKeyword)) continue;
 
-      for (final keyword in keywords) {
-        if (normalized.contains(keyword)) {
-          matchedKeywords.add(keyword);
+        matches.add(keyword);
+        final currentConfidence = _confidenceForMatch(
+          normalized,
+          normalizedKeyword,
+        );
 
-          double confidence = 0.5;
-          if (normalized == keyword) {
-            confidence = 1.0;
-          } else if (normalized.startsWith(keyword)) {
-            confidence = 0.9;
-          } else if (normalized.endsWith(keyword)) {
-            confidence = 0.8;
-          } else {
-            confidence = 0.6;
-          }
-
-          if (confidence > maxConfidence) {
-            maxConfidence = confidence;
-            detectedType = category;
-          }
+        if (currentConfidence > confidence) {
+          confidence = currentConfidence;
+          dataType = entry.key;
         }
       }
     }
 
-    final isSensitive = matchedKeywords.isNotEmpty;
-    final dataType = detectedType ?? 'GENERIC_SENSITIVE';
-
     return SensitivityResult(
-      isSensitive: isSensitive,
+      isSensitive: matches.isNotEmpty,
       dataType: dataType,
-      confidenceScore: maxConfidence,
-      matchedKeywords: matchedKeywords,
+      confidenceScore: confidence,
+      matchedKeywords: matches,
     );
   }
 
-  /// Check if a string literal value looks sensitive
-  bool isValueSensitive(String value) {
-    if (value.length < 8) return false;
+  String _normalize(String value) {
+    return value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+  }
 
-    final uniqueChars = value.split('').toSet().length;
-    final entropy = uniqueChars / value.length;
-
-    if (entropy > 0.6 && value.length > 20) {
-      return true;
-    }
-
-    final patterns = [
-      RegExp(r'^[A-Za-z0-9+/]{40,}={0,2}$'),
-      RegExp(r'^[0-9a-f]{32,}$'),
-      RegExp(r'^[A-Z0-9]{20,}$'),
-      RegExp(r'Bearer\s+[A-Za-z0-9\-._~+/]+=*', caseSensitive: false),
-    ];
-
-    return patterns.any((pattern) => pattern.hasMatch(value));
+  double _confidenceForMatch(String value, String keyword) {
+    if (value == keyword) return 1.0;
+    if (value.startsWith(keyword) || value.endsWith(keyword)) return 0.9;
+    return 0.75;
   }
 }
 
-/// Classifies severity based on data type and storage context
-class SeverityClassifier {
+class IdsSeverityClassifier {
   String classify({
+    required String baseSeverity,
     required String dataType,
-    required String storageType,
-    bool isEncrypted = false,
-    bool isPublicStorage = false,
+    required String storageContext,
   }) {
-    if (isPublicStorage && !isEncrypted) return 'CRITICAL';
-    if ((dataType == 'FINANCIAL' || dataType == 'HEALTH') && !isEncrypted)
-      return 'CRITICAL';
-    if (dataType == 'CREDENTIALS' && !isEncrypted) return 'HIGH';
-    if (dataType == 'PII' &&
-        !isEncrypted &&
-        (storageType == 'shared_prefs' ||
-            storageType == 'file' ||
-            storageType == 'sqlite')) {
-      return 'HIGH';
+    final normalizedBase = baseSeverity.toLowerCase();
+
+    if (storageContext == 'external_storage' &&
+        const {'CREDENTIALS', 'FINANCIAL', 'HEALTH'}.contains(dataType)) {
+      return 'critical';
     }
-    if (storageType == 'log' || storageType == 'cache') return 'MEDIUM';
-    if (dataType == 'GENERIC_SENSITIVE') return 'MEDIUM';
-    if (isEncrypted) return 'LOW';
-    return 'MEDIUM';
+
+    if (const {'CREDENTIALS', 'FINANCIAL', 'HEALTH'}.contains(dataType)) {
+      return _maxSeverity(normalizedBase, 'high');
+    }
+
+    if (dataType == 'PII') {
+      return _maxSeverity(normalizedBase, 'medium');
+    }
+
+    return normalizedBase;
   }
 
-  String getRiskDescription(String riskLevel) {
-    switch (riskLevel) {
-      case 'CRITICAL':
-        return 'Immediate security risk - data may be accessible to unauthorized parties';
-      case 'HIGH':
-        return 'Significant security risk - sensitive data inadequately protected';
-      case 'MEDIUM':
-        return 'Moderate security risk - potential for data exposure';
-      case 'LOW':
-        return 'Low security risk - consider additional hardening';
-      default:
-        return 'Unknown risk level';
-    }
+  String _maxSeverity(String left, String right) {
+    const rank = {
+      'low': 1,
+      'medium': 2,
+      'high': 3,
+      'critical': 4,
+    };
+
+    return (rank[left] ?? 1) >= (rank[right] ?? 1) ? left : right;
   }
 }

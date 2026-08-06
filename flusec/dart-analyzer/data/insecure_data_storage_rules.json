@@ -1,229 +1,135 @@
 [
   {
-    "id": "FLUSEC.IDS001",
-    "name": "Unencrypted SharedPreferences",
-    "category": "insecure_storage",
+    "id": "FLUSEC.IDS.001",
+    "name": "Sensitive Data in SharedPreferences",
     "checkKey": "shared_prefs",
-    "patterns": [
-      "SharedPreferences",
+    "enabled": true,
+    "severity": "warning",
+    "securitySeverity": "high",
+    "defaultConfidence": "medium",
+    "category": "vulnerability",
+    "cwe": "CWE-312",
+    "description": "Sensitive data appears to be stored in SharedPreferences without recognized protection.",
+    "remediation": "Use platform-backed secure storage for credentials and other sensitive values, or encrypt the value with appropriately protected keys before persistence.",
+    "targetFunctions": [
       "setString",
       "setInt",
-      "setBool",
       "setDouble",
+      "setBool",
       "setStringList"
     ],
-    "severity": "warning",
-    "dataTypes": [
-      "CREDENTIALS",
-      "PII"
-    ],
-    "riskLevel": "HIGH",
-    "description": "Sensitive data stored in SharedPreferences without encryption",
-    "remediation": "Use flutter_secure_storage or encrypt data before storing in SharedPreferences",
     "requiresImport": [
       "package:shared_preferences/shared_preferences.dart"
     ]
   },
   {
-    "id": "FLUSEC.IDS002",
-    "name": "Unencrypted File Storage",
-    "category": "insecure_storage",
+    "id": "FLUSEC.IDS.002",
+    "name": "Sensitive Data Written to a Plain File",
     "checkKey": "file_storage",
-    "patterns": [
-      "File(",
-      "writeAsString",
-      "writeAsBytes",
-      "openWrite",
-      "writeStringSync"
-    ],
+    "enabled": true,
     "severity": "warning",
-    "dataTypes": [
-      "CREDENTIALS",
-      "PII",
-      "FINANCIAL"
+    "securitySeverity": "high",
+    "defaultConfidence": "medium",
+    "category": "vulnerability",
+    "cwe": "CWE-313",
+    "description": "Sensitive data appears to be written to a file without recognized encryption or secure-storage protection.",
+    "remediation": "Avoid writing sensitive data to ordinary files. When persistence is required, encrypt the content and protect encryption keys with the platform keystore or keychain.",
+    "targetFunctions": [
+      "writeAsString",
+      "writeAsStringSync",
+      "writeAsBytes",
+      "writeAsBytesSync"
     ],
-    "riskLevel": "HIGH",
-    "description": "Sensitive data written to files without encryption",
-    "remediation": "Encrypt sensitive data before writing to files using packages like encrypt or pointycastle",
     "requiresImport": [
       "dart:io"
     ]
   },
   {
-    "id": "FLUSEC.IDS003",
-    "name": "Insecure SQLite Storage",
-    "category": "insecure_storage",
+    "id": "FLUSEC.IDS.003",
+    "name": "Sensitive Data in an Unprotected SQLite Database",
     "checkKey": "sqlite_storage",
-    "patterns": [
-      "sqflite",
-      "openDatabase",
-      "insert",
-      "rawInsert",
-      "execute"
-    ],
+    "enabled": true,
     "severity": "warning",
-    "dataTypes": [
-      "CREDENTIALS",
-      "PII",
-      "FINANCIAL"
+    "securitySeverity": "high",
+    "defaultConfidence": "medium",
+    "category": "vulnerability",
+    "cwe": "CWE-312",
+    "description": "Sensitive data appears to be inserted or updated in an SQLite database without recognized field or database encryption.",
+    "remediation": "Use an encrypted database implementation or encrypt sensitive fields before insertion, with keys protected by the platform keystore or keychain.",
+    "targetFunctions": [
+      "insert",
+      "update",
+      "rawInsert",
+      "rawUpdate"
     ],
-    "riskLevel": "MEDIUM",
-    "description": "Sensitive data stored in SQLite database without encryption",
-    "remediation": "Use sqflite_sqlcipher or encrypt sensitive columns before storing",
     "requiresImport": [
       "package:sqflite/sqflite.dart"
     ]
   },
   {
-    "id": "FLUSEC.IDS004",
-    "name": "External Public Storage",
-    "category": "insecure_storage",
+    "id": "FLUSEC.IDS.004",
+    "name": "Sensitive Data Written to External Storage",
     "checkKey": "external_storage",
-    "patterns": [
-      "getExternalStorageDirectory",
-      "getExternalStorageDirectories"
+    "enabled": true,
+    "severity": "warning",
+    "securitySeverity": "high",
+    "defaultConfidence": "high",
+    "category": "vulnerability",
+    "cwe": "CWE-922",
+    "description": "Sensitive data appears to be written to an external or broadly accessible storage location.",
+    "remediation": "Store sensitive data in application-private storage and apply encryption when the threat model requires it. Do not place credentials or private records in external storage.",
+    "targetFunctions": [
+      "writeAsString",
+      "writeAsStringSync",
+      "writeAsBytes",
+      "writeAsBytesSync"
     ],
-    "severity": "error",
-    "dataTypes": [
-      "ANY_SENSITIVE"
-    ],
-    "riskLevel": "CRITICAL",
-    "description": "Sensitive data written to external/public storage directories",
-    "remediation": "Use internal app storage (getApplicationDocumentsDirectory) with encryption",
     "requiresImport": [
+      "dart:io",
       "package:path_provider/path_provider.dart"
     ]
   },
   {
-    "id": "FLUSEC.IDS005",
-    "name": "Insecure Cache Storage",
-    "category": "insecure_storage",
+    "id": "FLUSEC.IDS.005",
+    "name": "Sensitive Data Written to Cache or Temporary Storage",
     "checkKey": "cache_storage",
-    "patterns": [
-      "CacheManager",
-      "getTemporaryDirectory",
-      "getApplicationSupportDirectory",
-      "cache",
-      "temp",
-      "Directory.systemTemp"
-    ],
+    "enabled": true,
     "severity": "warning",
-    "dataTypes": [
-      "CREDENTIALS",
-      "PII"
+    "securitySeverity": "medium",
+    "defaultConfidence": "medium",
+    "category": "vulnerability",
+    "cwe": "CWE-312",
+    "description": "Sensitive data appears to be written to cache or temporary storage where retention and cleanup may not be reliable.",
+    "remediation": "Avoid caching sensitive values. If temporary persistence is unavoidable, encrypt the content, minimize retention, and securely delete it as soon as possible.",
+    "targetFunctions": [
+      "writeAsString",
+      "writeAsStringSync",
+      "writeAsBytes",
+      "writeAsBytesSync"
     ],
-    "riskLevel": "MEDIUM",
-    "description": "Sensitive data stored in application cache without protection",
-    "remediation": "Avoid caching sensitive data or use encrypted cache storage",
     "requiresImport": [
+      "dart:io",
       "package:path_provider/path_provider.dart"
     ]
   },
   {
-    "id": "FLUSEC.IDS006",
-    "name": "WebView LocalStorage Usage",
-    "category": "insecure_storage",
+    "id": "FLUSEC.IDS.006",
+    "name": "Sensitive Data in WebView Browser Storage",
     "checkKey": "webview_storage",
-    "patterns": [
+    "enabled": true,
+    "severity": "warning",
+    "securitySeverity": "high",
+    "defaultConfidence": "medium",
+    "category": "vulnerability",
+    "cwe": "CWE-922",
+    "description": "Sensitive data appears to be written to WebView localStorage, sessionStorage, or cookies.",
+    "remediation": "Do not persist credentials or private records in WebView browser storage. Keep sensitive state in protected native storage and expose only the minimum data required by the WebView.",
+    "targetFunctions": [
       "runJavascript",
+      "runJavaScript",
       "evaluateJavascript",
-      "localStorage.setItem",
-      "sessionStorage.setItem",
-      "document.cookie"
+      "evaluateJavaScript"
     ],
-    "severity": "warning",
-    "dataTypes": [
-      "CREDENTIALS",
-      "PII"
-    ],
-    "riskLevel": "HIGH",
-    "description": "Sensitive data stored in WebView localStorage/sessionStorage",
-    "remediation": "Avoid storing sensitive data in WebView storage; use secure native storage",
-    "requiresImport": []
-  },
-  {
-    "id": "FLUSEC.IDS007",
-    "name": "Insecure Serialization",
-    "category": "insecure_storage",
-    "checkKey": "insecure_serialization",
-    "patterns": [
-      "jsonEncode",
-      "toJson"
-    ],
-    "severity": "warning",
-    "dataTypes": [
-      "CREDENTIALS",
-      "PII",
-      "FINANCIAL"
-    ],
-    "riskLevel": "HIGH",
-    "description": "Serialized objects with sensitive fields written to disk without encryption",
-    "remediation": "Encrypt serialized data before writing to disk or exclude sensitive fields",
-    "requiresImport": [
-      "dart:convert"
-    ]
-  },
-  {
-    "id": "FLUSEC.IDS008",
-    "name": "Logging Secrets",
-    "category": "insecure_storage",
-    "checkKey": "logging_secrets",
-    "patterns": [
-      "print",
-      "debugPrint",
-      "log",
-      "Logger"
-    ],
-    "severity": "warning",
-    "dataTypes": [
-      "CREDENTIALS",
-      "PII"
-    ],
-    "riskLevel": "MEDIUM",
-    "description": "Sensitive data logged to console or analytics (may persist in crash logs)",
-    "remediation": "Remove sensitive data from logs or use conditional logging (debug-only)",
-    "requiresImport": []
-  },
-  {
-    "id": "FLUSEC.IDS009",
-    "name": "Unprotected Backup",
-    "category": "insecure_storage",
-    "checkKey": "unprotected_backup",
-    "patterns": [
-      "backup",
-      "export",
-      "share",
-      "copy"
-    ],
-    "severity": "warning",
-    "dataTypes": [
-      "ANY_SENSITIVE"
-    ],
-    "riskLevel": "HIGH",
-    "description": "App data backups created in user-accessible locations",
-    "remediation": "Encrypt backups and store in secure internal directories",
-    "requiresImport": []
-  },
-  {
-    "id": "FLUSEC.IDS010",
-    "name": "Hardcoded Sensitive Storage Keys",
-    "category": "insecure_storage",
-    "checkKey": "hardcoded_storage_keys",
-    "patterns": [
-      "password",
-      "token",
-      "api_key",
-      "secret",
-      "auth",
-      "credential"
-    ],
-    "severity": "warning",
-    "dataTypes": [
-      "CREDENTIALS"
-    ],
-    "riskLevel": "MEDIUM",
-    "description": "Sensitive keys or identifiers hardcoded in storage operations",
-    "remediation": "Use secure key management and avoid hardcoding sensitive identifiers",
     "requiresImport": []
   }
 ]
