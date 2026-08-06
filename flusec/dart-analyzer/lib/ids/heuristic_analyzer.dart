@@ -5,7 +5,8 @@
 /// Result of sensitive variable analysis
 class SensitivityResult {
   final bool isSensitive;
-  final String dataType; // CREDENTIALS, PII, FINANCIAL, HEALTH, GENERIC_SENSITIVE
+  final String
+  dataType; // CREDENTIALS, PII, FINANCIAL, HEALTH, GENERIC_SENSITIVE
   final double confidenceScore; // 0.0 to 1.0
   final List<String> matchedKeywords;
 
@@ -22,38 +23,99 @@ class SensitiveVariableAnalyzer {
   // Keyword categories with confidence weights
   static const Map<String, List<String>> keywordCategories = {
     'CREDENTIALS': [
-      'password', 'passwd', 'pwd', 'pass',
-      'secret', 'token', 'auth', 'authentication',
-      'apikey', 'api_key', 'accesstoken', 'access_token',
-      'refreshtoken', 'refresh_token', 'bearer',
-      'credential', 'credentials', 'key', 'privatekey',
-      'private_key', 'sessionid', 'session_id',
+      'password',
+      'passwd',
+      'pwd',
+      'pass',
+      'secret',
+      'token',
+      'auth',
+      'authentication',
+      'apikey',
+      'api_key',
+      'accesstoken',
+      'access_token',
+      'refreshtoken',
+      'refresh_token',
+      'bearer',
+      'credential',
+      'credentials',
+      'key',
+      'privatekey',
+      'private_key',
+      'sessionid',
+      'session_id',
     ],
     'PII': [
-      'ssn', 'social', 'socialsecurity', 'social_security',
-      'email', 'phone', 'phonenumber', 'phone_number',
-      'address', 'name', 'firstname', 'first_name',
-      'lastname', 'last_name', 'dob', 'dateofbirth',
-      'date_of_birth', 'birthdate', 'birth_date',
-      'license', 'passport', 'userid', 'user_id',
+      'ssn',
+      'social',
+      'socialsecurity',
+      'social_security',
+      'email',
+      'phone',
+      'phonenumber',
+      'phone_number',
+      'address',
+      'name',
+      'firstname',
+      'first_name',
+      'lastname',
+      'last_name',
+      'dob',
+      'dateofbirth',
+      'date_of_birth',
+      'birthdate',
+      'birth_date',
+      'license',
+      'passport',
+      'userid',
+      'user_id',
     ],
     'FINANCIAL': [
-      'creditcard', 'credit_card', 'cardnumber', 'card_number',
-      'cvv', 'cvc', 'pin', 'account', 'accountnumber',
-      'account_number', 'routing', 'routingnumber', 'routing_number',
-      'balance', 'payment', 'bank', 'bankaccount', 'bank_account',
-      'iban', 'swift', 'sortcode', 'sort_code',
+      'creditcard',
+      'credit_card',
+      'cardnumber',
+      'card_number',
+      'cvv',
+      'cvc',
+      'pin',
+      'account',
+      'accountnumber',
+      'account_number',
+      'routing',
+      'routingnumber',
+      'routing_number',
+      'balance',
+      'payment',
+      'bank',
+      'bankaccount',
+      'bank_account',
+      'iban',
+      'swift',
+      'sortcode',
+      'sort_code',
     ],
     'HEALTH': [
-      'medical', 'health', 'diagnosis', 'prescription',
-      'medication', 'patient', 'doctor', 'hospital',
-      'insurance', 'healthrecord', 'health_record',
+      'medical',
+      'health',
+      'diagnosis',
+      'prescription',
+      'medication',
+      'patient',
+      'doctor',
+      'hospital',
+      'insurance',
+      'healthrecord',
+      'health_record',
     ],
   };
 
   /// Analyze a variable name and return sensitivity result
   SensitivityResult analyze(String variableName) {
-    final normalized = variableName.toLowerCase().replaceAll(RegExp(r'[_\s-]'), '');
+    final normalized = variableName.toLowerCase().replaceAll(
+      RegExp(r'[_\s-]'),
+      '',
+    );
     final matchedKeywords = <String>[];
     String? detectedType;
     double maxConfidence = 0.0;
@@ -127,10 +189,14 @@ class SeverityClassifier {
     bool isPublicStorage = false,
   }) {
     if (isPublicStorage && !isEncrypted) return 'CRITICAL';
-    if ((dataType == 'FINANCIAL' || dataType == 'HEALTH') && !isEncrypted) return 'CRITICAL';
+    if ((dataType == 'FINANCIAL' || dataType == 'HEALTH') && !isEncrypted)
+      return 'CRITICAL';
     if (dataType == 'CREDENTIALS' && !isEncrypted) return 'HIGH';
-    if (dataType == 'PII' && !isEncrypted &&
-        (storageType == 'shared_prefs' || storageType == 'file' || storageType == 'sqlite')) {
+    if (dataType == 'PII' &&
+        !isEncrypted &&
+        (storageType == 'shared_prefs' ||
+            storageType == 'file' ||
+            storageType == 'sqlite')) {
       return 'HIGH';
     }
     if (storageType == 'log' || storageType == 'cache') return 'MEDIUM';

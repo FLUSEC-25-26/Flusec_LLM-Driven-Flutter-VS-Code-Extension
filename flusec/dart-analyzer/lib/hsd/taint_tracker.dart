@@ -48,11 +48,11 @@ class TaintFlowStep {
   });
 
   Map<String, dynamic> toJson() => {
-        'type': type,
-        'line': line,
-        'column': column,
-        'description': description,
-      };
+    'type': type,
+    'line': line,
+    'column': column,
+    'description': description,
+  };
 }
 
 /// Track where a tainted variable flows within a given AST scope.
@@ -128,12 +128,14 @@ class TaintTracker extends RecursiveAstVisitor<void> {
     final key = '$line:$col:$type';
     if (!_seen.add(key)) return false;
 
-    steps.add(TaintFlowStep(
-      type: type,
-      line: line,
-      column: col,
-      description: description,
-    ));
+    steps.add(
+      TaintFlowStep(
+        type: type,
+        line: line,
+        column: col,
+        description: description,
+      ),
+    );
     return true;
   }
 
@@ -179,8 +181,7 @@ class TaintTracker extends RecursiveAstVisitor<void> {
 
     // Conditional (ternary): condition ? apiKey : other
     if (expr is ConditionalExpression) {
-      if (_isTainted(expr.thenExpression) ||
-          _isTainted(expr.elseExpression)) {
+      if (_isTainted(expr.thenExpression) || _isTainted(expr.elseExpression)) {
         return true;
       }
     }
@@ -244,7 +245,8 @@ class TaintTracker extends RecursiveAstVisitor<void> {
     if (_networkMethods.contains(methodName)) {
       // Check if it's in a target/receiver that looks like http/dio/websocket
       final targetStr = node.target?.toSource().toLowerCase() ?? '';
-      final isNetwork = targetStr.contains('http') ||
+      final isNetwork =
+          targetStr.contains('http') ||
           targetStr.contains('dio') ||
           targetStr.contains('client') ||
           targetStr.contains('socket') ||
@@ -290,12 +292,7 @@ class TaintTracker extends RecursiveAstVisitor<void> {
         final shortFn = fnSource.length > 30
             ? '${fnSource.substring(0, 27)}...'
             : fnSource;
-        _addStep(
-          'FUNCTION_ARGUMENT',
-          loc.$1,
-          loc.$2,
-          'Passed to $shortFn()',
-        );
+        _addStep('FUNCTION_ARGUMENT', loc.$1, loc.$2, 'Passed to $shortFn()');
         break;
       }
     }
@@ -339,12 +336,7 @@ class TaintTracker extends RecursiveAstVisitor<void> {
   void visitReturnStatement(ReturnStatement node) {
     if (node.expression != null && _isTainted(node.expression)) {
       final loc = _loc(node);
-      _addStep(
-        'RETURN_VALUE',
-        loc.$1,
-        loc.$2,
-        'Secret returned from function',
-      );
+      _addStep('RETURN_VALUE', loc.$1, loc.$2, 'Secret returned from function');
     }
     super.visitReturnStatement(node);
   }
@@ -391,7 +383,8 @@ class TaintTracker extends RecursiveAstVisitor<void> {
 
       // Check if the key suggests a network context (headers, auth)
       final keyLower = keyStr.toLowerCase().replaceAll(RegExp('[\'"]'), '');
-      final isNetworkContext = keyLower.contains('authorization') ||
+      final isNetworkContext =
+          keyLower.contains('authorization') ||
           keyLower.contains('auth') ||
           keyLower.contains('token') ||
           keyLower.contains('bearer') ||

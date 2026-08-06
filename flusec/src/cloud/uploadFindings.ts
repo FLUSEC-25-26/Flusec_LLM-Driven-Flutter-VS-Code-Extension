@@ -25,6 +25,10 @@ interface UploadFinding {
   description?: string;
   severity: string;
   original_severity?: string | null;
+  confidence?: string | null;
+  category?: string | null;
+  cwe?: string | null;
+  evidence?: Record<string, unknown> | null;
   file_path?: string;
   line_number?: number;
   column_number?: number;
@@ -73,12 +77,17 @@ function getCodeSnippet(raw: any): string | undefined {
   );
 }
 
-function getRawSeverity(raw: any, fallback = 'warning'): string {
+function getRawSeverity(raw: any, fallback = 'low'): string {
+  // Analyzer `severity` is the VS Code diagnostic level. The web platform
+  // needs the security-impact level, so prefer securitySeverity.
   return (
+    asString(raw.security_severity) ??
+    asString(raw.securitySeverity) ??
+    asString(raw.risk_level) ??
+    asString(raw.riskLevel) ??
     asString(raw.original_severity) ??
     asString(raw.originalSeverity) ??
     asString(raw.severity) ??
-    asString(raw.riskLevel) ??
     fallback
   );
 }
@@ -91,6 +100,13 @@ function baseFinding(raw: any, module: Module, defaultTitle: string): UploadFind
     description: asString(raw.description),
     severity: getRawSeverity(raw),
     original_severity: getRawSeverity(raw),
+    confidence: asString(raw.confidence) ?? null,
+    category: asString(raw.category) ?? null,
+    cwe: asString(raw.cwe) ?? null,
+    evidence:
+      raw.evidence && typeof raw.evidence === 'object' && !Array.isArray(raw.evidence)
+        ? raw.evidence
+        : null,
     file_path:
       asString(raw.file_path) ??
       asString(raw.filePath) ??

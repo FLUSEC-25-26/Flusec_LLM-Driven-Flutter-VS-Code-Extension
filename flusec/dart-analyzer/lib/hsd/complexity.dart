@@ -155,5 +155,4 @@ class Complexity {
     if (loc <= 80) return 'medium';
     return 'large';
   }
-
 }

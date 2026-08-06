@@ -1,206 +1,196 @@
 // src/analyzer/findingsStore.ts
 //
-// Central place for:
-// - VS Code diagnostic collection
-// - mapping severity strings to VS severity
-// - storing / merging findings.json
-// - refreshing diagnostics from findings.json
+// Central storage and diagnostic helpers for FLUSEC findings.
 
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
+import type { AnalyzerFinding } from "./findingTypes";
 
-/**
- * Ensure the directory for a given file path exists.
- */
-function ensureDirForFile(filePath: string) {
+function ensureDirForFile(filePath: string): void {
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 }
 
-// Shared diagnostics collection for the whole extension.
-export const diagCollection = vscode.languages.createDiagnosticCollection("flusec");
+export const diagCollection =
+  vscode.languages.createDiagnosticCollection("flusec");
 
-export function severityToVS(sev: string): vscode.DiagnosticSeverity {
-  return sev?.toLowerCase() === "error"
-    ? vscode.DiagnosticSeverity.Error
-    : vscode.DiagnosticSeverity.Warning;
+export function severityToVS(severity: string): vscode.DiagnosticSeverity {
+  switch (severity?.toLowerCase()) {
+    case "error":
+      return vscode.DiagnosticSeverity.Error;
+    case "information":
+    case "info":
+      return vscode.DiagnosticSeverity.Information;
+    case "hint":
+      return vscode.DiagnosticSeverity.Hint;
+    case "warning":
+    default:
+      return vscode.DiagnosticSeverity.Warning;
+  }
 }
 
-/**
- * Read findings.json from the given path and update all diagnostics.
- */
-export function refreshDiagnosticsFromFindings(fp: string) {
-  if (!fs.existsSync(fp)) {
+function findingContextSuffix(finding: AnalyzerFinding): string {
+  const parts: string[] = [];
+
+  if (finding.securitySeverity) {
+    parts.push(`Security=${String(finding.securitySeverity).toUpperCase()}`);
+  }
+  if (finding.confidence) {
+    parts.push(`Confidence=${String(finding.confidence).toUpperCase()}`);
+  }
+  if (typeof finding.complexity === "number") {
+    parts.push(`Cx=${finding.complexity}`);
+  }
+  if (typeof finding.nestingDepth === "number") {
+    parts.push(`Depth=${finding.nestingDepth}`);
+  }
+  if (typeof finding.functionLoc === "number") {
+    parts.push(`Size=${finding.functionLoc} LOC`);
+  }
+
+  return parts.length > 0 ? ` [${parts.join(", ")}]` : "";
+}
+
+export function refreshDiagnosticsFromFindings(filePath: string): void {
+  if (!fs.existsSync(filePath)) {
     diagCollection.clear();
     return;
   }
 
-  let raw: any[] = [];
+  let raw: AnalyzerFinding[] = [];
   try {
-    raw = JSON.parse(fs.readFileSync(fp, "utf8"));
-  } catch (e) {
-    console.error("Failed to parse findings.json:", e);
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    raw = Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.error("Failed to parse findings JSON:", error);
     return;
   }
 
   const map = new Map<string, vscode.Diagnostic[]>();
-  for (const f of raw) {
-    const file = String(f.file || "");
-    if (!file) { continue; }
 
-    const line = Math.max(0, (f.line ?? 1) - 1);
-    const col = Math.max(0, (f.column ?? 1) - 1);
-    const endCol = col + Math.max(1, (f.snippet?.length ?? 80));
+  for (const finding of raw) {
+    const sourceFile = String(finding.file || "");
+    if (!sourceFile) {continue;}
 
-    const metricParts: string[] = [];
-    if (typeof f.complexity === "number") {
-      metricParts.push(`Cx=${f.complexity}`);
-    }
-    if (typeof f.nestingDepth === "number") {
-      metricParts.push(`Depth=${f.nestingDepth}`);
-    }
-    if (typeof f.functionLoc === "number") {
-      metricParts.push(`Size=${f.functionLoc} LOC`);
-    }
-    const metricSuffix =
-      metricParts.length > 0 ? ` [${metricParts.join(", ")}]` : "";
+    const line = Math.max(0, (finding.line ?? 1) - 1);
+    const column = Math.max(0, (finding.column ?? 1) - 1);
+    const endColumn = column + 80;
 
-    const diag = new vscode.Diagnostic(
-      new vscode.Range(line, col, line, endCol),
-      `[${f.ruleId}] ${f.message || ""}${metricSuffix}`,
-      severityToVS(f.severity || "warning")
+    const diagnostic = new vscode.Diagnostic(
+      new vscode.Range(line, column, line, endColumn),
+      `[${finding.ruleId}] ${finding.message}${findingContextSuffix(finding)}`,
+      severityToVS(finding.severity || "warning")
     );
 
-    diag.source = "flusec";
-    diag.code = f.ruleId;
+    diagnostic.source = "flusec";
+    diagnostic.code = finding.ruleId;
 
-    const list = map.get(file) ?? [];
-    list.push(diag);
-    map.set(file, list);
+    const list = map.get(sourceFile) ?? [];
+    list.push(diagnostic);
+    map.set(sourceFile, list);
   }
 
   diagCollection.clear();
-  for (const [fsPath, diags] of map) {
-    diagCollection.set(vscode.Uri.file(fsPath), diags);
+  for (const [sourceFile, diagnostics] of map) {
+    diagCollection.set(vscode.Uri.file(sourceFile), diagnostics);
   }
 }
 
-/**
- * Merge new findings for a single document into the component findings file.
- * NOTE: Does NOT refresh diagnostics — runAnalyzer.ts sets diagnostics
- * once for ALL components via diagCollection.set() before calling this.
- */
+function storedFinding(
+  finding: AnalyzerFinding,
+  sourceFile: string,
+  endColumn?: number
+): Record<string, unknown> {
+  return {
+    file: finding.file ?? sourceFile,
+    line: finding.line ?? 1,
+    column: finding.column ?? 1,
+    endColumn: endColumn ?? null,
+    ruleId: finding.ruleId ?? "",
+    message: finding.message ?? "",
+    severity: finding.severity ?? "warning",
+    securitySeverity: finding.securitySeverity ?? null,
+    confidence: finding.confidence ?? null,
+    category: finding.category ?? null,
+    remediation: finding.remediation ?? null,
+    cwe: finding.cwe ?? null,
+    evidence: finding.evidence ?? null,
+    functionName: finding.functionName ?? null,
+    complexity: finding.complexity ?? null,
+    nestingDepth: finding.nestingDepth ?? null,
+    functionLoc: finding.functionLoc ?? null,
+    secretType: finding.secretType ?? null,
+    taintFlow: finding.taintFlow ?? null,
+    component: finding.component ?? "hsd",
+    riskLevel: finding.riskLevel ?? null,
+    dataType: finding.dataType ?? null,
+    storageContext: finding.storageContext ?? null,
+  };
+}
+
+function readExistingFindings(findingsFilePath: string): any[] {
+  if (!fs.existsSync(findingsFilePath)) {return [];}
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(findingsFilePath, "utf8"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export function upsertFindingsForDoc(
   findingsFilePath: string,
-  doc: vscode.TextDocument,
-  newFindings: Array<{
-    ruleId: string;
-    severity: string;
-    message: string;
-    line: number;
-    column: number;
-    functionName?: string;
-    complexity?: number;
-    nestingDepth?: number;
-    functionLoc?: number;
-    secretType?: string;
-    taintFlow?: any[];
-    component?: string;
-    // IDS fields
-    riskLevel?: string;
-    dataType?: string;
-    storageContext?: string;
-  }>
-) {
+  document: vscode.TextDocument,
+  newFindings: AnalyzerFinding[]
+): void {
   ensureDirForFile(findingsFilePath);
-  let all: any[] = [];
-  if (fs.existsSync(findingsFilePath)) {
+
+  const sourceFile = document.fileName;
+  const retained = readExistingFindings(findingsFilePath).filter(
+    (finding) => finding?.file !== sourceFile
+  );
+
+  for (const finding of newFindings) {
+    const lineIndex = Math.max(0, finding.line - 1);
+    let endColumn = 1;
     try {
-      all = JSON.parse(fs.readFileSync(findingsFilePath, "utf8"));
-      if (!Array.isArray(all)) { all = []; }
+      endColumn = document.lineAt(lineIndex).text.length;
     } catch {
-      all = [];
+      endColumn = Math.max(1, finding.column ?? 1);
     }
+
+    retained.push(storedFinding(finding, sourceFile, endColumn));
   }
 
-  const filePath = doc.fileName;
-  // remove old findings for this file
-  all = all.filter((x) => x?.file !== filePath);
-
-  for (const f of newFindings) {
-    const lineIdx = Math.max(0, f.line - 1);
-    const lineText = doc.lineAt(lineIdx).text;
-    all.push({
-      file: filePath,
-      line: f.line,
-      column: f.column,
-      endColumn: lineText.length,
-      ruleId: f.ruleId,
-      message: f.message,
-      severity: f.severity || "warning",
-      functionName: (f as any).functionName,
-      complexity: (f as any).complexity,
-      nestingDepth: (f as any).nestingDepth,
-      functionLoc: (f as any).functionLoc,
-      secretType: (f as any).secretType ?? null,
-      taintFlow: (f as any).taintFlow ?? null,
-      component: (f as any).component,
-      // IDS-specific fields — pass through if present
-      riskLevel: (f as any).riskLevel ?? null,
-      dataType: (f as any).dataType ?? null,
-      storageContext: (f as any).storageContext ?? null,
-    });
-  }
-
-  fs.writeFileSync(findingsFilePath, JSON.stringify(all, null, 2), "utf8");
+  fs.writeFileSync(
+    findingsFilePath,
+    JSON.stringify(retained, null, 2),
+    "utf8"
+  );
 }
 
-/**
- * Merge new findings for a file path (without requiring an open TextDocument).
- * Used by project scan where files may not be open in the editor.
- */
 export function upsertFindingsForFile(
   findingsFilePath: string,
   sourceFilePath: string,
-  newFindings: any[]
-) {
+  newFindings: AnalyzerFinding[]
+): void {
   ensureDirForFile(findingsFilePath);
-  let all: any[] = [];
-  if (fs.existsSync(findingsFilePath)) {
-    try {
-      all = JSON.parse(fs.readFileSync(findingsFilePath, "utf8"));
-      if (!Array.isArray(all)) { all = []; }
-    } catch {
-      all = [];
-    }
+
+  const retained = readExistingFindings(findingsFilePath).filter(
+    (finding) => finding?.file !== sourceFilePath
+  );
+
+  for (const finding of newFindings) {
+    retained.push(storedFinding(finding, sourceFilePath));
   }
 
-  // Remove old findings for this file
-  all = all.filter((x) => x?.file !== sourceFilePath);
-
-  for (const f of newFindings) {
-    all.push({
-      file: f.file ?? sourceFilePath,
-      line: f.line ?? 1,
-      column: f.column ?? 1,
-      ruleId: f.ruleId ?? "",
-      message: f.message ?? "",
-      severity: f.severity ?? "warning",
-      functionName: f.functionName ?? null,
-      complexity: f.complexity ?? null,
-      nestingDepth: f.nestingDepth ?? null,
-      functionLoc: f.functionLoc ?? null,
-      secretType: f.secretType ?? null,
-      taintFlow: f.taintFlow ?? null,
-      component: f.component ?? "hsd",
-      riskLevel: f.riskLevel ?? null,
-      dataType: f.dataType ?? null,
-      storageContext: f.storageContext ?? null,
-    });
-  }
-
-  fs.writeFileSync(findingsFilePath, JSON.stringify(all, null, 2), "utf8");
+  fs.writeFileSync(
+    findingsFilePath,
+    JSON.stringify(retained, null, 2),
+    "utf8"
+  );
 }

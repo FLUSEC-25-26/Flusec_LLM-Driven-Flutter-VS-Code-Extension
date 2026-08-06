@@ -26,7 +26,8 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
   final List<Issue> issues = [];
 
   // Heuristic helpers
-  final SensitiveVariableAnalyzer variableAnalyzer = SensitiveVariableAnalyzer();
+  final SensitiveVariableAnalyzer variableAnalyzer =
+      SensitiveVariableAnalyzer();
   final SeverityClassifier severityClassifier = SeverityClassifier();
 
   // Track imports
@@ -77,7 +78,9 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
 
       // Check required imports
       if (rule.requiresImport.isNotEmpty) {
-        final hasImport = rule.requiresImport.any((req) => imports.contains(req));
+        final hasImport = rule.requiresImport.any(
+          (req) => imports.contains(req),
+        );
         if (!hasImport) continue;
       }
 
@@ -115,7 +118,14 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
     _strings++;
     final value = node.value.toLowerCase();
 
-    final sensitiveKeywords = ['password', 'token', 'api_key', 'secret', 'auth', 'credential'];
+    final sensitiveKeywords = [
+      'password',
+      'token',
+      'api_key',
+      'secret',
+      'auth',
+      'credential',
+    ];
     if (sensitiveKeywords.any((kw) => value.contains(kw))) {
       if (_isStorageContext(node.parent)) {
         _emit(node, 'hardcoded_storage_keys');
@@ -156,7 +166,8 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
 
     if (checkKey == 'cache_storage') {
       final m = node.methodName.name;
-      if (m.contains('getTemporaryDirectory') || m.contains('getApplicationSupportDirectory')) {
+      if (m.contains('getTemporaryDirectory') ||
+          m.contains('getApplicationSupportDirectory')) {
         return _hasSensitiveArguments(node.argumentList);
       }
     }
@@ -255,11 +266,13 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
       if (arg is NamedExpression) {
         final expression = arg.expression;
 
-        if (expression is SimpleIdentifier && _looksSensitiveIdentifier(expression.name)) {
+        if (expression is SimpleIdentifier &&
+            _looksSensitiveIdentifier(expression.name)) {
           return true;
         }
 
-        if (expression is SimpleStringLiteral && _looksSensitiveStringValue(expression.value)) {
+        if (expression is SimpleStringLiteral &&
+            _looksSensitiveStringValue(expression.value)) {
           return true;
         }
 
@@ -272,10 +285,9 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
       // Fallback text analysis for maps/objects/other expressions
       final rawText = arg.toString();
 
-      final identifiers = RegExp(r'\b[A-Za-z_][A-Za-z0-9_]*\b')
-          .allMatches(rawText)
-          .map((m) => m.group(0)!)
-          .toList();
+      final identifiers = RegExp(
+        r'\b[A-Za-z_][A-Za-z0-9_]*\b',
+      ).allMatches(rawText).map((m) => m.group(0)!).toList();
 
       for (final token in identifiers) {
         if (_looksSensitiveIdentifier(token)) {
@@ -347,7 +359,9 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
 
     final heuristic = variableAnalyzer.analyze(snippet.toLowerCase());
 
-    String dataType = rule.dataTypes.isNotEmpty ? rule.dataTypes.first : 'GENERIC_SENSITIVE';
+    String dataType = rule.dataTypes.isNotEmpty
+        ? rule.dataTypes.first
+        : 'GENERIC_SENSITIVE';
     if (heuristic.isSensitive && heuristic.confidenceScore > 0.6) {
       dataType = heuristic.dataType;
     }
@@ -384,7 +398,7 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
   void debugCounters() {
     stderr.writeln(
       '[IDS] counters: methods=$_methods strings=$_strings '
-      'instances=$_instances variables=$_variables'
+      'instances=$_instances variables=$_variables',
     );
   }
 }

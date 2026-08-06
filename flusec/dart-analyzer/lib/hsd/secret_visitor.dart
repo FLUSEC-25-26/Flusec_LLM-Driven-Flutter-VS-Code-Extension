@@ -68,7 +68,13 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
       if (current is MethodInvocation) {
         final name = methodName(current);
 
-        const sp = {'setString', 'setBool', 'setInt', 'setDouble', 'setStringList'};
+        const sp = {
+          'setString',
+          'setBool',
+          'setInt',
+          'setDouble',
+          'setStringList',
+        };
         if (sp.contains(name)) return true;
 
         const fileWrites = {'writeAsString', 'writeAsBytes', 'openWrite'};
@@ -237,23 +243,24 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
 
       final annotatedMessage = buffer.toString();
 
-      issues.add(Issue(
-        filePath,
-        hit.ruleId,
-        annotatedMessage,
-        hit.severity,
-        loc.$1,
-        loc.$2,
-        functionName: fnName,
-        complexity: complexity,
-        nestingDepth: nestingDepth,
-        functionLoc: functionLoc,
-        secretType: hit.secretType,
-        taintFlow: taintFlow,
-      ));
+      issues.add(
+        Issue(
+          filePath,
+          hit.ruleId,
+          annotatedMessage,
+          hit.severity,
+          loc.$1,
+          loc.$2,
+          functionName: fnName,
+          complexity: complexity,
+          nestingDepth: nestingDepth,
+          functionLoc: functionLoc,
+          secretType: hit.secretType,
+          taintFlow: taintFlow,
+        ),
+      );
     }
   }
-
 
   /// Convert AST node offset into (line, column).
   (int, int) _nodeLocation(AstNode node) {

@@ -46,7 +46,9 @@ Map<String, dynamic> _readMap(File f) {
 List<Issue> _analyzeFile(String filePath) {
   final file = File(filePath);
   if (!file.existsSync()) {
-    stderr.writeln("PathNotFoundException: Cannot open file, path = '$filePath'");
+    stderr.writeln(
+      "PathNotFoundException: Cannot open file, path = '$filePath'",
+    );
     return [];
   }
 
@@ -60,10 +62,12 @@ List<Issue> _analyzeFile(String filePath) {
   // 1) HSD — Hardcoded Secrets Detection
   // =========================================================================
   try {
-    final hsdRulesFile =
-        RulesPathResolver.resolveRulesFile('hardcoded_secrets_rules.json');
-    final hsdHeuristicsFile =
-        RulesPathResolver.resolveRulesFile('hardcoded_secrets_heuristics.json');
+    final hsdRulesFile = RulesPathResolver.resolveRulesFile(
+      'hardcoded_secrets_rules.json',
+    );
+    final hsdHeuristicsFile = RulesPathResolver.resolveRulesFile(
+      'hardcoded_secrets_heuristics.json',
+    );
 
     final rawRules = _readRuleList(hsdRulesFile);
     if (rawRules.isNotEmpty) {
@@ -94,8 +98,9 @@ List<Issue> _analyzeFile(String filePath) {
   // 2) NET — Insecure Network Communication
   // =========================================================================
   try {
-    final netRulesFile =
-        RulesPathResolver.resolveRulesFile('insecure_network_rules.json');
+    final netRulesFile = RulesPathResolver.resolveRulesFile(
+      'insecure_network_rules.json',
+    );
 
     final netRulesEngine = net.NetworkRulesEngine();
 
@@ -110,8 +115,12 @@ List<Issue> _analyzeFile(String filePath) {
       stderr.writeln('⚠️ [NET] No rules file found.');
     }
 
-    final netIssues =
-        net.NetworkAnalyzer.run(unit, content, filePath, netRulesEngine);
+    final netIssues = net.NetworkAnalyzer.run(
+      unit,
+      content,
+      filePath,
+      netRulesEngine,
+    );
 
     allIssues.addAll(netIssues);
     stderr.writeln('[NET] Found ${netIssues.length} issue(s).');
@@ -123,8 +132,9 @@ List<Issue> _analyzeFile(String filePath) {
   // 3) IDS — Insecure Data Storage
   // =========================================================================
   try {
-    final idsRulesFile =
-        RulesPathResolver.resolveRulesFile('insecure_data_storage_rules.json');
+    final idsRulesFile = RulesPathResolver.resolveRulesFile(
+      'insecure_data_storage_rules.json',
+    );
 
     final idsRulesEngine = ids.IdsRulesEngine();
 
@@ -139,7 +149,12 @@ List<Issue> _analyzeFile(String filePath) {
       stderr.writeln('⚠️ [IDS] No rules file found.');
     }
 
-    final idsVisitor = ids.StorageVisitor(unit, content, filePath, idsRulesEngine);
+    final idsVisitor = ids.StorageVisitor(
+      unit,
+      content,
+      filePath,
+      idsRulesEngine,
+    );
     unit.accept(idsVisitor);
     idsVisitor.debugCounters();
 
@@ -153,8 +168,9 @@ List<Issue> _analyzeFile(String filePath) {
   // 4) IIV — Insufficient Input Validation
   // =========================================================================
   try {
-    final iivRulesFile =
-        RulesPathResolver.resolveRulesFile('input_validation_rules.json');
+    final iivRulesFile = RulesPathResolver.resolveRulesFile(
+      'input_validation_rules.json',
+    );
 
     final iivRulesEngine = iiv.IivRulesEngine();
 
@@ -175,7 +191,9 @@ List<Issue> _analyzeFile(String filePath) {
     iivVisitor.debugCounters();
 
     allIssues.addAll(iivVisitor.issues);
-    stderr.writeln('[IIV] Input validation issues: ${iivVisitor.issues.length}');
+    stderr.writeln(
+      '[IIV] Input validation issues: ${iivVisitor.issues.length}',
+    );
 
     // Cohesion is a maintainability metric, not an input-validation
     // vulnerability. It is intentionally excluded from the IIV security count.

@@ -53,9 +53,7 @@ class OutputWriter {
 
       stderr.writeln('Wrote ${findings.length} finding(s) to ${outFile.path}');
     } catch (error, stackTrace) {
-      stderr.writeln(
-        'Failed to write .out/findings.json: $error\n$stackTrace',
-      );
+      stderr.writeln('Failed to write .out/findings.json: $error\n$stackTrace');
     }
   }
 

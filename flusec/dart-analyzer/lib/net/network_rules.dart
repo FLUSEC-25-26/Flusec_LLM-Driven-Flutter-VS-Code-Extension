@@ -68,7 +68,9 @@ class NetworkRulesEngine {
     }
 
     if (_rulesByKey.isEmpty) {
-      stderr.writeln('[NET] ❌ No valid network rules loaded → network detection DISABLED.');
+      stderr.writeln(
+        '[NET] ❌ No valid network rules loaded → network detection DISABLED.',
+      );
     } else {
       stderr.writeln('[NET] ✅ Loaded ${_rulesByKey.length} network rule(s).');
     }

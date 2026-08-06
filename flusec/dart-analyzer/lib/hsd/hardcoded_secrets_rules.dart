@@ -48,15 +48,24 @@ class DynamicRule {
       // Read secretType from rule JSON, default to GENERIC_SECRET
       final secretType = (r['secretType'] as String?)?.trim().toUpperCase();
       final validTypes = {
-        'API_KEY', 'SECRET_KEY', 'JWT_TOKEN', 'PASSWORD',
-        'DATABASE_CREDENTIAL', 'OAUTH_SECRET', 'FIREBASE_KEY',
-        'ENCRYPTION_KEY', 'GENERIC_SECRET',
+        'API_KEY',
+        'SECRET_KEY',
+        'JWT_TOKEN',
+        'PASSWORD',
+        'DATABASE_CREDENTIAL',
+        'OAUTH_SECRET',
+        'FIREBASE_KEY',
+        'ENCRYPTION_KEY',
+        'GENERIC_SECRET',
       };
-      final resolvedType = (secretType != null && validTypes.contains(secretType))
+      final resolvedType =
+          (secretType != null && validTypes.contains(secretType))
           ? secretType
           : 'GENERIC_SECRET';
 
-      stderr.writeln('🧠 Compiled pattern for rule "$id": $pat [type=$resolvedType]');
+      stderr.writeln(
+        '🧠 Compiled pattern for rule "$id": $pat [type=$resolvedType]',
+      );
 
       return DynamicRule(
         id: id,
@@ -66,12 +75,7 @@ class DynamicRule {
         description: (r['description'] as String?) ?? '',
         enabled: enabled,
         messageTemplate: r['messageTemplate'] as String?,
-        regex: RegExp(
-          pat,
-          caseSensitive: true,
-          dotAll: true,
-          multiLine: true,
-        ),
+        regex: RegExp(pat, caseSensitive: true, dotAll: true, multiLine: true),
         secretType: resolvedType,
       );
     } catch (_) {
@@ -91,7 +95,13 @@ class MatchHit {
   /// The classified type of secret detected.
   final String secretType;
 
-  MatchHit(this.source, this.ruleId, this.message, this.severity, this.secretType);
+  MatchHit(
+    this.source,
+    this.ruleId,
+    this.message,
+    this.severity,
+    this.secretType,
+  );
 }
 
 class HeuristicsCfg {
@@ -109,11 +119,11 @@ class HeuristicsCfg {
 
   /// Heuristics are disabled when config is missing/empty/invalid.
   factory HeuristicsCfg.disabled() => const HeuristicsCfg(
-        minLength: 1 << 30,
-        minEntropy: double.infinity,
-        sensitiveKeywords: <String>[],
-        benignMarkers: <String>[],
-      );
+    minLength: 1 << 30,
+    minEntropy: double.infinity,
+    sensitiveKeywords: <String>[],
+    benignMarkers: <String>[],
+  );
 
   /// STRICT parser: requires valid types in JSON.
   factory HeuristicsCfg.fromJsonStrict(Map<String, dynamic> json) {
@@ -129,7 +139,9 @@ class HeuristicsCfg {
       throw const FormatException('heuristics.minEntropy must be a number');
     }
     if (sk is! List) {
-      throw const FormatException('heuristics.sensitiveKeywords must be a list');
+      throw const FormatException(
+        'heuristics.sensitiveKeywords must be a list',
+      );
     }
     if (bm is! List) {
       throw const FormatException('heuristics.benignMarkers must be a list');
@@ -255,7 +267,10 @@ class SecretTypeInferrer {
   /// Infer the secret type from context name and value.
   /// Returns the best matching type, or GENERIC_SECRET if no match.
   static String infer(String contextName, String value) {
-    final ctxLower = contextName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9_]'), '');
+    final ctxLower = contextName.toLowerCase().replaceAll(
+      RegExp(r'[^a-z0-9_]'),
+      '',
+    );
     final valLower = value.toLowerCase();
 
     // 1) Check context name against keyword map
@@ -267,14 +282,19 @@ class SecretTypeInferrer {
 
     // 2) Check value patterns
     // JWT pattern: xxxxx.xxxxx.xxxxx (three base64 segments)
-    if (RegExp(r'^eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$').hasMatch(value.trim())) {
+    if (RegExp(
+      r'^eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$',
+    ).hasMatch(value.trim())) {
       return 'JWT_TOKEN';
     }
 
     // Connection string patterns
-    if (valLower.contains('server=') || valLower.contains('host=') ||
-        valLower.contains('database=') || valLower.contains('uid=') ||
-        valLower.startsWith('mongodb://') || valLower.startsWith('postgresql://') ||
+    if (valLower.contains('server=') ||
+        valLower.contains('host=') ||
+        valLower.contains('database=') ||
+        valLower.contains('uid=') ||
+        valLower.startsWith('mongodb://') ||
+        valLower.startsWith('postgresql://') ||
         valLower.startsWith('mysql://')) {
       return 'DATABASE_CREDENTIAL';
     }
@@ -290,10 +310,12 @@ class SecretTypeInferrer {
     }
 
     // Stripe-style patterns
-    if (value.trim().startsWith('sk_live_') || value.trim().startsWith('sk_test_')) {
+    if (value.trim().startsWith('sk_live_') ||
+        value.trim().startsWith('sk_test_')) {
       return 'SECRET_KEY';
     }
-    if (value.trim().startsWith('pk_live_') || value.trim().startsWith('pk_test_')) {
+    if (value.trim().startsWith('pk_live_') ||
+        value.trim().startsWith('pk_test_')) {
       return 'API_KEY';
     }
 
@@ -301,7 +323,6 @@ class SecretTypeInferrer {
     return 'GENERIC_SECRET';
   }
 }
-
 
 class RulesEngine {
   final List<DynamicRule> _rules = [];
@@ -321,7 +342,9 @@ class RulesEngine {
   void loadHeuristics(Map<String, dynamic> json) {
     if (json.isEmpty) {
       _cfg = HeuristicsCfg.disabled();
-      stderr.writeln('❌ Heuristics config missing/empty → heuristics DISABLED.');
+      stderr.writeln(
+        '❌ Heuristics config missing/empty → heuristics DISABLED.',
+      );
       return;
     }
 
@@ -330,7 +353,9 @@ class RulesEngine {
       stderr.writeln('✅ Loaded heuristics config from JSON (strict).');
     } catch (e) {
       _cfg = HeuristicsCfg.disabled();
-      stderr.writeln('❌ Invalid heuristics JSON → heuristics DISABLED. Error: $e');
+      stderr.writeln(
+        '❌ Invalid heuristics JSON → heuristics DISABLED. Error: $e',
+      );
     }
   }
 
@@ -356,7 +381,8 @@ class RulesEngine {
     // 1) RULE MATCHING (main detection)
     for (final r in _rules) {
       if (r.regex.hasMatch(trimmed)) {
-        final msg = r.messageTemplate ??
+        final msg =
+            r.messageTemplate ??
             '${r.name} hardcoded in $nodeKind${contextName.isNotEmpty ? ' in "$contextName"' : ''}';
         return MatchHit(MatchSource.rule, r.id, msg, r.severity, r.secretType);
       }
