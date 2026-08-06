@@ -1,42 +1,48 @@
 // lib/core/issue.dart
 //
-// Shared model used by ALL analyzer components.
-// HSD fills functionName/complexity/nestingDepth/functionLoc/secretType/taintFlow.
-// IDS fills riskLevel/dataType/storageContext.
-// Other components (network/validation) can set them to null.
+// Shared finding model used by all FLUSEC analyzer components.
+//
+// IMPORTANT:
+// - severity is the VS Code diagnostic severity: error | warning | information | hint
+// - securitySeverity is the security impact: critical | high | medium | low
+// - confidence is how certain FLUSEC is that the reported pattern is a true issue
+//
+// Keeping these values separate prevents a detector-confidence value from being
+// confused with vulnerability impact.
 
 class Issue {
   final String filePath;
   final String ruleId;
   final String message;
+
+  /// VS Code diagnostic presentation severity.
   final String severity;
+
   final int line;
   final int column;
 
-  // HSD contribution: where the finding is located and how complex that context is.
-  // Other components can ignore these fields or later reuse them.
+  /// Common security metadata.
+  final String? securitySeverity;
+  final String? confidence;
+  final String? category;
+  final String? remediation;
+  final String? cwe;
+  final Map<String, dynamic>? evidence;
+
+  // HSD contribution.
   final String? functionName;
   final int? complexity;
   final int? nestingDepth;
   final int? functionLoc;
-
-  /// HSD contribution: what type of secret was detected.
-  /// Values: API_KEY, SECRET_KEY, JWT_TOKEN, PASSWORD, DATABASE_CREDENTIAL,
-  ///         OAUTH_SECRET, FIREBASE_KEY, ENCRYPTION_KEY, GENERIC_SECRET
   final String? secretType;
-
-  /// HSD contribution: simplified taint analysis — where the secret flows.
-  /// Each entry is a Map with: type, line, column, description.
-  /// Null or empty if no flow detected or not applicable.
   final List<Map<String, dynamic>>? taintFlow;
 
-  /// IDS contribution: risk classification and storage metadata.
-  final String? riskLevel;      // CRITICAL | HIGH | MEDIUM | LOW
-  final String? dataType;       // e.g. PASSWORD, API_KEY, GENERIC_SENSITIVE
-  final String? storageContext; // e.g. shared_prefs, file, sqlite, log
+  // IDS contribution.
+  final String? riskLevel;
+  final String? dataType;
+  final String? storageContext;
 
-  /// Which component produced this issue.
-  /// Values: 'hsd', 'net', 'ids', 'iiv'
+  /// Component that produced this issue: hsd | net | ids | iiv.
   final String component;
 
   Issue(
@@ -46,6 +52,12 @@ class Issue {
     this.severity,
     this.line,
     this.column, {
+    this.securitySeverity,
+    this.confidence,
+    this.category,
+    this.remediation,
+    this.cwe,
+    this.evidence,
     this.functionName,
     this.complexity,
     this.nestingDepth,
