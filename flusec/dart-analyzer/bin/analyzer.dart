@@ -177,15 +177,9 @@ List<Issue> _analyzeFile(String filePath) {
     allIssues.addAll(iivVisitor.issues);
     stderr.writeln('[IIV] Input validation issues: ${iivVisitor.issues.length}');
 
-    // New cohesion visitor under IIV bucket
-    final cohesionVisitor = iiv.CohesionVisitor(filePath);
-    unit.accept(cohesionVisitor);
-
-    allIssues.addAll(cohesionVisitor.issues);
-    stderr.writeln('[IIV] Cohesion issues: ${cohesionVisitor.issues.length}');
-    stderr.writeln(
-      '[IIV] Found ${iivVisitor.issues.length + cohesionVisitor.issues.length} issue(s).',
-    );
+    // Cohesion is a maintainability metric, not an input-validation
+    // vulnerability. It is intentionally excluded from the IIV security count.
+    stderr.writeln('[IIV] Found ${iivVisitor.issues.length} issue(s).');
   } catch (e, st) {
     stderr.writeln('⚠️ [IIV] Error during analysis: $e\n$st');
   }

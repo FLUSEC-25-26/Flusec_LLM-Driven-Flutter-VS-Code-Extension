@@ -1,11 +1,16 @@
 [
   {
     "id": "FLUSEC.IIV.001",
-    "name": "SQL Injection",
+    "name": "Dynamic SQL Query Construction",
     "checkKey": "sql_injection",
-    "severity": "warning",
-    "description": "Potential SQL Injection: String interpolation used in database query method. Use parameterized queries instead.",
-    "remediation": "Replace string interpolation with parameterized queries. Use positional arguments (?) in rawQuery/rawInsert/rawDelete/rawUpdate.",
+    "enabled": true,
+    "severity": "error",
+    "securitySeverity": "high",
+    "defaultConfidence": "medium",
+    "category": "vulnerability",
+    "cwe": "CWE-89",
+    "description": "Potential SQL injection: a dynamically constructed SQL statement is passed to a raw database method without a separate parameter list.",
+    "remediation": "Use a constant SQL statement with placeholders and pass untrusted values through the method's parameter list.",
     "targetFunctions": [
       "rawQuery",
       "rawInsert",
@@ -16,11 +21,16 @@
   },
   {
     "id": "FLUSEC.IIV.002",
-    "name": "Command Injection",
+    "name": "Dynamic Process Execution",
     "checkKey": "command_injection",
-    "severity": "warning",
-    "description": "Potential Command Injection: User input may be passed to a system process execution method.",
-    "remediation": "Never pass unsanitized user input to Process.run or Process.start. Use allow-lists for permitted commands and validate all arguments.",
+    "enabled": true,
+    "severity": "error",
+    "securitySeverity": "high",
+    "defaultConfidence": "medium",
+    "category": "vulnerability",
+    "cwe": "CWE-78",
+    "description": "Potential command injection: a runtime-controlled executable or argument is passed to a Process execution method.",
+    "remediation": "Use a fixed executable, apply a strict allow-list to every runtime-controlled argument, and never build shell command strings from untrusted input.",
     "targetFunctions": [
       "run",
       "start",
@@ -29,39 +39,63 @@
   },
   {
     "id": "FLUSEC.IIV.003",
-    "name": "Unsafe File Upload",
+    "name": "Unrestricted File Selection",
     "checkKey": "unsafe_file_upload",
+    "enabled": true,
     "severity": "warning",
-    "description": "File upload method called without allowedExtensions filter. Unrestricted file types may lead to malicious file uploads.",
-    "remediation": "Always specify allowedExtensions when using file picker methods to restrict accepted file types (e.g., ['jpg', 'png', 'pdf']).",
+    "securitySeverity": "low",
+    "defaultConfidence": "medium",
+    "category": "secure_coding",
+    "description": "FilePicker.pickFiles allows unrestricted file types. Unsafe files may reach upload, parsing, or storage logic without an allow-list.",
+    "remediation": "Use FileType.custom with a strict allowedExtensions list, then validate file size, MIME type, content signature, and destination again before upload or processing.",
     "targetFunctions": [
-      "pickFiles",
-      "pickImage",
-      "pickVideo",
-      "pickMedia"
+      "pickFiles"
     ]
   },
   {
     "id": "FLUSEC.IIV.004",
-    "name": "Deep Link Poisoning",
+    "name": "Unvalidated Deep Link Flow",
     "checkKey": "deep_link_poisoning",
+    "enabled": true,
     "severity": "warning",
-    "description": "Deep link URI obtained without validation. Malicious URIs can redirect users or inject parameters.",
-    "remediation": "Validate and sanitize all deep link parameters before use. Check URI scheme, host, and path against an allow-list.",
-    "targetFunctions": [
+    "securitySeverity": "medium",
+    "defaultConfidence": "medium",
+    "category": "vulnerability",
+    "description": "A deep-link value appears to reach a navigation or URL-opening sink without a recognized scheme, host, path, or parameter validation guard.",
+    "remediation": "Parse the URI safely and validate its scheme, host, path, and accepted parameters against an allow-list before navigation or URL opening.",
+    "sourceFunctions": [
       "getInitialLink",
-      "onLink",
       "getInitialUri",
-      "uriLinkStream"
+      "getLatestLink",
+      "getLatestUri"
+    ],
+    "sinkFunctions": [
+      "launch",
+      "launchUrl",
+      "pushNamed",
+      "pushReplacementNamed",
+      "loadUrl",
+      "loadRequest"
+    ],
+    "validatorFunctions": [
+      "validateDeepLink",
+      "isAllowedUri",
+      "isTrustedUri",
+      "isValidDeepLink"
     ]
   },
   {
     "id": "FLUSEC.IIV.005",
-    "name": "Missing Form Validation",
+    "name": "Missing TextFormField Validator",
     "checkKey": "missing_form_validation",
+    "enabled": true,
     "severity": "warning",
-    "description": "TextFormField created without a validator function. User input will not be validated before submission.",
-    "remediation": "Add a validator parameter to TextFormField that checks input format, length, and content. Use RegExp for email, phone, and other structured inputs.",
+    "securitySeverity": "low",
+    "defaultConfidence": "medium",
+    "category": "secure_coding",
+    "cwe": "CWE-20",
+    "description": "TextFormField is editable but has no validator callback. Input validation may be missing or implemented outside the widget.",
+    "remediation": "Add a validator callback or document and enforce equivalent validation before the value reaches security-sensitive logic.",
     "targetFunctions": [
       "TextFormField"
     ]
