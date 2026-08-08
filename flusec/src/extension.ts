@@ -24,7 +24,10 @@ import {
 import { diagCollection } from "./analyzer/findingsStore.js";
 import { registerHoverProvider } from "./diagnostics/hoverllm.js";
 import { openDashboard } from "./web/hsd/dashboard.js";
-import { openNetDashboard } from "./web/net/dasboard.js";
+import {
+  openNetDashboard,
+  refreshNetDashboard,
+} from "./web/net/dasboard.js";
 import { openIDSDashboard } from "./web/ids/dashboard.js";
 import { openIIVDashboard } from "./web/iiv/dashboard.js";
 import { registerFlusecNavigationView } from "./ui/flusecNavigation.js";
@@ -242,6 +245,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
           try {
             const result = await runProjectAnalyzer(context, folder, scanDir);
+
+            // Keep the NET dashboard/coupling graph synchronized with a full
+            // project scan. If the dashboard is closed this is a no-op.
+            await refreshNetDashboard();
 
             const msg = [
               "Project scan complete.",

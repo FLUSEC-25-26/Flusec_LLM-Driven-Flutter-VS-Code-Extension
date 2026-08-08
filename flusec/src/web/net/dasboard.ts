@@ -1,25 +1,38 @@
-// src/web/net/dashboard.ts
+// src/web/net/dasboard.ts
 //
 // Webview dashboard for Insecure Network Communication component.
-// Shows: findings list, warnings-per-rule chart, coupling analysis charts, health index.
-// Reads from net_findings.json (NET component only).
+// Shows: findings list, warnings-per-rule chart, coupling analysis charts,
+// and the existing network dependency health index.
+//
+// Coupling refresh behavior:
+// - Initial dashboard open
+// - Dashboard becomes visible again
+// - Webview sends "ready"
+// - User refreshes/rescans
+// - FLUSEC "Scan Entire Project" finishes (via refreshNetDashboard)
 
 import * as vscode from "vscode";
 import * as fs from "fs";
-import * as path from "path";
 import { netFindingsPathForFolder } from "../../analyzer/runAnalyzer.js";
 import { computeAndPostCoupling } from "../../net/couplingAnalysis.js";
 import { getNetChartMessagingScript } from "../../net/netChartScript.js";
+
+// ─── Current NET dashboard panel ─────────────────────────────────────────────
+
+let activeNetPanel: vscode.WebviewPanel | undefined;
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 function getNonce(): string {
   const chars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
   let text = "";
+
   for (let i = 0; i < 32; i++) {
     text += chars.charAt(Math.floor(Math.random() * chars.length));
   }
+
   return text;
 }
 
@@ -34,23 +47,31 @@ interface FindingEntry {
   column: number;
 }
 
-function collectNetFindings(folder: vscode.WorkspaceFolder): FindingEntry[] {
+function collectNetFindings(
+  folder: vscode.WorkspaceFolder
+): FindingEntry[] {
   const findingsPath = netFindingsPathForFolder(folder);
+
   if (!fs.existsSync(findingsPath)) {
     return [];
   }
+
   try {
-    const raw = JSON.parse(fs.readFileSync(findingsPath, "utf8"));
+    const raw = JSON.parse(
+      fs.readFileSync(findingsPath, "utf8")
+    );
+
     if (!Array.isArray(raw)) {
       return [];
     }
-    // No filter needed — file contains only NET findings
+
+    // No filter needed — this file contains only NET findings.
     return raw.map((f: any) => ({
       file: f.file ?? "",
       message: f.message ?? "",
       code: f.code ?? f.ruleId,
       severity: f.severity ?? "warning",
-      line: f.line ?? 1, 
+      line: f.line ?? 1,
       column: f.column ?? 1,
     }));
   } catch {
@@ -58,12 +79,60 @@ function collectNetFindings(folder: vscode.WorkspaceFolder): FindingEntry[] {
   }
 }
 
+// ─── shared dashboard data refresh ──────────────────────────────────────────
+
+async function sendDashboardData(
+  panel: vscode.WebviewPanel
+): Promise<void> {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+
+  const findings = folder
+    ? collectNetFindings(folder)
+    : [];
+
+  panel.webview.postMessage({
+    type: "diagnostics",
+    payload: findings,
+  });
+
+  try {
+    await computeAndPostCoupling(panel);
+  } catch (e) {
+    console.warn(
+      "[NET] Failed to refresh coupling dashboard data:",
+      e
+    );
+  }
+}
+
+/**
+ * Refresh the currently open NET dashboard, if one exists.
+ *
+ * This is exported so the "Scan Entire Project" command can update
+ * the coupling graph immediately after the project scan finishes.
+ *
+ * If the dashboard is not open, this function simply does nothing.
+ * The next time the dashboard opens, it calculates fresh data normally.
+ */
+export async function refreshNetDashboard(): Promise<void> {
+  const panel = activeNetPanel;
+
+  if (!panel) {
+    return;
+  }
+
+  await sendDashboardData(panel);
+}
+
 // ─── build HTML ──────────────────────────────────────────────────────────────
 
 function buildDashboardHtml(
   webview: vscode.Webview,
   rawHtml: string,
-  uris: { styleHref: string; chartHref: string }
+  uris: {
+    styleHref: string;
+    chartHref: string;
+  }
 ): string {
   const nonce = getNonce();
 
@@ -84,11 +153,16 @@ function buildDashboardHtml(
     .replace(/\{\{chartHref\}\}/g, uris.chartHref)
     .replace(/\{\{nonce\}\}/g, nonce);
 
-  // Inject CSP into <head>
-  html = html.replace(/<head>/i, `<head>\n${cspMeta}`);
+  // Inject CSP into <head>.
+  html = html.replace(
+    /<head>/i,
+    `<head>\n${cspMeta}`
+  );
 
-  // Inject messaging + chart script before </body>
-  const messagingScript = getNetChartMessagingScript(nonce);
+  // Inject messaging + chart script before </body>.
+  const messagingScript =
+    getNetChartMessagingScript(nonce);
+
   html = html.replace(
     /<\/body>\s*<\/html>\s*$/i,
     `${messagingScript}\n</body></html>`
@@ -99,7 +173,16 @@ function buildDashboardHtml(
 
 // ─── open dashboard ──────────────────────────────────────────────────────────
 
-export function openNetDashboard(context: vscode.ExtensionContext) {
+export function openNetDashboard(
+  context: vscode.ExtensionContext
+): void {
+  // Reuse the existing NET dashboard instead of creating duplicate panels.
+  if (activeNetPanel) {
+    activeNetPanel.reveal(vscode.ViewColumn.Beside);
+    void sendDashboardData(activeNetPanel);
+    return;
+  }
+
   const netWebRoot = vscode.Uri.joinPath(
     context.extensionUri,
     "src",
@@ -118,85 +201,123 @@ export function openNetDashboard(context: vscode.ExtensionContext) {
     }
   );
 
-  // Webview-safe URIs
-  const htmlPath = vscode.Uri.joinPath(netWebRoot, "dashboard.html");
+  activeNetPanel = panel;
+
+  panel.onDidDispose(() => {
+    if (activeNetPanel === panel) {
+      activeNetPanel = undefined;
+    }
+  });
+
+  // Webview-safe URIs.
+  const htmlPath = vscode.Uri.joinPath(
+    netWebRoot,
+    "dashboard.html"
+  );
+
   const styleHref = panel.webview
-    .asWebviewUri(vscode.Uri.joinPath(netWebRoot, "style.css"))
-    .toString();
-  const chartHref = panel.webview
-    .asWebviewUri(vscode.Uri.joinPath(netWebRoot, "chart.min.js"))
+    .asWebviewUri(
+      vscode.Uri.joinPath(netWebRoot, "style.css")
+    )
     .toString();
 
-  let html = "<html><body>Network Dashboard not found</body></html>";
+  const chartHref = panel.webview
+    .asWebviewUri(
+      vscode.Uri.joinPath(netWebRoot, "chart.min.js")
+    )
+    .toString();
+
+  let html =
+    "<html><body>Network Dashboard not found</body></html>";
+
   if (fs.existsSync(htmlPath.fsPath)) {
     try {
-      const raw = fs.readFileSync(htmlPath.fsPath, "utf8");
-      html = buildDashboardHtml(panel.webview, raw, { styleHref, chartHref });
+      const raw = fs.readFileSync(
+        htmlPath.fsPath,
+        "utf8"
+      );
+
+      html = buildDashboardHtml(
+        panel.webview,
+        raw,
+        {
+          styleHref,
+          chartHref,
+        }
+      );
     } catch {
       html =
         "<html><body>Failed to load Network Dashboard template</body></html>";
     }
   }
+
   panel.webview.html = html;
 
-  const folder = vscode.workspace.workspaceFolders?.[0];
+  // Send initial data.
+  // The webview will also send "ready", so startup remains reliable even if
+  // this first post occurs before its script has fully initialized.
+  void sendDashboardData(panel);
 
-  // Helper to push findings to the webview
-  const sendFindings = () => {
-    const findings = folder ? collectNetFindings(folder) : [];
-    panel.webview.postMessage({ type: "diagnostics", payload: findings });
-  };
-
-  // Send initial data
-  sendFindings();
-  computeAndPostCoupling(panel).catch(() => {});
-
-  // Refresh on re-focus
+  // Refresh whenever the dashboard becomes visible again.
   panel.onDidChangeViewState(() => {
     if (panel.visible) {
-      sendFindings();
-      computeAndPostCoupling(panel).catch(() => {});
+      void sendDashboardData(panel);
     }
   });
 
-  // Handle webview → extension messages
+  // Handle webview → extension messages.
   panel.webview.onDidReceiveMessage(async (msg) => {
     switch (msg?.type) {
       case "ready": {
-        sendFindings();
-        await computeAndPostCoupling(panel);
+        await sendDashboardData(panel);
         break;
       }
+
       case "rescanActiveFile": {
-        // Trigger the shared scan command, then refresh
-        try { await vscode.commands.executeCommand("flusec.scanFile"); } catch { /* ignore */ }
-        sendFindings();
-        await computeAndPostCoupling(panel);
+        try {
+          await vscode.commands.executeCommand(
+            "flusec.scanFile"
+          );
+        } catch {
+          // Ignore command failure here; normal scan command handles errors.
+        }
+
+        await sendDashboardData(panel);
         break;
       }
+
       case "refreshFindings": {
-        sendFindings();
-        await computeAndPostCoupling(panel);
+        await sendDashboardData(panel);
         break;
       }
+
       case "openFile": {
-        const fsPath: string | undefined = msg?.payload;
+        const fsPath: string | undefined =
+          msg?.payload;
+
         if (fsPath) {
           try {
-            const doc = await vscode.workspace.openTextDocument(
-              vscode.Uri.file(fsPath)
+            const doc =
+              await vscode.workspace.openTextDocument(
+                vscode.Uri.file(fsPath)
+              );
+
+            await vscode.window.showTextDocument(
+              doc,
+              {
+                preview: false,
+              }
             );
-            await vscode.window.showTextDocument(doc, {
-              preview: false,
-            });
           } catch (e) {
             vscode.window.showErrorMessage(
               "Failed to open file: " + String(e)
             );
           }
         }
+
         break;
       }
+
       default:
         break;
     }
