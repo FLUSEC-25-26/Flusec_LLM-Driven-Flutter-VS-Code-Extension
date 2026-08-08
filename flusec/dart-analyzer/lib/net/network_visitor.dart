@@ -1,20 +1,22 @@
 // lib/net/network_visitor.dart
 //
-// AST visitor for Insecure Network Communication component.
+// Context-aware AST visitor for FLUSEC Insecure Network Communication (NET).
 //
-// REFACTORED: All detection ALGORITHMS are preserved exactly from the original.
-// Added new detection logic for network fallbacks (Try/Catch downgrades,
-// kDebugMode leaks, Weak TLS fallbacks, and WebView Mixed Content).
-//
-// Rule IDs, messages, and severities come from NetworkRulesEngine
-// (loaded from insecure_network_rules.json or defaults).
+// Refinement goals:
+// - report actual insecure network behavior instead of API presence alone
+// - avoid duplicate findings for the same HTTP/WebSocket endpoint
+// - distinguish badCertificateCallback => true from => false
+// - do not report HttpClient(), HttpOverrides.global, onHttpClientCreate,
+//   MD5, or SHA-1 merely because they exist
+// - keep coupling analysis separate from vulnerability detection
 
 import 'dart:io';
+
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
+
 import '../core/issue.dart';
 import 'network_rules.dart';
-import 'url_utils.dart';
 
 class NetworkVisitor extends RecursiveAstVisitor<void> {
   final CompilationUnit unit;
@@ -22,95 +24,119 @@ class NetworkVisitor extends RecursiveAstVisitor<void> {
   final NetworkRulesEngine rules;
   final List<Issue> issues = [];
 
-  // DEBUG counters (kept from original)
-  int _methodInvocations = 0, _stringLiterals = 0, _interpolations = 0;
-  int _identifiers = 0,
-      _assignments = 0,
-      _prefixed = 0,
-      _propAccess = 0,
-      _news = 0;
+  final Set<String> _emitted = <String>{};
+
+  // Debug counters retained because the analyzer already prints them.
+  int _methodInvocations = 0;
+  int _stringLiterals = 0;
+  int _interpolations = 0;
+  int _identifiers = 0;
+  int _assignments = 0;
+  int _prefixed = 0;
+  int _propAccess = 0;
+  int _news = 0;
 
   NetworkVisitor(this.unit, this.filePath, this.rules);
+
+  // ---------------------------------------------------------------------------
+  // Endpoint detection
+  // ---------------------------------------------------------------------------
+
+  @override
+  void visitSimpleStringLiteral(SimpleStringLiteral node) {
+    _stringLiterals++;
+
+    final value = node.value.trim();
+
+    if (_isInsecureHttpUrl(value)) {
+      // A HTTPS -> HTTP fallback is reported by the stronger downgrade rule,
+      // so do not emit a second generic HTTP finding for the same catch block.
+      if (!_isInsideHttpsToHttpDowngradeCatch(node)) {
+        _emit(
+          node,
+          'http_url',
+          context: 'Insecure HTTP endpoint: $value. Use HTTPS for network communication.',
+          evidence: {
+            'type': 'cleartext_http',
+            'url': value,
+            'scheme': 'http',
+          },
+        );
+      }
+    } else if (_isInsecureWebSocketUrl(value)) {
+      _emit(
+        node,
+        'websocket_insecure',
+        context: 'Insecure WebSocket endpoint: $value. Use wss:// instead of ws://.',
+        evidence: {
+          'type': 'cleartext_websocket',
+          'url': value,
+          'scheme': 'ws',
+        },
+      );
+    }
+
+    super.visitSimpleStringLiteral(node);
+  }
+
+  @override
+  void visitStringInterpolation(StringInterpolation node) {
+    _interpolations++;
+
+    final source = node.toSource();
+    final lower = source.toLowerCase();
+
+    if (_containsInterpolatedScheme(lower, 'http://') &&
+        !_looksLikeLocalInterpolatedEndpoint(lower) &&
+        !_isInsideHttpsToHttpDowngradeCatch(node)) {
+      _emit(
+        node,
+        'http_url',
+        context: 'String interpolation constructs an insecure HTTP endpoint. Use HTTPS.',
+        confidenceOverride: 'medium',
+        evidence: {
+          'type': 'cleartext_http',
+          'expression': source,
+          'scheme': 'http',
+        },
+      );
+    } else if (_containsInterpolatedScheme(lower, 'ws://') &&
+        !_looksLikeLocalInterpolatedEndpoint(lower)) {
+      _emit(
+        node,
+        'websocket_insecure',
+        context: 'String interpolation constructs an insecure WebSocket endpoint. Use wss://.',
+        confidenceOverride: 'medium',
+        evidence: {
+          'type': 'cleartext_websocket',
+          'expression': source,
+          'scheme': 'ws',
+        },
+      );
+    }
+
+    super.visitStringInterpolation(node);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Explicit insecure network APIs/configuration
+  // ---------------------------------------------------------------------------
 
   @override
   void visitMethodInvocation(MethodInvocation node) {
     _methodInvocations++;
-    final method = node.methodName.name.toLowerCase();
-    final src = node.toSource();
+    final source = node.toSource();
 
-    // --- HTTP method calls ---
-    const httpOps = {
-      'get',
-      'post',
-      'put',
-      'delete',
-      'head',
-      'patch',
-      'geturl',
-      'openurl',
-      'connect',
-    };
-    if (httpOps.contains(method)) {
-      for (final arg in node.argumentList.arguments) {
-        final url = _extractUrl(arg);
-        if (_isInsecureHttpUrl(url)) {
-          _emit(
-            node,
-            'http_url',
-            context:
-                'Insecure network call: "$url" uses HTTP. Prefer HTTPS endpoints.',
-          );
-          break;
-        }
-      }
-    }
-
-    // --- Uri.parse('http://...') / 'ws://...' ---
-    if (src.contains('Uri.parse(')) {
-      final parsed = UrlUtils.extractFirstStringArg(
-        node.argumentList.arguments,
-      );
-      if (_isInsecureHttpUrl(parsed)) {
-        _emit(node, 'http_url', context: 'Uri.parse uses HTTP. Prefer HTTPS.');
-      }
-      if (parsed != null && parsed.toLowerCase().startsWith('ws://')) {
-        _emit(
-          node,
-          'websocket_insecure',
-          context: 'WebSocket uses ws://. Prefer wss:// for TLS.',
-        );
-      }
-    }
-
-    // --- WebSocket.connect('ws://...') ---
-    if (src.contains('WebSocket.connect(')) {
-      final url = UrlUtils.extractFirstStringArg(node.argumentList.arguments);
-      if (url != null && url.toLowerCase().startsWith('ws://')) {
-        _emit(
-          node,
-          'websocket_insecure',
-          context: 'Insecure WebSocket (ws://). Use wss://',
-        );
-      }
-    }
-
-    // --- gRPC ChannelCredentials.insecure() ---
-    if (src.contains('ChannelCredentials.insecure(')) {
+    // gRPC explicitly requests a plaintext channel.
+    if (source.contains('ChannelCredentials.insecure(')) {
       _emit(
         node,
         'grpc_insecure',
-        context:
-            'Insecure gRPC channel credentials. Prefer secure credentials.',
-      );
-    }
-
-    // --- WebView Mixed Content Fallback ---
-    if (src.contains('MixedContentMode.alwaysAllow')) {
-      _emit(
-        node,
-        'webview_mixed_content',
-        context:
-            'WebView fallback: MixedContentMode.alwaysAllow permits insecure HTTP content inside HTTPS pages.',
+        context: 'gRPC channel uses ChannelCredentials.insecure(), so transport TLS is disabled.',
+        evidence: {
+          'type': 'insecure_grpc_credentials',
+          'api': 'ChannelCredentials.insecure',
+        },
       );
     }
 
@@ -118,107 +144,80 @@ class NetworkVisitor extends RecursiveAstVisitor<void> {
   }
 
   @override
-  void visitSimpleStringLiteral(SimpleStringLiteral node) {
-    _stringLiterals++;
-    final v = node.value.toLowerCase();
-    if (v.startsWith('http://') && _isInsecureHttpUrl(node.value)) {
+  void visitAssignmentExpression(AssignmentExpression node) {
+    _assignments++;
+
+    final lhsName = _assignmentTargetName(node.leftHandSide).toLowerCase();
+    final rhs = node.rightHandSide;
+
+    // badCertificateCallback is only a vulnerability when the callback is
+    // clearly configured to accept every bad certificate.
+    if (lhsName == 'badcertificatecallback' &&
+        _callbackAlwaysAcceptsBadCertificate(rhs)) {
       _emit(
         node,
-        'http_url',
-        context: 'String literal contains insecure HTTP URL.',
+        'certificate_validation_bypass',
+        context: 'badCertificateCallback unconditionally accepts invalid TLS certificates.',
+        evidence: {
+          'type': 'certificate_validation_bypass',
+          'api': 'badCertificateCallback',
+          'behavior': 'always_accept',
+        },
       );
-    } else if (v.startsWith('ws://')) {
+    }
+
+    // Some libraries expose a direct validateCertificate switch.
+    if (lhsName == 'validatecertificate' &&
+        rhs is BooleanLiteral &&
+        rhs.value == false) {
       _emit(
         node,
-        'websocket_insecure',
-        context: 'String literal contains insecure WebSocket URL (ws://).',
+        'certificate_validation_bypass',
+        context: 'validateCertificate is explicitly set to false, disabling certificate validation.',
+        evidence: {
+          'type': 'certificate_validation_bypass',
+          'api': 'validateCertificate',
+          'behavior': 'disabled',
+        },
       );
     }
-    super.visitSimpleStringLiteral(node);
-  }
 
-  @override
-  void visitStringInterpolation(StringInterpolation node) {
-    _interpolations++;
-    for (final el in node.elements) {
-      if (el is InterpolationString) {
-        final v = el.value.trim().toLowerCase();
-        if (v.startsWith('http://')) {
-          _emit(
-            node,
-            'http_url',
-            context: 'String interpolation contains insecure HTTP URL.',
-          );
-          break;
-        } else if (v.startsWith('ws://')) {
-          _emit(
-            node,
-            'websocket_insecure',
-            context:
-                'String interpolation contains insecure WebSocket URL (ws://).',
-          );
-          break;
-        }
-      }
-    }
-    super.visitStringInterpolation(node);
-  }
-
-  @override
-  void visitSimpleIdentifier(SimpleIdentifier node) {
-    _identifiers++;
-    final name = node.name.toLowerCase();
-
-    if (name == 'md5') {
-      _emit(node, 'weak_hash_md5');
-    }
-    if (name == 'sha1') {
-      _emit(node, 'weak_hash_sha1');
+    // Explicit minimum TLS 1.0/1.1 configuration.
+    final lhsSource = node.leftHandSide.toSource().toLowerCase();
+    final rhsSource = rhs.toSource().toLowerCase();
+    if (lhsSource.contains('minimumtlsprotocol') &&
+        (rhsSource.contains('tls1_0') || rhsSource.contains('tls1_1'))) {
+      _emit(
+        node,
+        'weak_tls_protocol',
+        context: 'The minimum TLS protocol allows TLS 1.0/1.1. Require TLS 1.2 or newer.',
+        evidence: {
+          'type': 'weak_tls_protocol',
+          'configuration': node.toSource(),
+        },
+      );
     }
 
-    // Dio onHttpClientCreate
-    if (name == 'onhttpclientcreate') {
-      final namedExpr = _nearestNamed(node);
-      if (namedExpr != null) {
-        _emit(
-          namedExpr,
-          'dio_onhttpclientcreate',
-          context: 'onHttpClientCreate callback may bypass TLS checks in Dio.',
-        );
-      } else if (_isInAssignmentLhs(node)) {
-        _emit(
-          node.parent ?? node,
-          'dio_onhttpclientcreate',
-          context: 'onHttpClientCreate assigned; may bypass TLS checks in Dio.',
-        );
-      }
-    }
-
-    super.visitSimpleIdentifier(node);
+    super.visitAssignmentExpression(node);
   }
 
   @override
   void visitPrefixedIdentifier(PrefixedIdentifier node) {
     _prefixed++;
-    final prefix = node.prefix.name;
-    final ident = node.identifier.name;
 
-    if (prefix == 'HttpOverrides' && ident == 'global') {
-      _emit(node, 'http_overrides_global');
-    }
-    if (prefix == 'ChannelCredentials' && ident == 'insecure') {
-      _emit(node, 'grpc_insecure');
-    }
-    if (ident == 'badCertificateCallback') {
-      _emit(node, 'insecure_tls_callback');
-    }
-    // WebView Mixed Content Fallback
-    if (prefix == 'MixedContentMode' && ident == 'alwaysAllow') {
+    final prefix = node.prefix.name;
+    final identifier = node.identifier.name;
+
+    // Only the explicit mixed-content-enabling enum value is a finding.
+    if (prefix == 'MixedContentMode' && identifier == 'alwaysAllow') {
       _emit(
         node,
         'webview_mixed_content',
-        context:
-            'WebView fallback: MixedContentMode.alwaysAllow permits insecure HTTP content inside HTTPS pages.',
+        context: 'WebView mixed content is set to alwaysAllow, permitting HTTP resources inside HTTPS content.',
+        evidence: {
+          'type': 'webview_mixed_content',
+          'configuration': 'MixedContentMode.alwaysAllow',
+        },
       );
     }
 
@@ -228,234 +227,221 @@ class NetworkVisitor extends RecursiveAstVisitor<void> {
   @override
   void visitPropertyAccess(PropertyAccess node) {
     _propAccess++;
-    if (node.propertyName.name == 'badCertificateCallback') {
-      _emit(node, 'insecure_tls_callback');
-    }
-    // WebView Mixed Content Fallback
-    if (node.toSource().contains('MixedContentMode.alwaysAllow')) {
-      _emit(
-        node,
-        'webview_mixed_content',
-        context:
-            'WebView fallback: MixedContentMode.alwaysAllow permits insecure HTTP content inside HTTPS pages.',
-      );
-    }
     super.visitPropertyAccess(node);
   }
 
   @override
-  void visitAssignmentExpression(AssignmentExpression node) {
-    _assignments++;
-    final lhs = node.leftHandSide;
-    final rhs = node.rightHandSide;
+  void visitSimpleIdentifier(SimpleIdentifier node) {
+    _identifiers++;
 
-    String? lhsName;
-    if (lhs is SimpleIdentifier) lhsName = lhs.name;
-    if (lhs is PropertyAccess) lhsName = lhs.propertyName.name;
-    if (lhs is PrefixedIdentifier) lhsName = lhs.identifier.name;
+    // Intentionally no vulnerability detection here.
+    // Generic identifier matches such as md5, sha1, onHttpClientCreate,
+    // badCertificateCallback, or HttpOverrides.global created false positives.
 
-    if ((lhsName ?? '').toLowerCase() == 'validatecertificate' &&
-        rhs is BooleanLiteral &&
-        rhs.value == false) {
-      _emit(node, 'disabled_cert_validation');
-    }
-    if ((lhsName ?? '').toLowerCase() == 'badcertificatecallback') {
-      _emit(
-        node,
-        'insecure_tls_callback',
-        context:
-            'badCertificateCallback assigned: disables TLS certificate validation.',
-      );
-    }
-
-    // --- TLS Protocol Downgrade Fallback ---
-    final lhsSource = node.leftHandSide.toSource();
-    if (lhsSource.contains('minimumTlsProtocol')) {
-      final rhsSource = node.rightHandSide.toSource().toLowerCase();
-      if (rhsSource.contains('tls1_0') || rhsSource.contains('tls1_1')) {
-        _emit(
-          node,
-          'weak_tls_fallback',
-          context:
-              'SecurityContext allows fallback to weak TLS protocol (TLS 1.0/1.1). Require TLS 1.2+.',
-        );
-      }
-    }
-
-    super.visitAssignmentExpression(node);
+    super.visitSimpleIdentifier(node);
   }
 
   @override
   void visitInstanceCreationExpression(InstanceCreationExpression node) {
     _news++;
-    final typeName = node.constructorName.type.toString();
-    if (typeName == 'HttpClient') {
-      _emit(node, 'http_client_usage');
-    }
+
+    // HttpClient() creation by itself is not insecure. Security findings are
+    // emitted only when the client is configured or used insecurely.
+
     super.visitInstanceCreationExpression(node);
   }
 
-  // --- Logic-Based Downgrades (Try/Catch) Fallback ---
+  // ---------------------------------------------------------------------------
+  // Logic-based downgrade detection
+  // ---------------------------------------------------------------------------
+
   @override
   void visitTryStatement(TryStatement node) {
-    final tryBody = node.body.toSource().toLowerCase();
+    final trySource = node.body.toSource();
 
-    // Check if the 'try' block attempts a secure HTTPS connection
-    if (tryBody.contains('https://')) {
+    if (_containsHttps(trySource)) {
       for (final catchClause in node.catchClauses) {
-        final catchBody = catchClause.toSource().toLowerCase();
+        final catchSource = catchClause.toSource();
+        final insecureUrl = _firstExternalHttpUrl(catchSource);
 
-        // If the 'catch' block falls back to HTTP, it's a downgrade!
-        if (catchBody.contains('http://') && _isInsecureHttpUrl('http://')) {
+        if (insecureUrl != null) {
           _emit(
             node,
-            'try_catch_downgrade',
-            context:
-                'Protocol downgrade: try block uses HTTPS, but catch block falls back to insecure HTTP.',
+            'https_http_downgrade',
+            context: 'HTTPS failure falls back to insecure HTTP endpoint $insecureUrl.',
+            evidence: {
+              'type': 'protocol_downgrade',
+              'secureScheme': 'https',
+              'fallbackScheme': 'http',
+              'fallbackUrl': insecureUrl,
+            },
           );
+          break;
         }
       }
     }
+
     super.visitTryStatement(node);
   }
 
-  // --- Environment Toggles (kDebugMode) Fallback ---
-  @override
-  void visitConditionalExpression(ConditionalExpression node) {
-    final condition = node.condition.toSource();
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
 
-    // Check if the condition relies on Flutter's kDebugMode
-    if (condition.contains('kDebugMode')) {
-      final thenExpr = node.thenExpression.toSource().toLowerCase();
-      final elseExpr = node.elseExpression.toSource().toLowerCase();
-
-      // If either branch results in an http:// string, flag it
-      if (thenExpr.contains('http://') || elseExpr.contains('http://')) {
-        _emit(
-          node,
-          'debug_mode_fallback',
-          context:
-              'Environment toggle (kDebugMode) allows fallback to plain HTTP.',
-        );
-      }
-    }
-    super.visitConditionalExpression(node);
+  String _assignmentTargetName(Expression lhs) {
+    if (lhs is SimpleIdentifier) return lhs.name;
+    if (lhs is PropertyAccess) return lhs.propertyName.name;
+    if (lhs is PrefixedIdentifier) return lhs.identifier.name;
+    return lhs.toSource();
   }
 
-  // ---- helpers ----
+  bool _callbackAlwaysAcceptsBadCertificate(Expression rhs) {
+    if (rhs is! FunctionExpression) return false;
 
-  bool _isInsecureHttpUrl(String? url) {
-    if (url == null) return false;
-    final u = url.toLowerCase();
-    if (!u.startsWith('http://')) return false;
-    if (u.startsWith('http://localhost') || u.startsWith('http://127.0.0.1'))
-      return false;
-    return true;
-  }
+    final body = rhs.body;
 
-  String? _extractUrl(Expression expr) {
-    if (expr is SimpleStringLiteral) return expr.value;
-    if (expr is StringInterpolation) {
-      for (final el in expr.elements) {
-        if (el is InterpolationString) {
-          final v = el.value.trim();
-          if (v.isNotEmpty) return v;
-        }
-      }
-    }
-    if (expr is MethodInvocation && expr.toSource().contains('Uri.parse(')) {
-      return UrlUtils.extractFirstStringArg(expr.argumentList.arguments);
-    }
-    if (expr is Identifier) return _resolveStringFromIdentifier(expr);
-    return null;
-  }
-
-  String? _resolveStringFromIdentifier(Identifier id) {
-    final name = id.name;
-    AstNode? scope = id;
-
-    while (scope != null) {
-      if (scope is Block) {
-        for (final stmt in scope.statements) {
-          if (stmt is VariableDeclarationStatement) {
-            for (final v in stmt.variables.variables) {
-              if (v.name.lexeme == name && v.initializer != null) {
-                final val = _extractUrl(v.initializer!);
-                if (val != null) return val;
-              }
-            }
-          }
-        }
-      }
-      scope = scope.parent;
+    if (body is ExpressionFunctionBody) {
+      final expression = body.expression;
+      return expression is BooleanLiteral && expression.value == true;
     }
 
-    final cu = unit;
-    for (final decl in cu.declarations) {
-      if (decl is TopLevelVariableDeclaration) {
-        for (final v in decl.variables.variables) {
-          if (v.name.lexeme == name && v.initializer != null) {
-            final val = _extractUrl(v.initializer!);
-            if (val != null) return val;
-          }
-        }
-      }
-    }
-    return null;
-  }
+    if (body is BlockFunctionBody) {
+      // Only accept a direct, unconditional `return true;` in the callback
+      // body. A conditional return true may represent host/certificate pinning
+      // or another deliberate validation policy, so FLUSEC does not label it
+      // an automatic bypass.
+      final directReturns = body.block.statements.whereType<ReturnStatement>().toList();
+      if (directReturns.length != 1) return false;
 
-  bool _isInAssignmentLhs(SimpleIdentifier id) {
-    final p = id.parent;
-    if (p is AssignmentExpression) {
-      final lhs = p.leftHandSide;
-      if (lhs is SimpleIdentifier)
-        return lhs.name.toLowerCase() == id.name.toLowerCase();
-      if (lhs is PropertyAccess)
-        return lhs.propertyName.name.toLowerCase() == id.name.toLowerCase();
-      if (lhs is PrefixedIdentifier)
-        return lhs.identifier.name.toLowerCase() == id.name.toLowerCase();
+      final expression = directReturns.single.expression;
+      return expression is BooleanLiteral && expression.value == true;
     }
-    if (p is PropertyAccess && p.parent is AssignmentExpression) {
-      final lhs = (p.parent as AssignmentExpression).leftHandSide;
-      if (lhs is PropertyAccess) {
-        return lhs.propertyName.name.toLowerCase() == id.name.toLowerCase();
-      }
-    }
+
     return false;
   }
 
-  NamedExpression? _nearestNamed(SimpleIdentifier id) {
-    AstNode? cur = id.parent;
-    while (cur != null) {
-      if (cur is NamedExpression) return cur;
-      cur = cur.parent;
+  bool _isInsecureHttpUrl(String? url) {
+    if (url == null) return false;
+    final trimmed = url.trim();
+    if (!trimmed.toLowerCase().startsWith('http://')) return false;
+
+    final uri = Uri.tryParse(trimmed);
+    final host = uri?.host.toLowerCase() ?? '';
+
+    // If parsing cannot determine a host, keep the finding because the source
+    // still explicitly requests cleartext HTTP.
+    if (host.isEmpty) return true;
+    return !_isLocalDevelopmentHost(host);
+  }
+
+  bool _isInsecureWebSocketUrl(String? url) {
+    if (url == null) return false;
+    final trimmed = url.trim();
+    if (!trimmed.toLowerCase().startsWith('ws://')) return false;
+
+    final uri = Uri.tryParse(trimmed);
+    final host = uri?.host.toLowerCase() ?? '';
+    if (host.isEmpty) return true;
+    return !_isLocalDevelopmentHost(host);
+  }
+
+  bool _isLocalDevelopmentHost(String host) {
+    final normalized = host.toLowerCase();
+    return normalized == 'localhost' ||
+        normalized.endsWith('.localhost') ||
+        normalized == '127.0.0.1' ||
+        normalized == '::1' ||
+        normalized == '0.0.0.0' ||
+        normalized == '10.0.2.2';
+  }
+
+  bool _containsInterpolatedScheme(String source, String scheme) {
+    return source.contains(scheme);
+  }
+
+  bool _looksLikeLocalInterpolatedEndpoint(String source) {
+    final lower = source.toLowerCase();
+    return lower.contains('://localhost') ||
+        lower.contains('://127.0.0.1') ||
+        lower.contains('://10.0.2.2') ||
+        lower.contains('://0.0.0.0') ||
+        lower.contains('://[::1]');
+  }
+
+  bool _containsHttps(String source) => source.toLowerCase().contains('https://');
+
+  String? _firstExternalHttpUrl(String source) {
+    final matches = RegExp(
+      r'''http://[^\s'"\)\]\},;]+''',
+      caseSensitive: false,
+    ).allMatches(source);
+
+    for (final match in matches) {
+      final value = match.group(0);
+      if (_isInsecureHttpUrl(value)) return value;
     }
     return null;
   }
 
-  /// Emit an issue using the rules engine.
-  /// [checkKey] maps to a rule in NetworkRulesEngine.
-  /// [context] is an optional specific message override for this detection site.
-  void _emit(AstNode node, String checkKey, {String? context}) {
-    final rule = rules.ruleFor(checkKey);
-    if (rule == null) return; // rule disabled or not found → skip
+  bool _isInsideHttpsToHttpDowngradeCatch(AstNode node) {
+    AstNode? current = node.parent;
+    CatchClause? catchClause;
 
-    final loc = unit.lineInfo.getLocation(node.offset);
-    final msg = context ?? rules.message(checkKey);
+    while (current != null) {
+      if (current is CatchClause) {
+        catchClause = current;
+        break;
+      }
+      if (current is TryStatement) return false;
+      current = current.parent;
+    }
+
+    if (catchClause == null) return false;
+
+    current = catchClause.parent;
+    while (current != null && current is! TryStatement) {
+      current = current.parent;
+    }
+
+    if (current is! TryStatement) return false;
+
+    return _containsHttps(current.body.toSource()) &&
+        _firstExternalHttpUrl(catchClause.toSource()) != null;
+  }
+
+  void _emit(
+    AstNode node,
+    String checkKey, {
+    String? context,
+    String? confidenceOverride,
+    Map<String, dynamic>? evidence,
+  }) {
+    final rule = rules.ruleFor(checkKey);
+    if (rule == null) return;
+
+    final location = unit.lineInfo.getLocation(node.offset);
+
+    // Multiple AST visitors/nodes may describe the same source-line issue.
+    // Keep one finding per rule per source line.
+    final dedupKey = '$checkKey:${location.lineNumber}';
+    if (!_emitted.add(dedupKey)) return;
 
     final issue = Issue(
       filePath,
-      rules.ruleId(checkKey),
-      msg,
-      rules.severity(checkKey),
-      loc.lineNumber,
-      loc.columnNumber,
-      functionName: null,
-      complexity: null,
-      nestingDepth: null,
-      functionLoc: null,
+      rule.id,
+      context ?? rule.messageTemplate,
+      rule.severity,
+      location.lineNumber,
+      location.columnNumber,
+      securitySeverity: rule.securitySeverity,
+      confidence: confidenceOverride ?? rule.defaultConfidence,
+      category: rule.category,
+      remediation: rule.remediation,
+      cwe: rule.cwe,
+      evidence: evidence,
       component: 'net',
     );
+
     issues.add(issue);
     stderr.writeln('[NET] ${issue.ruleId} at ${issue.line}:${issue.column}');
   }

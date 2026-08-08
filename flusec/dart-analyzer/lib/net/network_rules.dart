@@ -1,25 +1,33 @@
 // lib/net/network_rules.dart
 //
-// Rule definitions for Insecure Network Communication component.
+// Rule definitions for FLUSEC Insecure Network Communication (NET).
 //
-// DESIGN:
-// The NetworkVisitor detects patterns using AST analysis (the ALGORITHM).
-// Each detection has a "check key" (e.g. 'http_url', 'websocket_insecure').
-// This rules engine maps check keys → rule ID, message template, severity, enabled.
-//
-// Rules are loaded ONLY from insecure_network_rules.json (from rulepack repo).
-// If no rules file is found, no rules are loaded and detections are skipped.
-// The extension handles offline fallback via bundled baseline files
-// (same approach as HSD).
+// The AST visitor owns detection logic. This rules engine only supplies
+// policy metadata such as rule ID, diagnostic severity, security severity,
+// confidence, remediation, and CWE information.
 
 import 'dart:io';
 
 class NetworkRule {
   final String id;
-  final String checkKey; // maps to a specific detection in NetworkVisitor
+  final String checkKey;
   final String name;
+
+  /// VS Code diagnostic severity. During the current FLUSEC research phase,
+  /// security findings are intentionally emitted as warnings.
   final String severity;
+
+  /// Security impact, independent from the editor diagnostic severity.
+  final String securitySeverity;
+
+  /// Default detector confidence for this rule.
+  final String defaultConfidence;
+
+  final String category;
+  final String description;
   final String messageTemplate;
+  final String remediation;
+  final String? cwe;
   final bool enabled;
 
   NetworkRule({
@@ -27,24 +35,40 @@ class NetworkRule {
     required this.checkKey,
     required this.name,
     required this.severity,
+    required this.securitySeverity,
+    required this.defaultConfidence,
+    required this.category,
+    required this.description,
     required this.messageTemplate,
+    required this.remediation,
+    required this.cwe,
     required this.enabled,
   });
 
-  static NetworkRule? tryFromJson(Map<String, dynamic> r) {
+  static NetworkRule? tryFromJson(Map<String, dynamic> raw) {
     try {
-      final enabled = (r['enabled'] as bool?) ?? true;
-      final id = (r['id'] ?? '').toString().trim();
-      final checkKey = (r['checkKey'] ?? '').toString().trim();
+      final id = (raw['id'] ?? '').toString().trim();
+      final checkKey = (raw['checkKey'] ?? '').toString().trim();
       if (id.isEmpty || checkKey.isEmpty) return null;
 
       return NetworkRule(
         id: id,
         checkKey: checkKey,
-        name: (r['name'] ?? id).toString().trim(),
-        severity: (r['severity'] as String?) ?? 'warning',
-        messageTemplate: (r['messageTemplate'] as String?) ?? '',
-        enabled: enabled,
+        name: (raw['name'] ?? id).toString().trim(),
+        severity: (raw['severity'] ?? 'warning').toString().trim(),
+        securitySeverity:
+            (raw['securitySeverity'] ?? 'medium').toString().trim(),
+        defaultConfidence:
+            (raw['defaultConfidence'] ?? 'medium').toString().trim(),
+        category: (raw['category'] ?? 'vulnerability').toString().trim(),
+        description: (raw['description'] ?? '').toString().trim(),
+        messageTemplate:
+            (raw['messageTemplate'] ?? 'Network security issue detected.')
+                .toString()
+                .trim(),
+        remediation: (raw['remediation'] ?? '').toString().trim(),
+        cwe: raw['cwe']?.toString().trim(),
+        enabled: (raw['enabled'] as bool?) ?? true,
       );
     } catch (_) {
       return null;
@@ -55,13 +79,11 @@ class NetworkRule {
 class NetworkRulesEngine {
   final Map<String, NetworkRule> _rulesByKey = {};
 
-  /// Load rules from parsed JSON array (from insecure_network_rules.json).
-  /// Each rule must have a 'checkKey' that maps to a detection in NetworkVisitor.
-  void loadRules(List<Map<String, dynamic>> raw) {
+  void loadRules(List<Map<String, dynamic>> rawRules) {
     _rulesByKey.clear();
 
-    for (final r in raw) {
-      final rule = NetworkRule.tryFromJson(r);
+    for (final raw in rawRules) {
+      final rule = NetworkRule.tryFromJson(raw);
       if (rule != null && rule.enabled) {
         _rulesByKey[rule.checkKey] = rule;
       }
@@ -69,33 +91,22 @@ class NetworkRulesEngine {
 
     if (_rulesByKey.isEmpty) {
       stderr.writeln(
-        '[NET] ❌ No valid network rules loaded → network detection DISABLED.',
+        '[NET] No valid network rules loaded -> network detection disabled.',
       );
     } else {
-      stderr.writeln('[NET] ✅ Loaded ${_rulesByKey.length} network rule(s).');
+      stderr.writeln('[NET] Loaded ${_rulesByKey.length} network rule(s).');
     }
   }
 
-  /// Check if a detection (by checkKey) is enabled.
-  /// Returns null if the checkKey has no rule or is disabled.
   NetworkRule? ruleFor(String checkKey) => _rulesByKey[checkKey];
 
-  /// Get rule ID for a check key.
   String ruleId(String checkKey) =>
-      _rulesByKey[checkKey]?.id ?? 'FLUSEC.NETWORK.${checkKey.toUpperCase()}';
+      _rulesByKey[checkKey]?.id ?? 'FLUSEC.NET.${checkKey.toUpperCase()}';
 
-  /// Get the message for a check key, with optional context substitution.
-  String message(String checkKey, {String? context}) {
-    final rule = _rulesByKey[checkKey];
-    if (rule == null) return context ?? 'Network security issue detected.';
+  String message(String checkKey) =>
+      _rulesByKey[checkKey]?.messageTemplate ??
+      'Network security issue detected.';
 
-    if (context != null && context.isNotEmpty) {
-      return '${rule.messageTemplate} ($context)';
-    }
-    return rule.messageTemplate;
-  }
-
-  /// Get severity for a check key.
   String severity(String checkKey) =>
       _rulesByKey[checkKey]?.severity ?? 'warning';
 }

@@ -1,128 +1,100 @@
 [
   {
-    "id": "FLUSEC.NETWORK.HTTP_URL",
-    "name": "Insecure HTTP URL",
-    "enabled": true,
+    "id": "FLUSEC.NET.001",
+    "name": "Cleartext HTTP Communication",
     "checkKey": "http_url",
+    "enabled": true,
     "severity": "warning",
-    "description": "Detects usage of plain HTTP URLs (not localhost) which transmit data unencrypted.",
-    "messageTemplate": "Insecure HTTP URL detected. Prefer HTTPS endpoints."
+    "securitySeverity": "high",
+    "defaultConfidence": "high",
+    "category": "vulnerability",
+    "cwe": "CWE-319",
+    "description": "Detects external http:// endpoints that can transmit application data without transport encryption.",
+    "messageTemplate": "External network communication uses HTTP instead of HTTPS.",
+    "remediation": "Use HTTPS for remote endpoints and validate the server certificate. Keep cleartext localhost/emulator endpoints limited to development environments."
   },
   {
-    "id": "FLUSEC.NETWORK.WEBSOCKET_INSECURE",
-    "name": "Insecure WebSocket",
-    "enabled": true,
+    "id": "FLUSEC.NET.002",
+    "name": "Cleartext WebSocket Communication",
     "checkKey": "websocket_insecure",
+    "enabled": true,
     "severity": "warning",
-    "description": "Detects usage of ws:// WebSocket connections instead of secure wss://.",
-    "messageTemplate": "WebSocket uses ws://. Prefer wss:// for TLS."
+    "securitySeverity": "high",
+    "defaultConfidence": "high",
+    "category": "vulnerability",
+    "cwe": "CWE-319",
+    "description": "Detects external ws:// WebSocket endpoints that do not use TLS.",
+    "messageTemplate": "External WebSocket communication uses ws:// instead of wss://.",
+    "remediation": "Use wss:// for remote WebSocket communication and validate the server certificate."
   },
   {
-    "id": "FLUSEC.NETWORK.GRPC_INSECURE_CREDENTIALS",
-    "name": "Insecure gRPC Credentials",
+    "id": "FLUSEC.NET.003",
+    "name": "TLS Certificate Validation Bypass",
+    "checkKey": "certificate_validation_bypass",
     "enabled": true,
+    "severity": "warning",
+    "securitySeverity": "high",
+    "defaultConfidence": "high",
+    "category": "vulnerability",
+    "cwe": "CWE-295",
+    "description": "Detects explicit certificate-validation bypasses, including badCertificateCallback callbacks that unconditionally return true and validateCertificate set to false.",
+    "messageTemplate": "TLS certificate validation is explicitly bypassed.",
+    "remediation": "Keep platform certificate validation enabled. If certificate pinning or custom trust logic is required, validate the expected certificate, public key, or host instead of accepting all invalid certificates."
+  },
+  {
+    "id": "FLUSEC.NET.004",
+    "name": "Insecure gRPC Channel",
     "checkKey": "grpc_insecure",
+    "enabled": true,
     "severity": "warning",
-    "description": "Detects ChannelCredentials.insecure() usage in gRPC which disables TLS.",
-    "messageTemplate": "gRPC channel uses insecure credentials (no TLS)."
+    "securitySeverity": "high",
+    "defaultConfidence": "high",
+    "category": "vulnerability",
+    "cwe": "CWE-319",
+    "description": "Detects ChannelCredentials.insecure() which creates a gRPC channel without TLS.",
+    "messageTemplate": "gRPC transport security is disabled by ChannelCredentials.insecure().",
+    "remediation": "Use ChannelCredentials.secure() and configure trusted certificates for production gRPC connections."
   },
   {
-    "id": "FLUSEC.NETWORK.HTTP_OVERRIDES_GLOBAL",
-    "name": "HttpOverrides.global",
+    "id": "FLUSEC.NET.005",
+    "name": "HTTPS to HTTP Downgrade Fallback",
+    "checkKey": "https_http_downgrade",
     "enabled": true,
-    "checkKey": "http_overrides_global",
     "severity": "warning",
-    "description": "Detects global HTTP override which can bypass security checks application-wide.",
-    "messageTemplate": "HttpOverrides.global used: overrides network behavior globally."
+    "securitySeverity": "high",
+    "defaultConfidence": "high",
+    "category": "vulnerability",
+    "cwe": "CWE-319",
+    "description": "Detects error-handling logic that tries HTTPS and falls back to an external HTTP endpoint when the secure connection fails.",
+    "messageTemplate": "Secure HTTPS communication falls back to cleartext HTTP after a failure.",
+    "remediation": "Fail closed when HTTPS fails or retry a trusted HTTPS endpoint. Do not downgrade production communication to HTTP."
   },
   {
-    "id": "FLUSEC.NETWORK.INSECURE_TLS_CALLBACK",
-    "name": "Insecure TLS Callback",
+    "id": "FLUSEC.NET.006",
+    "name": "Weak TLS Protocol Configuration",
+    "checkKey": "weak_tls_protocol",
     "enabled": true,
-    "checkKey": "insecure_tls_callback",
     "severity": "warning",
-    "description": "Detects badCertificateCallback usage which can disable TLS certificate validation.",
-    "messageTemplate": "badCertificateCallback used. This disables certificate validation."
+    "securitySeverity": "high",
+    "defaultConfidence": "high",
+    "category": "vulnerability",
+    "cwe": "CWE-326",
+    "description": "Detects explicit minimum TLS protocol configuration that permits TLS 1.0 or TLS 1.1.",
+    "messageTemplate": "The network configuration permits an outdated TLS protocol.",
+    "remediation": "Require TLS 1.2 or newer and rely on current platform defaults where possible."
   },
   {
-    "id": "FLUSEC.NETWORK.DISABLED_CERT_VALIDATION",
-    "name": "Disabled Certificate Validation",
-    "enabled": true,
-    "checkKey": "disabled_cert_validation",
-    "severity": "warning",
-    "description": "Detects validateCertificate being set to false which disables cert checks.",
-    "messageTemplate": "validateCertificate set to false: TLS certificate validation disabled."
-  },
-  {
-    "id": "FLUSEC.NETWORK.WEAK_HASH_MD5",
-    "name": "Weak Hash MD5",
-    "enabled": true,
-    "checkKey": "weak_hash_md5",
-    "severity": "warning",
-    "description": "MD5 is cryptographically broken and should not be used for security purposes.",
-    "messageTemplate": "Use of MD5 hash detected. Prefer SHA-256 or stronger."
-  },
-  {
-    "id": "FLUSEC.NETWORK.WEAK_HASH_SHA1",
-    "name": "Weak Hash SHA-1",
-    "enabled": true,
-    "checkKey": "weak_hash_sha1",
-    "severity": "warning",
-    "description": "SHA-1 has known collision vulnerabilities and should not be used for security.",
-    "messageTemplate": "Use of SHA-1 hash detected. Prefer SHA-256 or stronger."
-  },
-  {
-    "id": "FLUSEC.NETWORK.DIO_ONHTTPCLIENTCREATE",
-    "name": "Dio onHttpClientCreate",
-    "enabled": true,
-    "checkKey": "dio_onhttpclientcreate",
-    "severity": "warning",
-    "description": "Dio's onHttpClientCreate can be used to disable certificate validation.",
-    "messageTemplate": "onHttpClientCreate callback may bypass TLS checks in Dio."
-  },
-  {
-    "id": "FLUSEC.NETWORK.HTTP_CLIENT_USAGE",
-    "name": "HttpClient Usage",
-    "enabled": true,
-    "checkKey": "http_client_usage",
-    "severity": "warning",
-    "description": "Direct HttpClient usage requires manual TLS configuration which is often insecure.",
-    "messageTemplate": "HttpClient detected. Ensure secure TLS configuration."
-  },
-  {
-    "id": "FLUSEC.NETWORK.TRY_CATCH_DOWNGRADE",
-    "name": "Protocol Downgrade in Try/Catch",
-    "enabled": true,
-    "checkKey": "try_catch_downgrade",
-    "severity": "high",
-    "description": "Detects logic that catches an HTTPS connection failure and falls back to an insecure HTTP connection.",
-    "messageTemplate": "Avoid downgrading secure connections (HTTPS) to unencrypted HTTP inside error handlers."
-  },
-  {
-    "id": "FLUSEC.NETWORK.DEBUG_MODE_FALLBACK",
-    "name": "Environment HTTP Fallback",
-    "enabled": true,
-    "checkKey": "debug_mode_fallback",
-    "severity": "medium",
-    "description": "Detects conditional logic using kDebugMode that allows the app to fall back to unencrypted HTTP.",
-    "messageTemplate": "Ensure debug mode toggles do not leak insecure HTTP endpoints into release builds."
-  },
-  {
-    "id": "FLUSEC.NETWORK.WEAK_TLS_FALLBACK",
-    "name": "Weak TLS Protocol Fallback",
-    "enabled": true,
-    "checkKey": "weak_tls_fallback",
-    "severity": "high",
-    "description": "Detects SecurityContext configurations that permit fallback to outdated and vulnerable TLS versions.",
-    "messageTemplate": "Do not allow fallbacks to TLS 1.0 or 1.1. Enforce a minimum of TLS 1.2."
-  },
-  {
-    "id": "FLUSEC.NETWORK.WEBVIEW_MIXED_CONTENT",
-    "name": "WebView Mixed Content Allowed",
-    "enabled": true,
+    "id": "FLUSEC.NET.007",
+    "name": "WebView Mixed Content Enabled",
     "checkKey": "webview_mixed_content",
-    "severity": "medium",
-    "description": "Detects WebView configurations that explicitly allow mixed content, breaking the HTTPS guarantee.",
-    "messageTemplate": "Do not allow WebViews to load insecure HTTP content within secure HTTPS pages."
+    "enabled": true,
+    "severity": "warning",
+    "securitySeverity": "medium",
+    "defaultConfidence": "high",
+    "category": "vulnerability",
+    "cwe": "CWE-319",
+    "description": "Detects MixedContentMode.alwaysAllow which permits HTTP resources to be loaded inside HTTPS WebView content.",
+    "messageTemplate": "WebView mixed content is explicitly allowed.",
+    "remediation": "Disallow mixed content and load WebView resources over HTTPS."
   }
 ]
