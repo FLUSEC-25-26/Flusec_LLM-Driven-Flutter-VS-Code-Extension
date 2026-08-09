@@ -1,11 +1,8 @@
-// lib/hsd/complexity.dart
+// lib/core/code_context.dart
 //
-// Function-level maintainability context for HSD findings.
-//
-// IMPORTANT:
-// These metrics do NOT determine secret security severity or detection
-// confidence. They describe how difficult the surrounding function may be to
-// understand/refactor.
+// Shared function-level maintainability context for every FLUSEC security
+// component. These metrics describe the surrounding code only; they never
+// determine vulnerability security severity or detector confidence.
 
 import 'package:analyzer/dart/ast/ast.dart';
 
@@ -38,6 +35,112 @@ class MaintainabilityContext {
           'functionLoc': locScore,
         },
       };
+}
+
+class CodeContext {
+  final String? functionName;
+  final int complexity;
+  final int nestingDepth;
+  final int functionLoc;
+  final MaintainabilityContext maintainability;
+
+  const CodeContext({
+    required this.functionName,
+    required this.complexity,
+    required this.nestingDepth,
+    required this.functionLoc,
+    required this.maintainability,
+  });
+
+  int get maintainabilityScore => maintainability.score;
+  String get maintainabilityLevel => maintainability.level;
+
+  Map<String, dynamic> maintainabilityEvidence() => {
+        ...maintainability.toJson(),
+        'complexity': complexity,
+        'nestingDepth': nestingDepth,
+        'functionLoc': functionLoc,
+        'note':
+            'FLUSEC-defined maintainability context; not a security-severity score.',
+      };
+}
+
+class CodeContextAnalyzer {
+  /// Returns function-level context for [node], or null when the finding is at
+  /// top level / class level and has no enclosing executable.
+  static CodeContext? fromNode(AstNode node) {
+    final executable = enclosingExecutable(node);
+    if (executable == null) return null;
+
+    final rawName = executableName(executable);
+    final functionName = rawName == '<anonymous>' ? null : rawName;
+
+    final complexity = Complexity.computeCyclomaticComplexity(executable);
+    final nestingDepth = Complexity.computeMaxNestingDepth(executable);
+    final functionLoc = Complexity.computeFunctionLoc(executable);
+    final maintainability = Complexity.computeMaintainabilityContext(
+      complexity: complexity,
+      nestingDepth: nestingDepth,
+      functionLoc: functionLoc,
+    );
+
+    return CodeContext(
+      functionName: functionName,
+      complexity: complexity,
+      nestingDepth: nestingDepth,
+      functionLoc: functionLoc,
+      maintainability: maintainability,
+    );
+  }
+
+  /// Finds the closest enclosing function/method/constructor/lambda.
+  static AstNode? enclosingExecutable(AstNode node) {
+    AstNode? current = node;
+    while (current != null) {
+      if (current is FunctionDeclaration ||
+          current is MethodDeclaration ||
+          current is ConstructorDeclaration ||
+          current is FunctionExpression) {
+        return current;
+      }
+      current = current.parent;
+    }
+    return null;
+  }
+
+  /// Human-readable name for an executable node.
+  static String executableName(AstNode exec) {
+    if (exec is FunctionDeclaration) {
+      return exec.name.lexeme;
+    }
+
+    if (exec is MethodDeclaration) {
+      return exec.name.lexeme;
+    }
+
+    if (exec is ConstructorDeclaration) {
+      final typeName = exec.returnType?.toSource() ?? '';
+      final ctorName = exec.name?.lexeme ?? '';
+      return ctorName.isEmpty ? typeName : '$typeName.$ctorName';
+    }
+
+    if (exec is FunctionExpression) {
+      final parent = exec.parent;
+      if (parent is FunctionDeclaration) {
+        return parent.name.lexeme;
+      }
+      if (parent is MethodDeclaration) {
+        return parent.name.lexeme;
+      }
+      if (parent is ConstructorDeclaration) {
+        final typeName = parent.returnType?.toSource() ?? '';
+        final ctorName = parent.name?.lexeme ?? '';
+        return ctorName.isEmpty ? typeName : '$typeName.$ctorName';
+      }
+    }
+
+    return '<anonymous>';
+  }
 }
 
 class Complexity {
@@ -133,13 +236,9 @@ class Complexity {
     return loc < 1 ? 1 : loc;
   }
 
-  // -------------------------------------------------------------------------
-  // Human-readable raw metric levels
-  // -------------------------------------------------------------------------
   // Complexity uses a literature-informed starting point around 10. The
   // nesting/LOC thresholds and the combined weighting are FLUSEC-defined
   // engineering heuristics and must not be described as universal standards.
-
   static String levelFor(int score) {
     if (score <= 10) return 'low';
     if (score <= 15) return 'moderate';
@@ -161,17 +260,12 @@ class Complexity {
     return 'very_high';
   }
 
-  // -------------------------------------------------------------------------
-  // FLUSEC Maintainability Context Score (0-100)
-  // -------------------------------------------------------------------------
-  // Formula:
-  //   0.40 * normalized cyclomatic complexity
-  // + 0.35 * normalized nesting depth
-  // + 0.25 * normalized function LOC
-  //
-  // This is a FLUSEC-defined contextual score, not a standardized security
-  // risk score.
-
+  /// FLUSEC Maintainability Context Score (0-100):
+  ///   0.40 * normalized cyclomatic complexity
+  /// + 0.35 * normalized nesting depth
+  /// + 0.25 * normalized function LOC
+  ///
+  /// This is contextual maintainability metadata, not a security-risk score.
   static MaintainabilityContext computeMaintainabilityContext({
     required int complexity,
     required int nestingDepth,

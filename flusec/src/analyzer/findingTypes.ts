@@ -1,5 +1,5 @@
 // src/analyzer/findingTypes.ts
-// Shared TypeScript contract for analyzer output.
+// Shared TypeScript contract for normalized FLUSEC analyzer output.
 
 export type FlusecComponent = "hsd" | "net" | "ids" | "iiv";
 export type DiagnosticSeverityName =
@@ -27,18 +27,23 @@ export interface AnalyzerFinding {
   evidence?: Record<string, unknown> | null;
   line: number;
   column: number;
+  endColumn?: number | null;
   component?: FlusecComponent | string;
+  fingerprint?: string | null;
 
+  // Shared optional function-level maintainability context.
   functionName?: string | null;
   complexity?: number | null;
   nestingDepth?: number | null;
   functionLoc?: number | null;
   maintainabilityScore?: number | null;
   maintainabilityLevel?: string | null;
+
+  // HSD-only fields.
   secretType?: string | null;
   taintFlow?: unknown[] | null;
 
-  riskLevel?: string | null;
+  // IDS-only fields.
   dataType?: string | null;
   storageContext?: string | null;
 }

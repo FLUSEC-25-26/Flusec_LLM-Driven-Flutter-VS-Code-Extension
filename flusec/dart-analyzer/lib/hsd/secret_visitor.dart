@@ -19,9 +19,8 @@ import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/token.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 
+import '../core/code_context.dart';
 import '../core/issue.dart';
-import 'complexity.dart';
-import 'function_utils.dart';
 import 'hardcoded_secrets_rules.dart';
 import 'taint_tracker.dart';
 
@@ -88,33 +87,13 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
     final dedupKey = '$filePath:${loc.$1}:${loc.$2}:${hit.ruleId}';
     if (!_seen.add(dedupKey)) return;
 
-    String? functionName;
-    int? complexity;
-    int? nestingDepth;
-    int? functionLoc;
-    int? maintainabilityScore;
-    String? maintainabilityLevel;
-    MaintainabilityContext? maintainability;
-
-    final executable = FunctionUtils.enclosingExecutable(reportNode);
-    if (executable != null) {
-      functionName = FunctionUtils.executableName(executable);
-      if (functionName == '<anonymous>') {
-        functionName = null;
-      }
-
-      complexity = Complexity.computeCyclomaticComplexity(executable);
-      nestingDepth = Complexity.computeMaxNestingDepth(executable);
-      functionLoc = Complexity.computeFunctionLoc(executable);
-
-      maintainability = Complexity.computeMaintainabilityContext(
-        complexity: complexity,
-        nestingDepth: nestingDepth,
-        functionLoc: functionLoc,
-      );
-      maintainabilityScore = maintainability.score;
-      maintainabilityLevel = maintainability.level;
-    }
+    final codeContext = CodeContextAnalyzer.fromNode(reportNode);
+    final functionName = codeContext?.functionName;
+    final complexity = codeContext?.complexity;
+    final nestingDepth = codeContext?.nestingDepth;
+    final functionLoc = codeContext?.functionLoc;
+    final maintainabilityScore = codeContext?.maintainabilityScore;
+    final maintainabilityLevel = codeContext?.maintainabilityLevel;
 
     List<Map<String, dynamic>>? taintFlow;
     if (taintDeclarationNode != null &&
@@ -129,20 +108,15 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
 
     final evidence = <String, dynamic>{...hit.evidence};
 
-    if (maintainability != null) {
-      evidence['maintainabilityContext'] = {
-        ...maintainability.toJson(),
-        'complexity': complexity,
-        'nestingDepth': nestingDepth,
-        'functionLoc': functionLoc,
-        'note':
-            'FLUSEC-defined maintainability context; not a security-severity score.',
-      };
+    if (codeContext != null) {
+      evidence['maintainabilityContext'] =
+          codeContext.maintainabilityEvidence();
     }
 
     // Correlate an AWS secret access key with a nearby access-key identifier,
     // but never copy the identifier or secret value into the finding.
     if (hit.secretType == 'AWS_SECRET_ACCESS_KEY') {
+      final executable = CodeContextAnalyzer.enclosingExecutable(reportNode);
       final scopeSource = executable?.toSource() ?? raw;
       final hasNearbyAccessKeyId = RegExp(
         r'\b(?:AKIA|ASIA)[0-9A-Z]{16}\b',
@@ -167,7 +141,7 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
         filePath,
         hit.ruleId,
         message,
-        'warning',
+        flusecSecurityDiagnosticSeverity,
         loc.$1,
         loc.$2,
         securitySeverity: hit.securitySeverity,
@@ -304,9 +278,9 @@ class SecretVisitor extends RecursiveAstVisitor<void> {
       }
 
       if (current is ReturnStatement || current is ExpressionFunctionBody) {
-        final executable = FunctionUtils.enclosingExecutable(current);
+        final executable = CodeContextAnalyzer.enclosingExecutable(current);
         if (executable != null) {
-          final name = FunctionUtils.executableName(executable);
+          final name = CodeContextAnalyzer.executableName(executable);
           if (name != '<anonymous>') return name;
         }
       }

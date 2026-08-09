@@ -19,15 +19,16 @@ import {
   diagCollection,
   severityToVS,
   upsertFindingsForDoc,
-  upsertFindingsForFile,
+  replaceFindingsFile,
 } from "./findingsStore.js";
+import type { AnalyzerFinding } from "./findingTypes";
 
 import {
   resetLLMState,
   clearFeedbackForDocument,
 } from "../diagnostics/hoverllm.js";
 
-import { syncPoliciesForWorkspace } from "../policies/policySync.js";
+import { syncPoliciesForWorkspace } from "../policies/policySync";
 
 /**
  * Return workspace folder for a document.
@@ -171,7 +172,7 @@ export async function runAnalyzer(
     });
   });
 
-  let findings: any[] = [];
+  let findings: AnalyzerFinding[] = [];
   try {
     findings = JSON.parse(stdout);
     if (!Array.isArray(findings)) {
@@ -226,7 +227,7 @@ export async function runAnalyzer(
     const diag = new vscode.Diagnostic(
       range,
       message,
-      severityToVS(f.severity || "warning")
+      severityToVS("warning")
     );
     diag.source = "flusec";
     diag.code = f.ruleId;
@@ -236,10 +237,10 @@ export async function runAnalyzer(
   diagCollection.set(doc.uri, diags);
 
   // Split findings by component and write to separate files
-  const hsdFindings = findings.filter((f: any) => (f.component ?? "hsd") === "hsd");
-  const netFindings = findings.filter((f: any) => f.component === "net");
-  const idsFindings = findings.filter((f: any) => f.component === "ids");
-  const iivFindings = findings.filter((f: any) => f.component === "iiv");
+  const hsdFindings = findings.filter((f) => (f.component ?? "hsd") === "hsd");
+  const netFindings = findings.filter((f) => f.component === "net");
+  const idsFindings = findings.filter((f) => f.component === "ids");
+  const iivFindings = findings.filter((f) => f.component === "iiv");
 
   const hsdPath = hsdFindingsPathForFolder(folder);
   const netPath = netFindingsPathForFolder(folder);
@@ -320,7 +321,7 @@ export async function runProjectAnalyzer(
     });
   });
 
-  let findings: any[] = [];
+  let findings: AnalyzerFinding[] = [];
   try {
     findings = JSON.parse(stdout);
     if (!Array.isArray(findings)) {
@@ -332,7 +333,7 @@ export async function runProjectAnalyzer(
   }
 
   // Group findings by file for diagnostics
-  const findingsByFile = new Map<string, any[]>();
+  const findingsByFile = new Map<string, AnalyzerFinding[]>();
   for (const f of findings) {
     const filePath = f.file ?? "";
     if (!filePath) { continue; }
@@ -340,6 +341,10 @@ export async function runProjectAnalyzer(
     existing.push(f);
     findingsByFile.set(filePath, existing);
   }
+
+  // Clear stale diagnostics first. A clean file from this project scan must
+  // not keep a warning from an earlier scan.
+  diagCollection.clear();
 
   // Set diagnostics for each file
   for (const [filePath, fileFindings] of findingsByFile) {
@@ -378,7 +383,7 @@ export async function runProjectAnalyzer(
       const diag = new vscode.Diagnostic(
         range,
         message,
-        severityToVS(f.severity || "warning")
+        severityToVS("warning")
       );
       diag.source = "flusec";
       diag.code = f.ruleId;
@@ -389,20 +394,20 @@ export async function runProjectAnalyzer(
   }
 
   // Split findings by component
-  const hsdFindings = findings.filter((f: any) => (f.component ?? "hsd") === "hsd");
-  const netFindings = findings.filter((f: any) => f.component === "net");
-  const idsFindings = findings.filter((f: any) => f.component === "ids");
-  const iivFindings = findings.filter((f: any) => f.component === "iiv");
+  const hsdFindings = findings.filter((f) => (f.component ?? "hsd") === "hsd");
+  const netFindings = findings.filter((f) => f.component === "net");
+  const idsFindings = findings.filter((f) => f.component === "ids");
+  const iivFindings = findings.filter((f) => f.component === "iiv");
 
   const hsdPath = hsdFindingsPathForFolder(folder);
   const netPath = netFindingsPathForFolder(folder);
   const idsPath = idsFindingsPathForFolder(folder);
   const iivPath = iivFindingsPathForFolder(folder);
 
-  writeFindingsFile(hsdPath, hsdFindings);
-  writeFindingsFile(netPath, netFindings);
-  writeFindingsFile(idsPath, idsFindings);
-  writeFindingsFile(iivPath, iivFindings);
+  replaceFindingsFile(hsdPath, hsdFindings);
+  replaceFindingsFile(netPath, netFindings);
+  replaceFindingsFile(idsPath, idsFindings);
+  replaceFindingsFile(iivPath, iivFindings);
 
   const filesWithIssues = findingsByFile.size;
 
@@ -415,42 +420,6 @@ export async function runProjectAnalyzer(
     idsCount: idsFindings.length,
     iivCount: iivFindings.length,
   };
-}
-
-function writeFindingsFile(filePath: string, findings: any[]): void {
-  const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-
-  const enriched = findings.map((f: any) => ({
-    file: f.file ?? "",
-    line: f.line ?? 1,
-    column: f.column ?? 1,
-    ruleId: f.ruleId ?? "",
-    message: f.message ?? "",
-    severity: f.severity ?? "warning",
-    securitySeverity: f.securitySeverity ?? null,
-    confidence: f.confidence ?? null,
-    category: f.category ?? null,
-    remediation: f.remediation ?? null,
-    cwe: f.cwe ?? null,
-    evidence: f.evidence ?? null,
-    functionName: f.functionName ?? null,
-    complexity: f.complexity ?? null,
-    nestingDepth: f.nestingDepth ?? null,
-    functionLoc: f.functionLoc ?? null,
-    maintainabilityScore: f.maintainabilityScore ?? null,
-    maintainabilityLevel: f.maintainabilityLevel ?? null,
-    secretType: f.secretType ?? null,
-    taintFlow: f.taintFlow ?? null,
-    component: f.component ?? "hsd",
-    riskLevel: f.riskLevel ?? null,
-    dataType: f.dataType ?? null,
-    storageContext: f.storageContext ?? null,
-  }));
-
-  fs.writeFileSync(filePath, JSON.stringify(enriched, null, 2), "utf8");
 }
 
 function countDartFiles(dirPath: string): number {

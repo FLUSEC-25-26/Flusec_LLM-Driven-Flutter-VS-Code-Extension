@@ -1,11 +1,16 @@
 // src/analyzer/findingsStore.ts
 //
-// Central storage and diagnostic helpers for FLUSEC findings.
+// Central storage, normalization, fingerprint fallback, and diagnostic helpers
+// for FLUSEC findings.
 
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
-import type { AnalyzerFinding } from "./findingTypes";
+import { createHash } from "crypto";
+import type {
+  AnalyzerFinding,
+  FlusecComponent,
+} from "./findingTypes.js";
 
 function ensureDirForFile(filePath: string): void {
   const dir = path.dirname(filePath);
@@ -80,7 +85,7 @@ export function refreshDiagnosticsFromFindings(filePath: string): void {
 
     const line = Math.max(0, (finding.line ?? 1) - 1);
     const column = Math.max(0, (finding.column ?? 1) - 1);
-    const endColumn = column + 80;
+    const endColumn = Math.max(column + 1, finding.endColumn ?? column + 80);
 
     const diagnostic = new vscode.Diagnostic(
       new vscode.Range(line, column, line, endColumn),
@@ -102,38 +107,99 @@ export function refreshDiagnosticsFromFindings(filePath: string): void {
   }
 }
 
-function storedFinding(
+function normalizedComponent(value: unknown): FlusecComponent {
+  const raw = String(value ?? "hsd").trim().toLowerCase();
+  if (raw === "net" || raw === "ids" || raw === "iiv") {return raw;}
+  return "hsd";
+}
+
+function normalizedPathForIdentity(filePath: string): string {
+  const normalized = path.resolve(filePath).replace(/\\/g, "/");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
+function fallbackFingerprint(
+  finding: AnalyzerFinding,
+  sourceFile: string,
+  component: FlusecComponent
+): string {
+  const identity = [
+    component,
+    finding.ruleId ?? "",
+    normalizedPathForIdentity(finding.file ?? sourceFile),
+    finding.functionName ?? "",
+    finding.line ?? 1,
+    finding.column ?? 1,
+  ].join("|");
+
+  return createHash("sha256").update(identity, "utf8").digest("hex");
+}
+
+function putIfPresent(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown
+): void {
+  if (value !== null && value !== undefined) {
+    target[key] = value;
+  }
+}
+
+/**
+ * Convert analyzer output into the one local storage contract used by both
+ * single-file and project scans.
+ *
+ * Current FLUSEC security diagnostics are normalized to VS Code Warning.
+ * Security impact remains independent in securitySeverity.
+ */
+export function normalizeFindingForStorage(
   finding: AnalyzerFinding,
   sourceFile: string,
   endColumn?: number
 ): Record<string, unknown> {
-  return {
-    file: finding.file ?? sourceFile,
+  const component = normalizedComponent(finding.component);
+  const file = finding.file ?? sourceFile;
+  const stored: Record<string, unknown> = {
+    file,
     line: finding.line ?? 1,
     column: finding.column ?? 1,
-    endColumn: endColumn ?? null,
     ruleId: finding.ruleId ?? "",
     message: finding.message ?? "",
-    severity: finding.severity ?? "warning",
-    securitySeverity: finding.securitySeverity ?? null,
-    confidence: finding.confidence ?? null,
-    category: finding.category ?? null,
-    remediation: finding.remediation ?? null,
-    cwe: finding.cwe ?? null,
-    evidence: finding.evidence ?? null,
-    functionName: finding.functionName ?? null,
-    complexity: finding.complexity ?? null,
-    nestingDepth: finding.nestingDepth ?? null,
-    functionLoc: finding.functionLoc ?? null,
-    maintainabilityScore: finding.maintainabilityScore ?? null,
-    maintainabilityLevel: finding.maintainabilityLevel ?? null,
-    secretType: finding.secretType ?? null,
-    taintFlow: finding.taintFlow ?? null,
-    component: finding.component ?? "hsd",
-    riskLevel: finding.riskLevel ?? null,
-    dataType: finding.dataType ?? null,
-    storageContext: finding.storageContext ?? null,
+    severity: "warning",
+    component,
+    fingerprint:
+      finding.fingerprint ?? fallbackFingerprint(finding, sourceFile, component),
   };
+
+  if (typeof endColumn === "number") {
+    stored.endColumn = endColumn;
+  }
+
+  putIfPresent(stored, "securitySeverity", finding.securitySeverity);
+  putIfPresent(stored, "confidence", finding.confidence);
+  putIfPresent(stored, "category", finding.category);
+  putIfPresent(stored, "remediation", finding.remediation);
+  putIfPresent(stored, "cwe", finding.cwe);
+  putIfPresent(stored, "evidence", finding.evidence);
+
+  putIfPresent(stored, "functionName", finding.functionName);
+  putIfPresent(stored, "complexity", finding.complexity);
+  putIfPresent(stored, "nestingDepth", finding.nestingDepth);
+  putIfPresent(stored, "functionLoc", finding.functionLoc);
+  putIfPresent(stored, "maintainabilityScore", finding.maintainabilityScore);
+  putIfPresent(stored, "maintainabilityLevel", finding.maintainabilityLevel);
+
+  if (component === "hsd") {
+    putIfPresent(stored, "secretType", finding.secretType);
+    putIfPresent(stored, "taintFlow", finding.taintFlow);
+  }
+
+  if (component === "ids") {
+    putIfPresent(stored, "dataType", finding.dataType);
+    putIfPresent(stored, "storageContext", finding.storageContext);
+  }
+
+  return stored;
 }
 
 function readExistingFindings(findingsFilePath: string): any[] {
@@ -147,6 +213,11 @@ function readExistingFindings(findingsFilePath: string): any[] {
   }
 }
 
+function sameFile(left: unknown, right: string): boolean {
+  if (typeof left !== "string" || !left.trim()) {return false;}
+  return normalizedPathForIdentity(left) === normalizedPathForIdentity(right);
+}
+
 export function upsertFindingsForDoc(
   findingsFilePath: string,
   document: vscode.TextDocument,
@@ -155,9 +226,14 @@ export function upsertFindingsForDoc(
   ensureDirForFile(findingsFilePath);
 
   const sourceFile = document.fileName;
-  const retained = readExistingFindings(findingsFilePath).filter(
-    (finding) => finding?.file !== sourceFile
-  );
+  const retained = readExistingFindings(findingsFilePath)
+    .filter((finding) => !sameFile(finding?.file, sourceFile))
+    .map((finding) =>
+      normalizeFindingForStorage(
+        finding as AnalyzerFinding,
+        String(finding?.file ?? "")
+      )
+    );
 
   for (const finding of newFindings) {
     const lineIndex = Math.max(0, finding.line - 1);
@@ -168,7 +244,9 @@ export function upsertFindingsForDoc(
       endColumn = Math.max(1, finding.column ?? 1);
     }
 
-    retained.push(storedFinding(finding, sourceFile, endColumn));
+    retained.push(
+      normalizeFindingForStorage(finding, sourceFile, endColumn)
+    );
   }
 
   fs.writeFileSync(
@@ -185,17 +263,40 @@ export function upsertFindingsForFile(
 ): void {
   ensureDirForFile(findingsFilePath);
 
-  const retained = readExistingFindings(findingsFilePath).filter(
-    (finding) => finding?.file !== sourceFilePath
-  );
+  const retained = readExistingFindings(findingsFilePath)
+    .filter((finding) => !sameFile(finding?.file, sourceFilePath))
+    .map((finding) =>
+      normalizeFindingForStorage(
+        finding as AnalyzerFinding,
+        String(finding?.file ?? "")
+      )
+    );
 
   for (const finding of newFindings) {
-    retained.push(storedFinding(finding, sourceFilePath));
+    retained.push(normalizeFindingForStorage(finding, sourceFilePath));
   }
 
   fs.writeFileSync(
     findingsFilePath,
     JSON.stringify(retained, null, 2),
+    "utf8"
+  );
+}
+
+/** Replace a component findings file after a full project scan. */
+export function replaceFindingsFile(
+  findingsFilePath: string,
+  findings: AnalyzerFinding[]
+): void {
+  ensureDirForFile(findingsFilePath);
+
+  const normalized = findings.map((finding) =>
+    normalizeFindingForStorage(finding, finding.file ?? "")
+  );
+
+  fs.writeFileSync(
+    findingsFilePath,
+    JSON.stringify(normalized, null, 2),
     "utf8"
   );
 }

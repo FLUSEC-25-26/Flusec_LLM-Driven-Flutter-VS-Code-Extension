@@ -2,277 +2,60 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>FLUSEC – Input Validation Dashboard</title>
-  <link rel="stylesheet" href="{{styleHref}}">
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FLUSEC · Input Validation</title>
+  <link rel="stylesheet" href="{{sharedCssUri}}" />
 </head>
-<body>
-  <header class="app-header">
-    <div class="titles">
-      <h1>FLUSEC – Input Validation Dashboard</h1>
-      <p>Insufficient input validation advisor for Flutter/Dart</p>
+<body data-component="iiv">
+  <header class="flusec-header">
+    <div class="flusec-header__title">
+      <h1>FLUSEC · Input Validation</h1>
+      <p>Detects security-sensitive input paths without sufficient validation.</p>
     </div>
-    <div class="actions">
-      <button id="btnRescan" class="btn primary">Re‑scan Active File</button>
-      <button id="btnRefresh" class="btn">Refresh Findings</button>
+    <div class="flusec-header__actions">
+      <button id="btnRefresh" class="flusec-button flusec-button--secondary" type="button">Refresh</button>
     </div>
   </header>
 
-  <main class="container">
-    <section class="summary">
-      <h2>Summary</h2>
-      <div class="cards">
-        <div class="card">
-          <div class="card-title">Total Findings</div>
-          <div class="card-value" id="total-count">0</div>
-        </div>
-        <div class="card">
-          <div class="card-title">Critical / High</div>
-          <div class="card-value" id="critical-count" style="color: var(--badge-error);">0</div>
-        </div>
-        <div class="card">
-          <div class="card-title">Warnings</div>
-          <div class="card-value" id="warning-count" style="color: var(--badge-warning);">0</div>
-        </div>
-      </div>
+  <main class="flusec-main">
+    <section class="flusec-summary" aria-label="Input validation finding summary">
+      <div class="flusec-summary__item"><span class="flusec-summary__label">Findings</span><span class="flusec-summary__value" id="summaryTotal">0</span></div>
+      <div class="flusec-summary__item" data-severity="critical"><span class="flusec-summary__label">Critical</span><span class="flusec-summary__value" id="summaryCritical">0</span></div>
+      <div class="flusec-summary__item" data-severity="high"><span class="flusec-summary__label">High</span><span class="flusec-summary__value" id="summaryHigh">0</span></div>
+      <div class="flusec-summary__item" data-severity="medium"><span class="flusec-summary__label">Medium</span><span class="flusec-summary__value" id="summaryMedium">0</span></div>
+      <div class="flusec-summary__item" data-severity="low"><span class="flusec-summary__label">Low</span><span class="flusec-summary__value" id="summaryLow">0</span></div>
     </section>
 
-    <section class="filters">
-      <input id="filterInput" type="text" class="input" placeholder="Search message / file / rule" />
+    <section class="flusec-toolbar" aria-label="Finding filters">
+      <input id="searchInput" class="flusec-input flusec-search" type="search" placeholder="Search findings, files, rules or CWE…" aria-label="Search findings" />
+      <select id="severityFilter" class="flusec-select" aria-label="Filter by security severity">
+        <option value="">All severities</option>
+        <option value="critical">Critical</option>
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+      </select>
+      <select id="confidenceFilter" class="flusec-select" aria-label="Filter by detection confidence">
+        <option value="">All confidence</option>
+        <option value="high">High confidence</option>
+        <option value="medium">Medium confidence</option>
+        <option value="low">Low confidence</option>
+      </select>
+      <select id="sortFilter" class="flusec-select" aria-label="Sort findings">
+        <option value="severity">Sort: Severity</option>
+        <option value="confidence">Sort: Confidence</option>
+        <option value="file">Sort: File</option>
+        <option value="rule">Sort: Rule</option>
+      </select>
+      <button id="btnMoreFilters" class="flusec-button flusec-button--secondary" type="button" aria-expanded="false" aria-controls="moreFilters">More Filters</button>
     </section>
 
-    <!-- Charts -->
-    <section class="charts">
-      <h2>Findings by Rule</h2>
-      <div class="card">
-        <canvas id="chartRules" aria-label="Bar chart of findings by rule"></canvas>
-      </div>
-    </section>
-
-    <section class="charts">
-      <h2>Hotspot Files</h2>
-      <div class="card">
-        <canvas id="chartFiles" aria-label="Bar chart of findings by file"></canvas>
-      </div>
-    </section>
-
-    <section class="issues">
-      <h2>Findings</h2>
-      <ul id="issues-list" class="issues-list"></ul>
-    </section>
+    <section id="moreFilters" class="flusec-more-filters" aria-label="Additional filters" hidden></section>
+    <div id="resultCount" class="flusec-result-count" aria-live="polite">0 findings</div>
+    <section id="findingsState" aria-live="polite"></section>
+    <section id="findingsList" class="flusec-findings" aria-label="Input validation findings"></section>
   </main>
 
-  <footer class="footer">
-    <small>FLUSEC © 2025 • Insufficient Input Validation Detection</small>
-  </footer>
-
-  <script nonce="{{nonce}}">
-    const vscode = acquireVsCodeApi();
-
-    function send(type, payload) {
-      vscode.postMessage({ type, payload });
-    }
-
-    let lastItems = [];
-
-    window.addEventListener('DOMContentLoaded', () => {
-      const btnRescan = document.getElementById('btnRescan');
-      const btnRefresh = document.getElementById('btnRefresh');
-      const filterInput = document.getElementById('filterInput');
-
-      btnRescan?.addEventListener('click', () => send('rescanActiveFile'));
-      btnRefresh?.addEventListener('click', () => send('refreshFindings'));
-
-      filterInput?.addEventListener('input', (e) => {
-        const q = (e.target?.value ?? '').toLowerCase();
-        filterList(q);
-      });
-
-      send('ready');
-    });
-
-    window.addEventListener('message', (event) => {
-      const msg = event.data;
-      if (!msg) return;
-
-      if (msg.type === 'diagnostics') {
-        const items = msg.payload ?? [];
-        renderFindings(items);
-        renderKPIs(items);
-        renderCharts(items);
-      }
-    });
-
-    // ---- KPIs ----
-    function renderKPIs(items) {
-      const total = items.length;
-      const critHigh = items.filter(it => {
-        const sev = String(it.severity).toLowerCase();
-        return sev === 'error' || sev === 'critical' || sev === 'high';
-      }).length;
-      const warnings = total - critHigh;
-
-      document.getElementById('total-count').textContent = String(total);
-      document.getElementById('critical-count').textContent = String(critHigh);
-      document.getElementById('warning-count').textContent = String(warnings);
-    }
-
-    // ---- Findings list ----
-    function renderFindings(items) {
-      lastItems = items;
-      const list = document.getElementById('issues-list');
-      if (!list) return;
-
-      list.innerHTML = '';
-      for (const it of items) {
-        const li = document.createElement('li');
-        li.className = 'issue-item';
-        li.innerHTML = `
-          <div class="issue-head">
-            <span class="badge badge-${it.severity}">${it.severity}</span>
-            <span class="issue-message">${escapeHtml(it.message)}</span>
-          </div>
-          <div class="issue-meta">
-            <code class="file">${escapeHtml(it.file)}</code>
-            <span>Line ${it.line}, Col ${it.column}</span>
-            ${it.code ? `<span class="rule">[${escapeHtml(String(it.code))}]</span>` : ''}
-            ${it.functionName ? `<span>fn: ${escapeHtml(it.functionName)}</span>` : ''}
-            <button class="open-btn" aria-label="Open file">Open</button>
-          </div>
-        `;
-        li.querySelector('.open-btn')?.addEventListener('click', () => {
-          send('openFile', it.file);
-        });
-        list.appendChild(li);
-      }
-    }
-
-    function filterList(q) {
-      const list = document.getElementById('issues-list');
-      if (!list) return;
-
-      const filtered = !q ? lastItems : lastItems.filter(it =>
-        String(it.message).toLowerCase().includes(q) ||
-        String(it.file).toLowerCase().includes(q) ||
-        String(it.code ?? '').toLowerCase().includes(q)
-      );
-
-      list.innerHTML = '';
-      for (const it of filtered) {
-        const li = document.createElement('li');
-        li.className = 'issue-item';
-        li.innerHTML = `
-          <div class="issue-head">
-            <span class="badge badge-${it.severity}">${it.severity}</span>
-            <span class="issue-message">${escapeHtml(it.message)}</span>
-          </div>
-          <div class="issue-meta">
-            <code class="file">${escapeHtml(it.file)}</code>
-            <span>Line ${it.line}, Col ${it.column}</span>
-            ${it.code ? `<span class="rule">[${escapeHtml(String(it.code))}]</span>` : ''}
-            <button class="open-btn" aria-label="Open file">Open</button>
-          </div>
-        `;
-        li.querySelector('.open-btn')?.addEventListener('click', () => {
-          send('openFile', it.file);
-        });
-        list.appendChild(li);
-      }
-
-      renderKPIs(filtered);
-      renderCharts(filtered);
-    }
-
-    function escapeHtml(str) {
-      return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-    }
-
-    // ---- Charts (native canvas, no dependencies) ----
-    function renderCharts(items) {
-      // By rule
-      const ruleCounts = {};
-      items.forEach(it => {
-        const key = String(it.code ?? it.ruleId ?? 'unknown').replace('FLUSEC.IIV.', '');
-        ruleCounts[key] = (ruleCounts[key] ?? 0) + 1;
-      });
-      drawBar('chartRules', ruleCounts, '#a855f7');
-
-      // By file
-      const fileCounts = {};
-      items.forEach(it => {
-        const name = (it.file || 'unknown').split(/[\\/]/).pop();
-        fileCounts[name] = (fileCounts[name] ?? 0) + 1;
-      });
-      drawBar('chartFiles', fileCounts, '#f59e0b');
-    }
-
-    function drawBar(canvasId, dataMap, color) {
-      const canvas = document.getElementById(canvasId);
-      if (!canvas) return;
-
-      const ctx = canvas.getContext('2d');
-      const labels = Object.keys(dataMap);
-      const values = Object.values(dataMap);
-      const max = Math.max(...values, 1);
-
-      const rect = canvas.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = rect.width * dpr;
-      canvas.height = 200 * dpr;
-      canvas.style.height = '200px';
-      ctx.scale(dpr, dpr);
-
-      const W = rect.width;
-      const H = 200;
-      ctx.clearRect(0, 0, W, H);
-
-      if (labels.length === 0) {
-        ctx.fillStyle = '#888';
-        ctx.font = '13px Segoe UI';
-        ctx.textAlign = 'center';
-        ctx.fillText('No data', W / 2, H / 2);
-        return;
-      }
-
-      const pad = 40;
-      const step = (W - pad * 2) / labels.length;
-      const barW = step * 0.65;
-
-      labels.forEach((label, i) => {
-        const val = values[i];
-        const h = (val / max) * (H - pad * 2);
-        const x = pad + i * step + (step - barW) / 2;
-        const y = H - pad - h;
-
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.roundRect(x, y, barW, h, 4);
-        ctx.fill();
-
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold 12px Segoe UI';
-        ctx.textAlign = 'center';
-        ctx.fillText(val, x + barW / 2, y - 6);
-
-        ctx.fillStyle = '#aaa';
-        ctx.font = '10px Segoe UI';
-        let displayLabel = label.length > 12 ? label.substring(0, 10) + '..' : label;
-        ctx.fillText(displayLabel, x + barW / 2, H - pad + 14);
-      });
-
-      // Base line
-      ctx.strokeStyle = '#444';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(pad, H - pad);
-      ctx.lineTo(W - pad, H - pad);
-      ctx.stroke();
-    }
-  </script>
+  <script nonce="{{nonce}}" src="{{sharedJsUri}}"></script>
 </body>
 </html>

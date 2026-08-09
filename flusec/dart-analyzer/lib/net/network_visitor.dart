@@ -15,6 +15,7 @@ import 'dart:io';
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 
+import '../core/code_context.dart';
 import '../core/issue.dart';
 import 'network_rules.dart';
 
@@ -55,10 +56,12 @@ class NetworkVisitor extends RecursiveAstVisitor<void> {
         _emit(
           node,
           'http_url',
-          context: 'Insecure HTTP endpoint: $value. Use HTTPS for network communication.',
+          context:
+              'Insecure HTTP endpoint: ${_redactedEndpoint(value)}. Use HTTPS for network communication.',
           evidence: {
             'type': 'cleartext_http',
-            'url': value,
+            'url': _redactedEndpoint(value),
+            'credentialsRedacted': _endpointContainedCredentials(value),
             'scheme': 'http',
           },
         );
@@ -67,10 +70,12 @@ class NetworkVisitor extends RecursiveAstVisitor<void> {
       _emit(
         node,
         'websocket_insecure',
-        context: 'Insecure WebSocket endpoint: $value. Use wss:// instead of ws://.',
+        context:
+            'Insecure WebSocket endpoint: ${_redactedEndpoint(value)}. Use wss:// instead of ws://.',
         evidence: {
           'type': 'cleartext_websocket',
-          'url': value,
+          'url': _redactedEndpoint(value),
+          'credentialsRedacted': _endpointContainedCredentials(value),
           'scheme': 'ws',
         },
       );
@@ -96,7 +101,7 @@ class NetworkVisitor extends RecursiveAstVisitor<void> {
         confidenceOverride: 'medium',
         evidence: {
           'type': 'cleartext_http',
-          'expression': source,
+          'expressionKind': 'StringInterpolation',
           'scheme': 'http',
         },
       );
@@ -109,7 +114,7 @@ class NetworkVisitor extends RecursiveAstVisitor<void> {
         confidenceOverride: 'medium',
         evidence: {
           'type': 'cleartext_websocket',
-          'expression': source,
+          'expressionKind': 'StringInterpolation',
           'scheme': 'ws',
         },
       );
@@ -268,12 +273,14 @@ class NetworkVisitor extends RecursiveAstVisitor<void> {
           _emit(
             node,
             'https_http_downgrade',
-            context: 'HTTPS failure falls back to insecure HTTP endpoint $insecureUrl.',
+            context:
+              'HTTPS failure falls back to insecure HTTP endpoint ${_redactedEndpoint(insecureUrl)}.',
             evidence: {
               'type': 'protocol_downgrade',
               'secureScheme': 'https',
               'fallbackScheme': 'http',
-              'fallbackUrl': insecureUrl,
+              'fallbackUrl': _redactedEndpoint(insecureUrl),
+              'credentialsRedacted': _endpointContainedCredentials(insecureUrl),
             },
           );
           break;
@@ -287,6 +294,74 @@ class NetworkVisitor extends RecursiveAstVisitor<void> {
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
+
+  bool _isSensitiveQueryName(String name) {
+    final normalized = name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+    const indicators = {
+      'token',
+      'access_token',
+      'refresh_token',
+      'api_key',
+      'apikey',
+      'key',
+      'secret',
+      'client_secret',
+      'password',
+      'passwd',
+      'auth',
+      'authorization',
+      'credential',
+      'credentials',
+      'signature',
+      'sig',
+      'session',
+      'jwt',
+    };
+
+    if (indicators.contains(normalized)) return true;
+    return normalized.endsWith('_token') ||
+        normalized.endsWith('_secret') ||
+        normalized.endsWith('_password') ||
+        normalized.endsWith('_key');
+  }
+
+  bool _endpointContainedCredentials(String raw) {
+    final uri = Uri.tryParse(raw.trim());
+    if (uri == null) return false;
+    if (uri.userInfo.isNotEmpty) return true;
+    return uri.queryParametersAll.keys.any(_isSensitiveQueryName);
+  }
+
+  String _redactedEndpoint(String raw) {
+    final trimmed = raw.trim();
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null || uri.scheme.isEmpty) return '[REDACTED_ENDPOINT]';
+
+    final queryParameters = <String, dynamic>{};
+    for (final entry in uri.queryParametersAll.entries) {
+      if (_isSensitiveQueryName(entry.key)) {
+        queryParameters[entry.key] = '[REDACTED]';
+      } else if (entry.value.length == 1) {
+        queryParameters[entry.key] = entry.value.single;
+      } else {
+        queryParameters[entry.key] = entry.value;
+      }
+    }
+
+    try {
+      final safe = Uri(
+        scheme: uri.scheme,
+        host: uri.host,
+        port: uri.hasPort ? uri.port : null,
+        path: uri.path,
+        queryParameters: uri.hasQuery ? queryParameters : null,
+        fragment: uri.fragment.isEmpty ? null : uri.fragment,
+      );
+      return safe.toString();
+    } catch (_) {
+      return '${uri.scheme}://${uri.host}${uri.path}';
+    }
+  }
 
   String _assignmentTargetName(Expression lhs) {
     if (lhs is SimpleIdentifier) return lhs.name;
@@ -426,11 +501,21 @@ class NetworkVisitor extends RecursiveAstVisitor<void> {
     final dedupKey = '$checkKey:${location.lineNumber}';
     if (!_emitted.add(dedupKey)) return;
 
+    final codeContext = CodeContextAnalyzer.fromNode(node);
+    Map<String, dynamic>? findingEvidence =
+        evidence == null ? null : <String, dynamic>{...evidence};
+
+    if (codeContext != null) {
+      findingEvidence ??= <String, dynamic>{};
+      findingEvidence['maintainabilityContext'] =
+          codeContext.maintainabilityEvidence();
+    }
+
     final issue = Issue(
       filePath,
       rule.id,
       context ?? rule.messageTemplate,
-      rule.severity,
+      flusecSecurityDiagnosticSeverity,
       location.lineNumber,
       location.columnNumber,
       securitySeverity: rule.securitySeverity,
@@ -438,7 +523,13 @@ class NetworkVisitor extends RecursiveAstVisitor<void> {
       category: rule.category,
       remediation: rule.remediation,
       cwe: rule.cwe,
-      evidence: evidence,
+      evidence: findingEvidence,
+      functionName: codeContext?.functionName,
+      complexity: codeContext?.complexity,
+      nestingDepth: codeContext?.nestingDepth,
+      functionLoc: codeContext?.functionLoc,
+      maintainabilityScore: codeContext?.maintainabilityScore,
+      maintainabilityLevel: codeContext?.maintainabilityLevel,
       component: 'net',
     );
 

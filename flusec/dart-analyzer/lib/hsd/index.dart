@@ -5,5 +5,5 @@
 
 export 'hardcoded_secrets_rules.dart';
 export 'secret_visitor.dart';
-export 'complexity.dart';
+export '../core/code_context.dart' show Complexity, MaintainabilityContext;
 export 'function_utils.dart';

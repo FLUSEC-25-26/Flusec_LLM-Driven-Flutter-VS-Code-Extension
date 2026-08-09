@@ -25,11 +25,11 @@
     "checkKey": "command_injection",
     "enabled": true,
     "severity": "warning",
-    "securitySeverity": "medium",
+    "securitySeverity": "high",
     "defaultConfidence": "medium",
     "category": "vulnerability",
     "cwe": "CWE-78",
-    "description": "Potential unsafe process execution: a runtime-controlled executable or argument is passed to a Process execution method.",
+    "description": "Potential command injection: a runtime-controlled executable or argument is passed to a Process execution method.",
     "remediation": "Use a fixed executable, apply a strict allow-list to every runtime-controlled argument, and never build shell command strings from untrusted input.",
     "targetFunctions": [
       "run",
@@ -91,10 +91,10 @@
     "enabled": true,
     "severity": "warning",
     "securitySeverity": "low",
-    "defaultConfidence": "low",
+    "defaultConfidence": "medium",
     "category": "secure_coding",
     "cwe": "CWE-20",
-    "description": "TextFormField is editable but has no widget-level validator callback. Review whether equivalent input validation is implemented elsewhere.",
+    "description": "TextFormField is editable but has no validator callback. Input validation may be missing or implemented outside the widget.",
     "remediation": "Add a validator callback or document and enforce equivalent validation before the value reaches security-sensitive logic.",
     "targetFunctions": [
       "TextFormField"

@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 
+import '../core/code_context.dart';
 import '../core/issue.dart';
 import 'iiv_rules.dart';
 
@@ -26,19 +27,6 @@ class IivVisitor extends RecursiveAstVisitor<void> {
   // Common helpers
   // -------------------------------------------------------------------------
 
-  String? _getEnclosingFunctionName(AstNode node) {
-    AstNode? current = node;
-    while (current != null) {
-      if (current is FunctionDeclaration) return current.name.lexeme;
-      if (current is MethodDeclaration) return current.name.lexeme;
-      if (current is ConstructorDeclaration) {
-        final classNode = current.parent;
-        if (classNode is ClassDeclaration) return classNode.name.lexeme;
-      }
-      current = current.parent;
-    }
-    return null;
-  }
 
   int _scopeKey(AstNode node) {
     AstNode? current = node;
@@ -72,12 +60,23 @@ class IivVisitor extends RecursiveAstVisitor<void> {
     final dedupeKey = '${rule.id}:${node.offset}';
     if (!_emitted.add(dedupeKey)) return;
 
+    final codeContext = CodeContextAnalyzer.fromNode(node);
+    final findingEvidence = <String, dynamic>{
+      'checkKey': rule.checkKey,
+      ...?evidence,
+    };
+
+    if (codeContext != null) {
+      findingEvidence['maintainabilityContext'] =
+          codeContext.maintainabilityEvidence();
+    }
+
     issues.add(
       Issue(
         filePath,
         rule.id,
         rule.description,
-        rule.diagnosticSeverity,
+        flusecSecurityDiagnosticSeverity,
         location.lineNumber,
         location.columnNumber,
         securitySeverity: rule.securitySeverity,
@@ -85,8 +84,13 @@ class IivVisitor extends RecursiveAstVisitor<void> {
         category: rule.category,
         remediation: rule.remediation,
         cwe: rule.cwe,
-        evidence: {'checkKey': rule.checkKey, ...?evidence},
-        functionName: _getEnclosingFunctionName(node),
+        evidence: findingEvidence,
+        functionName: codeContext?.functionName,
+        complexity: codeContext?.complexity,
+        nestingDepth: codeContext?.nestingDepth,
+        functionLoc: codeContext?.functionLoc,
+        maintainabilityScore: codeContext?.maintainabilityScore,
+        maintainabilityLevel: codeContext?.maintainabilityLevel,
         component: 'iiv',
       ),
     );
@@ -105,7 +109,11 @@ class IivVisitor extends RecursiveAstVisitor<void> {
     return null;
   }
 
-  bool _namedBooleanEquals(ArgumentList arguments, String name, bool expected) {
+  bool _namedBooleanEquals(
+    ArgumentList arguments,
+    String name,
+    bool expected,
+  ) {
     final named = _namedArgument(arguments, name);
     final expression = named?.expression;
     return expression is BooleanLiteral && expression.value == expected;
@@ -317,8 +325,8 @@ class IivVisitor extends RecursiveAstVisitor<void> {
       final expression = argument is NamedExpression
           ? argument.expression
           : argument is Expression
-          ? argument
-          : null;
+              ? argument
+              : null;
 
       if (expression == null) continue;
       if (_isDynamicExpression(expression, node)) {
@@ -349,19 +357,13 @@ class IivVisitor extends RecursiveAstVisitor<void> {
     // should not be reported merely because they lack allowedExtensions.
     if (node.methodName.name != 'pickFiles') return;
 
-    final allowedExtensions = _namedArgument(
-      node.argumentList,
-      'allowedExtensions',
-    )?.expression;
-    if (allowedExtensions is ListLiteral &&
-        allowedExtensions.elements.isNotEmpty) {
+    final allowedExtensions =
+        _namedArgument(node.argumentList, 'allowedExtensions')?.expression;
+    if (allowedExtensions is ListLiteral && allowedExtensions.elements.isNotEmpty) {
       return;
     }
 
-    final typeExpression = _namedArgument(
-      node.argumentList,
-      'type',
-    )?.expression;
+    final typeExpression = _namedArgument(node.argumentList, 'type')?.expression;
     final typeText = typeExpression?.toSource().toLowerCase() ?? 'filetype.any';
 
     const restrictedTypes = <String>[
@@ -381,8 +383,7 @@ class IivVisitor extends RecursiveAstVisitor<void> {
         'source': 'FilePicker.pickFiles',
         'fileType': typeExpression?.toSource() ?? 'FileType.any (default)',
         'allowedExtensionsDetected': false,
-        'note':
-            'File type validation must also be repeated before upload or processing.',
+        'note': 'File type validation must also be repeated before upload or processing.',
       },
     );
   }
@@ -418,8 +419,8 @@ class IivVisitor extends RecursiveAstVisitor<void> {
       final expression = argument is NamedExpression
           ? argument.expression
           : argument is Expression
-          ? argument
-          : null;
+              ? argument
+              : null;
       if (expression == null) continue;
 
       directSource = directSource || _containsDeepLinkSource(expression);
@@ -444,17 +445,18 @@ class IivVisitor extends RecursiveAstVisitor<void> {
     );
   }
 
-  bool _isProtectedByValidationGuard(AstNode node, Set<String> variableNames) {
+  bool _isProtectedByValidationGuard(
+    AstNode node,
+    Set<String> variableNames,
+  ) {
     AstNode? current = node.parent;
     while (current != null) {
       if (current is IfStatement) {
         final condition = current.expression.toSource().toLowerCase();
-        final referencesVariable =
-            variableNames.isEmpty ||
+        final referencesVariable = variableNames.isEmpty ||
             variableNames.any(
-              (name) => RegExp(
-                '\\b${RegExp.escape(name.toLowerCase())}\\b',
-              ).hasMatch(condition),
+              (name) => RegExp('\\b${RegExp.escape(name.toLowerCase())}\\b')
+                  .hasMatch(condition),
             );
 
         if (referencesVariable && _looksLikeValidation(condition)) {
@@ -489,7 +491,9 @@ class IivVisitor extends RecursiveAstVisitor<void> {
       'permitted',
     ];
 
-    return configured.any((name) => condition.contains(name.toLowerCase())) ||
+    return configured.any(
+          (name) => condition.contains(name.toLowerCase()),
+        ) ||
         builtInIndicators.any(condition.contains);
   }
 
@@ -509,7 +513,11 @@ class IivVisitor extends RecursiveAstVisitor<void> {
     super.visitInstanceCreationExpression(node);
   }
 
-  void _checkTextFormField(AstNode node, ArgumentList arguments, IivRule rule) {
+  void _checkTextFormField(
+    AstNode node,
+    ArgumentList arguments,
+    IivRule rule,
+  ) {
     final hasValidator = _namedArgument(arguments, 'validator') != null;
     final readOnly = _namedBooleanEquals(arguments, 'readOnly', true);
     final disabled = _namedBooleanEquals(arguments, 'enabled', false);
@@ -525,8 +533,7 @@ class IivVisitor extends RecursiveAstVisitor<void> {
         'validatorDetected': false,
         'readOnly': false,
         'enabled': true,
-        'note':
-            'Validation may exist outside the widget; manual review is recommended.',
+        'note': 'Validation may exist outside the widget; manual review is recommended.',
       },
     );
   }

@@ -23,22 +23,36 @@ interface UploadFinding {
   rule_id?: string;
   title: string;
   description?: string;
+
+  // `severity` is security impact for the web/backend contract.
   severity: string;
+  // `original_severity` keeps the editor diagnostic level (currently warning).
   original_severity?: string | null;
   confidence?: string | null;
   category?: string | null;
   cwe?: string | null;
   evidence?: Record<string, unknown> | null;
+  fingerprint?: string | null;
+
   file_path?: string;
   line_number?: number;
   column_number?: number;
   code_snippet?: string;
+
+  // Shared function-level maintainability context.
   function_name?: string | null;
   complexity?: number | null;
   nesting_depth?: number | null;
   function_loc?: number | null;
+  maintainability_score?: number | null;
+  maintainability_level?: string | null;
+
+  // HSD-only.
   secret_type?: string | null;
   taint_flow?: TaintFlowStep[] | null;
+
+  // Existing web/backend field. It is derived from canonical securitySeverity
+  // until the web platform is normalized in the next phase.
   risk_level?: string | null;
   data_type?: string | null;
   storage_context?: string | null;
@@ -77,29 +91,38 @@ function getCodeSnippet(raw: any): string | undefined {
   );
 }
 
-function getRawSeverity(raw: any, fallback = 'low'): string {
+function getSecuritySeverity(raw: any, fallback = 'low'): string {
   // Analyzer `severity` is the VS Code diagnostic level. The web platform
-  // needs the security-impact level, so prefer securitySeverity.
+  // needs security impact, so prefer the normalized securitySeverity field.
   return (
     asString(raw.security_severity) ??
     asString(raw.securitySeverity) ??
     asString(raw.risk_level) ??
-    asString(raw.riskLevel) ??
-    asString(raw.original_severity) ??
-    asString(raw.originalSeverity) ??
-    asString(raw.severity) ??
     fallback
   );
 }
 
-function baseFinding(raw: any, module: Module, defaultTitle: string): UploadFinding {
+function getDiagnosticSeverity(raw: any): string {
+  return (
+    asString(raw.original_severity) ??
+    asString(raw.originalSeverity) ??
+    asString(raw.severity) ??
+    'warning'
+  );
+}
+
+function baseFinding(
+  raw: any,
+  module: Module,
+  defaultTitle: string
+): UploadFinding {
   return {
     module,
     rule_id: asString(raw.rule_id) ?? asString(raw.ruleId) ?? asString(raw.code),
     title: asString(raw.title) ?? asString(raw.message) ?? defaultTitle,
     description: asString(raw.description),
-    severity: getRawSeverity(raw),
-    original_severity: getRawSeverity(raw),
+    severity: getSecuritySeverity(raw),
+    original_severity: getDiagnosticSeverity(raw),
     confidence: asString(raw.confidence) ?? null,
     category: asString(raw.category) ?? null,
     cwe: asString(raw.cwe) ?? null,
@@ -107,6 +130,7 @@ function baseFinding(raw: any, module: Module, defaultTitle: string): UploadFind
       raw.evidence && typeof raw.evidence === 'object' && !Array.isArray(raw.evidence)
         ? raw.evidence
         : null,
+    fingerprint: asString(raw.fingerprint) ?? null,
     file_path:
       asString(raw.file_path) ??
       asString(raw.filePath) ??
@@ -114,48 +138,51 @@ function baseFinding(raw: any, module: Module, defaultTitle: string): UploadFind
     line_number: asNumber(raw.line_number) ?? asNumber(raw.line),
     column_number: asNumber(raw.column_number) ?? asNumber(raw.column),
     code_snippet: getCodeSnippet(raw),
+    function_name: asString(raw.function_name) ?? asString(raw.functionName) ?? null,
+    complexity: asNumber(raw.complexity) ?? null,
+    nesting_depth: asNumber(raw.nesting_depth) ?? asNumber(raw.nestingDepth) ?? null,
+    function_loc: asNumber(raw.function_loc) ?? asNumber(raw.functionLoc) ?? null,
+    maintainability_score:
+      asNumber(raw.maintainability_score) ??
+      asNumber(raw.maintainabilityScore) ??
+      null,
+    maintainability_level:
+      asString(raw.maintainability_level) ??
+      asString(raw.maintainabilityLevel) ??
+      null,
   };
 }
 
 function normaliseHsd(raw: any[]): UploadFinding[] {
   return raw.map((r) => ({
     ...baseFinding(r, 'HSD', 'Hardcoded Secret Detected'),
-    function_name: asString(r.function_name) ?? asString(r.functionName),
-    complexity: asNumber(r.complexity) ?? null,
-    nesting_depth: asNumber(r.nesting_depth) ?? asNumber(r.nestingDepth) ?? null,
-    function_loc: asNumber(r.function_loc) ?? asNumber(r.functionLoc) ?? null,
     secret_type: asString(r.secret_type) ?? asString(r.secretType) ?? null,
     taint_flow: asArray<TaintFlowStep>(r.taint_flow ?? r.taintFlow),
-    risk_level: asString(r.risk_level) ?? asString(r.riskLevel) ?? null,
-    data_type: asString(r.data_type) ?? asString(r.dataType) ?? null,
-    storage_context: asString(r.storage_context) ?? asString(r.storageContext) ?? null,
   }));
 }
 
 function normaliseNet(raw: any[]): UploadFinding[] {
   return raw.map((r) => ({
     ...baseFinding(r, 'SNC', 'Insecure Network Configuration'),
-    risk_level: asString(r.risk_level) ?? asString(r.riskLevel) ?? null,
-    data_type: asString(r.data_type) ?? asString(r.dataType) ?? null,
-    storage_context: asString(r.storage_context) ?? asString(r.storageContext) ?? null,
   }));
 }
 
 function normaliseIds(raw: any[]): UploadFinding[] {
   return raw.map((r) => ({
     ...baseFinding(r, 'SDS', 'Insecure Data Storage'),
-    risk_level: asString(r.risk_level) ?? asString(r.riskLevel) ?? null,
+    risk_level:
+      asString(r.security_severity) ??
+      asString(r.securitySeverity) ??
+      null,
     data_type: asString(r.data_type) ?? asString(r.dataType) ?? null,
-    storage_context: asString(r.storage_context) ?? asString(r.storageContext) ?? null,
+    storage_context:
+      asString(r.storage_context) ?? asString(r.storageContext) ?? null,
   }));
 }
 
 function normaliseIiv(raw: any[]): UploadFinding[] {
   return raw.map((r) => ({
     ...baseFinding(r, 'IVS', 'Insufficient Input Validation'),
-    risk_level: asString(r.risk_level) ?? asString(r.riskLevel) ?? null,
-    data_type: asString(r.data_type) ?? asString(r.dataType) ?? null,
-    storage_context: asString(r.storage_context) ?? asString(r.storageContext) ?? null,
   }));
 }
 

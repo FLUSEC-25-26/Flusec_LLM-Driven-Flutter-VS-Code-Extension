@@ -13,6 +13,7 @@ import 'dart:io';
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:analyzer/dart/ast/visitor.dart';
 
+import '../core/code_context.dart';
 import '../core/issue.dart';
 import 'heuristic_analyzer.dart';
 import 'ids_rules.dart';
@@ -80,19 +81,6 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
     return _fileContextsByScope.putIfAbsent(_scopeKey(node), () => {});
   }
 
-  String? _getEnclosingFunctionName(AstNode node) {
-    AstNode? current = node;
-    while (current != null) {
-      if (current is FunctionDeclaration) return current.name.lexeme;
-      if (current is MethodDeclaration) return current.name.lexeme;
-      if (current is ConstructorDeclaration) {
-        final parent = current.parent;
-        if (parent is ClassDeclaration) return parent.name.lexeme;
-      }
-      current = current.parent;
-    }
-    return null;
-  }
 
   // -------------------------------------------------------------------------
   // Imports and local state tracking
@@ -238,8 +226,9 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
       storageContext: 'shared_prefs',
       evidence: {
         'sink': 'SharedPreferences.${node.methodName.name}',
-        'storageKey': keyExpression.toSource(),
-        'valueExpression': valueExpression.toSource(),
+        'storageKey': _safeStorageKey(keyExpression),
+        'valueKind': _nodeKindName(valueExpression),
+        'valueRedacted': true,
         'sensitiveEvidence': evidence.reason,
         'protectionDetected': false,
         'analysisScope': 'same-function',
@@ -286,8 +275,11 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
       storageContext: storageContext,
       evidence: {
         'sink': 'File.${node.methodName.name}',
-        'target': node.target?.toSource() ?? 'unknown file',
-        'valueExpression': valueExpression.toSource(),
+        'targetKind': node.target == null
+            ? 'unknown'
+            : _nodeKindName(node.target!),
+        'valueKind': _nodeKindName(valueExpression),
+        'valueRedacted': true,
         'sensitiveEvidence': valueEvidence.reason,
         'protectionDetected': false,
         'analysisScope': 'same-function',
@@ -342,7 +334,8 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
         storageContext: 'sqlite',
         evidence: {
           'sink': 'SQLite.${node.methodName.name}',
-          'valueExpression': expression.toSource(),
+          'valueKind': _nodeKindName(expression),
+          'valueRedacted': true,
           'sensitiveEvidence': valueEvidence.reason,
           'protectionDetected': false,
           'analysisScope': 'same-function',
@@ -630,6 +623,26 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
     return null;
   }
 
+  String _nodeKindName(AstNode node) {
+    final rawName = node.runtimeType.toString();
+    return rawName.endsWith('Impl')
+        ? rawName.substring(0, rawName.length - 4)
+        : rawName;
+  }
+
+  String _safeStorageKey(Expression expression) {
+    if (expression is SimpleStringLiteral) {
+      final value = expression.value;
+      return value.length <= 80 ? value : '${value.substring(0, 77)}...';
+    }
+
+    if (expression is SimpleIdentifier) {
+      return expression.name;
+    }
+
+    return '[${_nodeKindName(expression)}]';
+  }
+
   // -------------------------------------------------------------------------
   // Finding emission
   // -------------------------------------------------------------------------
@@ -651,13 +664,26 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
       dataType: dataType,
       storageContext: storageContext,
     );
+    final codeContext = CodeContextAnalyzer.fromNode(node);
+
+    final findingEvidence = <String, dynamic>{
+      'checkKey': rule.checkKey,
+      'dataType': dataType,
+      'storageContext': storageContext,
+      ...evidence,
+    };
+
+    if (codeContext != null) {
+      findingEvidence['maintainabilityContext'] =
+          codeContext.maintainabilityEvidence();
+    }
 
     issues.add(
       Issue(
         filePath,
         rule.id,
         rule.description,
-        rule.diagnosticSeverity,
+        flusecSecurityDiagnosticSeverity,
         location.lineNumber,
         location.columnNumber,
         securitySeverity: securitySeverity,
@@ -665,15 +691,14 @@ class StorageVisitor extends RecursiveAstVisitor<void> {
         category: rule.category,
         remediation: rule.remediation,
         cwe: rule.cwe,
-        evidence: {
-          'checkKey': rule.checkKey,
-          'dataType': dataType,
-          'storageContext': storageContext,
-          ...evidence,
-        },
-        functionName: _getEnclosingFunctionName(node),
+        evidence: findingEvidence,
+        functionName: codeContext?.functionName,
+        complexity: codeContext?.complexity,
+        nestingDepth: codeContext?.nestingDepth,
+        functionLoc: codeContext?.functionLoc,
+        maintainabilityScore: codeContext?.maintainabilityScore,
+        maintainabilityLevel: codeContext?.maintainabilityLevel,
         component: 'ids',
-        riskLevel: securitySeverity.toUpperCase(),
         dataType: dataType,
         storageContext: storageContext,
       ),
