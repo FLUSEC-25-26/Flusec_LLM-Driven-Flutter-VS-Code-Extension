@@ -6,9 +6,7 @@
 // - severity is the VS Code diagnostic severity: error | warning | information | hint
 // - securitySeverity is the security impact: critical | high | medium | low
 // - confidence is how certain FLUSEC is that the reported pattern is a true issue
-//
-// Keeping these values separate prevents a detector-confidence value from being
-// confused with vulnerability impact.
+// - maintainabilityScore/Level are code-context indicators, NOT security risk
 
 class Issue {
   final String filePath;
@@ -34,6 +32,12 @@ class Issue {
   final int? complexity;
   final int? nestingDepth;
   final int? functionLoc;
+
+  /// FLUSEC-defined function maintainability context (0-100).
+  /// This is not a standardized security-risk score.
+  final int? maintainabilityScore;
+  final String? maintainabilityLevel;
+
   final String? secretType;
   final List<Map<String, dynamic>>? taintFlow;
 
@@ -62,6 +66,8 @@ class Issue {
     this.complexity,
     this.nestingDepth,
     this.functionLoc,
+    this.maintainabilityScore,
+    this.maintainabilityLevel,
     this.secretType,
     this.taintFlow,
     this.riskLevel,

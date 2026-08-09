@@ -1,48 +1,79 @@
 // lib/hsd/complexity.dart
+//
+// Function-level maintainability context for HSD findings.
+//
+// IMPORTANT:
+// These metrics do NOT determine secret security severity or detection
+// confidence. They describe how difficult the surrounding function may be to
+// understand/refactor.
 
 import 'package:analyzer/dart/ast/ast.dart';
 
-class Complexity {
-  /// Simple cyclomatic complexity:
-  /// counts branches (if/for/while/switch/?:) and && / ||.
-  static int computeCyclomaticComplexity(AstNode exec) {
-    int complexity = 1; // default path
+class MaintainabilityContext {
+  final int score;
+  final String level;
+  final int complexityScore;
+  final int nestingScore;
+  final int locScore;
 
-    void walk(AstNode n) {
-      // 1) Skip nested executables — only measure `exec`
-      if (n != exec &&
-          (n is FunctionDeclaration ||
-              n is MethodDeclaration ||
-              n is ConstructorDeclaration ||
-              n is FunctionExpression)) {
+  const MaintainabilityContext({
+    required this.score,
+    required this.level,
+    required this.complexityScore,
+    required this.nestingScore,
+    required this.locScore,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'score': score,
+        'level': level,
+        'weights': const {
+          'complexity': 0.40,
+          'nestingDepth': 0.35,
+          'functionLoc': 0.25,
+        },
+        'normalized': {
+          'complexity': complexityScore,
+          'nestingDepth': nestingScore,
+          'functionLoc': locScore,
+        },
+      };
+}
+
+class Complexity {
+  /// Simple cyclomatic complexity for the enclosing executable.
+  /// Counts the base path plus decisions/branches.
+  static int computeCyclomaticComplexity(AstNode exec) {
+    var complexity = 1;
+
+    void walk(AstNode node) {
+      // Measure only this executable, not nested functions/lambdas.
+      if (node != exec &&
+          (node is FunctionDeclaration ||
+              node is MethodDeclaration ||
+              node is ConstructorDeclaration ||
+              node is FunctionExpression)) {
         return;
       }
 
-      // 2) Decision points
-      if (n is IfStatement ||
-          n is ForStatement || // includes for-each loops too
-          n is WhileStatement ||
-          n is DoStatement ||
-          n is SwitchCase ||
-          n is ConditionalExpression) {
+      if (node is IfStatement ||
+          node is ForStatement ||
+          node is WhileStatement ||
+          node is DoStatement ||
+          node is SwitchCase ||
+          node is ConditionalExpression ||
+          node is CatchClause) {
         complexity++;
       }
 
-      // 3) Catch clauses
-      if (n is CatchClause) {
-        complexity++;
-      }
-
-      // 4) Logical AND / OR
-      if (n is BinaryExpression) {
-        final op = n.operator.lexeme;
-        if (op == '&&' || op == '||') {
+      if (node is BinaryExpression) {
+        final operator = node.operator.lexeme;
+        if (operator == '&&' || operator == '||') {
           complexity++;
         }
       }
 
-      // 5) Recurse
-      for (final child in n.childEntities) {
+      for (final child in node.childEntities) {
         if (child is AstNode) {
           walk(child);
         }
@@ -53,106 +84,141 @@ class Complexity {
     return complexity;
   }
 
-  // ---------------------------------------------------------------------------
-  // NEW: maximum nesting depth
-  // ---------------------------------------------------------------------------
-  //
-  // We consider nesting of control-flow constructs like:
-  //   if / for / while / do-while / switch / try-catch
-  //
-  // Example:
-  //   if (...) {              // depth = 1
-  //     if (...) {            // depth = 2
-  //       for (...) {         // depth = 3
-  //         ...
-  //       }
-  //     }
-  //   }
-  //
-  // This gives a simple measure of "how deep" the code is, which helps estimate
-  // how hard it is to refactor around the secret.
-
+  /// Maximum nesting of control-flow structures in the enclosing executable.
   static int computeMaxNestingDepth(AstNode exec) {
-    int maxDepth = 0;
+    var maxDepth = 0;
 
-    void walk(AstNode n, int currentDepth) {
-      int depth = currentDepth;
+    void walk(AstNode node, int currentDepth) {
+      var depth = currentDepth;
 
-      // Skip nested executables (same idea as cyclomatic)
-      if (n != exec &&
-          (n is FunctionDeclaration ||
-              n is MethodDeclaration ||
-              n is ConstructorDeclaration ||
-              n is FunctionExpression)) {
+      if (node != exec &&
+          (node is FunctionDeclaration ||
+              node is MethodDeclaration ||
+              node is ConstructorDeclaration ||
+              node is FunctionExpression)) {
         return;
       }
 
-      // Any new control-flow structure increases nesting depth.
-      if (n is IfStatement ||
-          n is ForStatement ||
-          n is WhileStatement ||
-          n is DoStatement ||
-          n is SwitchStatement ||
-          n is TryStatement) {
+      if (node is IfStatement ||
+          node is ForStatement ||
+          node is WhileStatement ||
+          node is DoStatement ||
+          node is SwitchStatement ||
+          node is TryStatement) {
         depth = currentDepth + 1;
         if (depth > maxDepth) {
           maxDepth = depth;
         }
       }
 
-      for (final child in n.childEntities) {
+      for (final child in node.childEntities) {
         if (child is AstNode) {
           walk(child, depth);
         }
       }
     }
 
-    // Start at depth 0 at the executable boundary
     walk(exec, 0);
     return maxDepth;
   }
 
-  // ---------------------------------------------------------------------------
-  // NEW: function size (LOC) of the enclosing executable
-  // ---------------------------------------------------------------------------
-  //
-  // We approximate size using line numbers from the CompilationUnit's lineInfo.
-  // It counts from the start of the executable to its end, inclusive.
-
+  /// Function size from executable start line to end line, inclusive.
   static int computeFunctionLoc(AstNode exec) {
     final root = exec.root;
-    if (root is! CompilationUnit) {
-      // Fallback: we can't compute without a CompilationUnit
-      return 0;
-    }
+    if (root is! CompilationUnit) return 0;
 
-    final lineInfo = root.lineInfo;
-    final startLoc = lineInfo.getLocation(exec.offset);
-    final endLoc = lineInfo.getLocation(exec.end);
-
-    final loc = endLoc.lineNumber - startLoc.lineNumber + 1;
+    final start = root.lineInfo.getLocation(exec.offset);
+    final end = root.lineInfo.getLocation(exec.end);
+    final loc = end.lineNumber - start.lineNumber + 1;
     return loc < 1 ? 1 : loc;
   }
 
-  /// Human-readable level for cyclomatic complexity
+  // -------------------------------------------------------------------------
+  // Human-readable raw metric levels
+  // -------------------------------------------------------------------------
+  // Complexity uses a literature-informed starting point around 10. The
+  // nesting/LOC thresholds and the combined weighting are FLUSEC-defined
+  // engineering heuristics and must not be described as universal standards.
+
   static String levelFor(int score) {
-    if (score <= 5) return 'low';
-    if (score <= 10) return 'medium';
-    return 'high';
+    if (score <= 10) return 'low';
+    if (score <= 15) return 'moderate';
+    if (score <= 20) return 'high';
+    return 'very_high';
   }
 
-  /// Human-readable level for nesting depth.
-  /// You can adjust thresholds later if you want.
   static String nestingLevelFor(int depth) {
-    if (depth <= 1) return 'low';
-    if (depth <= 3) return 'medium';
-    return 'high';
+    if (depth <= 2) return 'low';
+    if (depth == 3) return 'moderate';
+    if (depth <= 5) return 'high';
+    return 'very_high';
   }
 
-  /// Human-readable level for function size (lines of code).
   static String sizeLevelFor(int loc) {
-    if (loc <= 30) return 'small';
-    if (loc <= 80) return 'medium';
-    return 'large';
+    if (loc <= 30) return 'low';
+    if (loc <= 60) return 'moderate';
+    if (loc <= 100) return 'high';
+    return 'very_high';
+  }
+
+  // -------------------------------------------------------------------------
+  // FLUSEC Maintainability Context Score (0-100)
+  // -------------------------------------------------------------------------
+  // Formula:
+  //   0.40 * normalized cyclomatic complexity
+  // + 0.35 * normalized nesting depth
+  // + 0.25 * normalized function LOC
+  //
+  // This is a FLUSEC-defined contextual score, not a standardized security
+  // risk score.
+
+  static MaintainabilityContext computeMaintainabilityContext({
+    required int complexity,
+    required int nestingDepth,
+    required int functionLoc,
+  }) {
+    final complexityScore = _complexityScore(complexity);
+    final nestingScore = _nestingScore(nestingDepth);
+    final locScore = _locScore(functionLoc);
+
+    final weighted =
+        complexityScore * 0.40 + nestingScore * 0.35 + locScore * 0.25;
+    final score = weighted.round().clamp(0, 100).toInt();
+
+    return MaintainabilityContext(
+      score: score,
+      level: maintainabilityLevelFor(score),
+      complexityScore: complexityScore,
+      nestingScore: nestingScore,
+      locScore: locScore,
+    );
+  }
+
+  static String maintainabilityLevelFor(int score) {
+    if (score <= 24) return 'low';
+    if (score <= 49) return 'moderate';
+    if (score <= 74) return 'high';
+    return 'very_high';
+  }
+
+  static int _complexityScore(int complexity) {
+    if (complexity <= 10) return 0;
+    if (complexity <= 15) return 33;
+    if (complexity <= 20) return 67;
+    return 100;
+  }
+
+  static int _nestingScore(int depth) {
+    if (depth <= 2) return 0;
+    if (depth == 3) return 33;
+    if (depth <= 5) return 67;
+    return 100;
+  }
+
+  static int _locScore(int loc) {
+    if (loc <= 30) return 0;
+    if (loc <= 60) return 33;
+    if (loc <= 100) return 67;
+    return 100;
   }
 }

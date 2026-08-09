@@ -33,6 +33,8 @@ export interface AnalyzerFinding {
   complexity?: number | null;
   nestingDepth?: number | null;
   functionLoc?: number | null;
+  maintainabilityScore?: number | null;
+  maintainabilityLevel?: string | null;
   secretType?: string | null;
   taintFlow?: unknown[] | null;
 

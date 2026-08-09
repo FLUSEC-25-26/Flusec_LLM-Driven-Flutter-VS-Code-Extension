@@ -50,6 +50,9 @@ function findingContextSuffix(finding: AnalyzerFinding): string {
   if (typeof finding.functionLoc === "number") {
     parts.push(`Size=${finding.functionLoc} LOC`);
   }
+  if (typeof finding.maintainabilityScore === "number") {
+    parts.push(`MCS=${finding.maintainabilityScore}/100`);
+  }
 
   return parts.length > 0 ? ` [${parts.join(", ")}]` : "";
 }
@@ -122,6 +125,8 @@ function storedFinding(
     complexity: finding.complexity ?? null,
     nestingDepth: finding.nestingDepth ?? null,
     functionLoc: finding.functionLoc ?? null,
+    maintainabilityScore: finding.maintainabilityScore ?? null,
+    maintainabilityLevel: finding.maintainabilityLevel ?? null,
     secretType: finding.secretType ?? null,
     taintFlow: finding.taintFlow ?? null,
     component: finding.component ?? "hsd",

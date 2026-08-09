@@ -4,18 +4,20 @@
 
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:path/path.dart' as path;
 
 import 'issue.dart';
 
 class OutputWriter {
-  /// Print the JSON array consumed by the VS Code extension.
   static void printStdout(List<Issue> issues) {
     final out = issues.map(_toMap).toList();
     stdout.writeln(jsonEncode(out));
   }
 
-  /// Write the richer findings JSON to .out/findings.json.
+  /// Optional richer file output.
+  /// HSD source snippets are redacted so FLUSEC does not copy a discovered
+  /// credential into another artifact.
   static void writeFindingsJson({
     required String filePath,
     required String content,
@@ -25,7 +27,14 @@ class OutputWriter {
       final findings = <Map<String, dynamic>>[];
 
       for (final issue in issues) {
-        final snippet = _lineSnippet(content, issue.line);
+        final rawSnippet = _lineSnippet(content, issue.line);
+        final snippet = issue.component == 'hsd'
+            ? '[REDACTED: HSD source line omitted]'
+            : rawSnippet;
+
+        final evidenceFingerprint =
+            issue.evidence?['secretFingerprint']?.toString();
+
         findings.add({
           ..._toMap(issue),
           'file': issue.filePath.isNotEmpty ? issue.filePath : filePath,
@@ -38,7 +47,7 @@ class OutputWriter {
             issue.line,
             issue.column,
             issue.ruleId,
-            snippet,
+            evidenceFingerprint ?? snippet,
           ),
         });
       }
@@ -53,7 +62,9 @@ class OutputWriter {
 
       stderr.writeln('Wrote ${findings.length} finding(s) to ${outFile.path}');
     } catch (error, stackTrace) {
-      stderr.writeln('Failed to write .out/findings.json: $error\n$stackTrace');
+      stderr.writeln(
+        'Failed to write .out/findings.json: $error\n$stackTrace',
+      );
     }
   }
 
@@ -75,6 +86,8 @@ class OutputWriter {
       'complexity': issue.complexity,
       'nestingDepth': issue.nestingDepth,
       'functionLoc': issue.functionLoc,
+      'maintainabilityScore': issue.maintainabilityScore,
+      'maintainabilityLevel': issue.maintainabilityLevel,
       'secretType': issue.secretType,
       'taintFlow': issue.taintFlow,
       'component': issue.component,
@@ -93,7 +106,7 @@ class OutputWriter {
   static String? _ruleNameFromMessage(String message) {
     final index = message.indexOf(' hardcoded in ');
     if (index > 0) return message.substring(0, index);
-    if (message.startsWith('Possible hardcoded secret')) return 'Secret';
+    if (message.startsWith('Possible hardcoded')) return 'Secret';
     return null;
   }
 
@@ -107,20 +120,18 @@ class OutputWriter {
       return end > 0 ? rest.substring(0, end) : rest;
     }
 
-    if (message.startsWith('Possible hardcoded secret in ')) {
-      final rest = message.substring('Possible hardcoded secret in '.length);
-      final end = rest.indexOf(' in "');
-      return end > 0 ? rest.substring(0, end) : rest;
-    }
-
     return null;
   }
 
   static String? _contextFromMessage(String message) {
     const needle = ' in "';
     final index = message.lastIndexOf(needle);
-    if (index >= 0 && message.endsWith('"')) {
-      return message.substring(index + needle.length, message.length - 1);
+    if (index >= 0) {
+      final rest = message.substring(index + needle.length);
+      final quoteEnd = rest.indexOf('"');
+      if (quoteEnd >= 0) {
+        return rest.substring(0, quoteEnd);
+      }
     }
     return null;
   }
@@ -130,9 +141,9 @@ class OutputWriter {
     int line,
     int column,
     String ruleId,
-    String snippet,
+    String stableEvidence,
   ) {
-    final value = '$file|$line|$column|$ruleId|$snippet';
+    final value = '$file|$line|$column|$ruleId|$stableEvidence';
     var hash = 0;
 
     for (var i = 0; i < value.length; i++) {

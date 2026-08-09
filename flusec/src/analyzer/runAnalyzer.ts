@@ -199,6 +199,12 @@ export async function runAnalyzer(
     }
 
     const metricParts: string[] = [];
+    if (f.securitySeverity) {
+      metricParts.push(`Security=${String(f.securitySeverity).toUpperCase()}`);
+    }
+    if (f.confidence) {
+      metricParts.push(`Confidence=${String(f.confidence).toUpperCase()}`);
+    }
     if (typeof f.complexity === "number") {
       metricParts.push(`Cx=${f.complexity}`);
     }
@@ -207,6 +213,9 @@ export async function runAnalyzer(
     }
     if (typeof f.functionLoc === "number") {
       metricParts.push(`Size=${f.functionLoc} LOC`);
+    }
+    if (typeof f.maintainabilityScore === "number") {
+      metricParts.push(`MCS=${f.maintainabilityScore}/100`);
     }
 
     const metricSuffix = metricParts.length
@@ -342,6 +351,12 @@ export async function runProjectAnalyzer(
       const range = new vscode.Range(lineIdx, 0, lineIdx, 200);
 
       const metricParts: string[] = [];
+      if (f.securitySeverity) {
+        metricParts.push(`Security=${String(f.securitySeverity).toUpperCase()}`);
+      }
+      if (f.confidence) {
+        metricParts.push(`Confidence=${String(f.confidence).toUpperCase()}`);
+      }
       if (typeof f.complexity === "number") {
         metricParts.push(`Cx=${f.complexity}`);
       }
@@ -350,6 +365,9 @@ export async function runProjectAnalyzer(
       }
       if (typeof f.functionLoc === "number") {
         metricParts.push(`Size=${f.functionLoc} LOC`);
+      }
+      if (typeof f.maintainabilityScore === "number") {
+        metricParts.push(`MCS=${f.maintainabilityScore}/100`);
       }
 
       const metricSuffix = metricParts.length
@@ -412,10 +430,18 @@ function writeFindingsFile(filePath: string, findings: any[]): void {
     ruleId: f.ruleId ?? "",
     message: f.message ?? "",
     severity: f.severity ?? "warning",
+    securitySeverity: f.securitySeverity ?? null,
+    confidence: f.confidence ?? null,
+    category: f.category ?? null,
+    remediation: f.remediation ?? null,
+    cwe: f.cwe ?? null,
+    evidence: f.evidence ?? null,
     functionName: f.functionName ?? null,
     complexity: f.complexity ?? null,
     nestingDepth: f.nestingDepth ?? null,
     functionLoc: f.functionLoc ?? null,
+    maintainabilityScore: f.maintainabilityScore ?? null,
+    maintainabilityLevel: f.maintainabilityLevel ?? null,
     secretType: f.secretType ?? null,
     taintFlow: f.taintFlow ?? null,
     component: f.component ?? "hsd",
