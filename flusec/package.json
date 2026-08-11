@@ -63,6 +63,14 @@
       {
         "command": "flusec.logoutFromTeam",
         "title": "FluSec: Disconnect Account"
+      },
+      {
+        "command": "flusec.selectLlmProvider",
+        "title": "FluSec: Select LLM Feedback Provider"
+      },
+      {
+        "command": "flusec.testLlmProvider",
+        "title": "FluSec: Test LLM Feedback Provider"
       }
     ],
     "configuration": {
@@ -102,6 +110,54 @@
           "type": "string",
           "default": "b338b6df-e0f9-4e03-b57f-4eb47e086782",
           "description": "Public OAuth client ID registered for the FLUSEC VS Code extension. No client secret is stored in the extension.",
+          "scope": "application"
+        },
+        "flusec.llmProvider": {
+          "type": "string",
+          "enum": [
+            "vscode",
+            "ollama",
+            "disabled"
+          ],
+          "default": "vscode",
+          "enumDescriptions": [
+            "Use a language model exposed through VS Code's Language Model API. This is the default.",
+            "Use a locally running Ollama server.",
+            "Disable LLM educational feedback. FLUSEC static analysis continues normally."
+          ],
+          "description": "Provider used only for optional FLUSEC educational feedback. Static detection does not depend on this setting.",
+          "scope": "application"
+        },
+        "flusec.vscodeLmVendor": {
+          "type": "string",
+          "default": "copilot",
+          "description": "Preferred VS Code language-model vendor. If unavailable, FLUSEC can use another model exposed through the VS Code Language Model API.",
+          "scope": "application"
+        },
+        "flusec.vscodeLmModelId": {
+          "type": "string",
+          "default": "",
+          "description": "Optional exact VS Code language-model ID. Leave empty to let FLUSEC choose an available model.",
+          "scope": "application"
+        },
+        "flusec.ollamaEndpoint": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "Ollama base URL used when the LLM provider is set to Ollama. Keep localhost for local-only feedback.",
+          "scope": "application"
+        },
+        "flusec.ollamaModel": {
+          "type": "string",
+          "default": "llama3.2:latest",
+          "description": "Ollama model used for FLUSEC educational feedback.",
+          "scope": "application"
+        },
+        "flusec.llmTimeoutSeconds": {
+          "type": "number",
+          "default": 60,
+          "minimum": 5,
+          "maximum": 180,
+          "description": "Maximum time FLUSEC waits for one LLM educational-feedback request.",
           "scope": "application"
         }
       }

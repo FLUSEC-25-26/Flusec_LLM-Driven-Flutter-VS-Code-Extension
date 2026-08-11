@@ -1,11 +1,11 @@
-import * as vscode from 'vscode'
-import { createHash, randomBytes } from 'node:crypto'
-import fetch, { Headers, type RequestInit, type Response } from 'node-fetch'
-import { CONFIG } from '../config.js'
+import * as vscode from 'vscode';
+import { createHash, randomBytes } from 'node:crypto';
+import fetch, { Headers, type RequestInit, type Response } from 'node-fetch';
+import { CONFIG } from '../config.js';
 
-const SESSION_SECRET_KEY = 'flusec.oauth.session.v1'
-const PENDING_SECRET_KEY = 'flusec.oauth.pending.v1'
-const SELECTED_TEAM_KEY = 'flusec.selectedTeam.v1'
+const SESSION_SECRET_KEY = 'flusec.oauth.session.v1';
+const PENDING_SECRET_KEY = 'flusec.oauth.pending.v1';
+const SELECTED_TEAM_KEY = 'flusec.selectedTeam.v1';
 
 export type TeamRole = 'leader' | 'member' | 'viewer'
 
@@ -55,13 +55,13 @@ interface MyTeamsResponse {
 }
 
 function encodeBase64Url(value: Buffer | string): string {
-  return Buffer.from(value).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+  return Buffer.from(value).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 }
 
 function createPkce() {
-  const codeVerifier = encodeBase64Url(randomBytes(48))
-  const codeChallenge = encodeBase64Url(createHash('sha256').update(codeVerifier).digest())
-  return { codeVerifier, codeChallenge }
+  const codeVerifier = encodeBase64Url(randomBytes(48));
+  const codeChallenge = encodeBase64Url(createHash('sha256').update(codeVerifier).digest());
+  return { codeVerifier, codeChallenge };
 }
 
 function createState(context: vscode.ExtensionContext): string {
@@ -69,34 +69,34 @@ function createState(context: vscode.ExtensionContext): string {
     nonce: encodeBase64Url(randomBytes(24)),
     scheme: vscode.env.uriScheme === 'vscode-insiders' ? 'vscode-insiders' : 'vscode',
     extensionId: context.extension.id,
-  }
-  return encodeBase64Url(JSON.stringify(payload))
+  };
+  return encodeBase64Url(JSON.stringify(payload));
 }
 
 async function parseJson<T>(response: Response): Promise<T> {
-  const text = await response.text()
-  if (!text) return {} as T
+  const text = await response.text();
+  if (!text) { return {} as T; }
   try {
-    return JSON.parse(text) as T
+    return JSON.parse(text) as T;
   } catch {
-    throw new Error(`Unexpected server response (${response.status})`)
+    throw new Error(`Unexpected server response (${response.status})`);
   }
 }
 
 async function readSession(context: vscode.ExtensionContext): Promise<OAuthSession | undefined> {
-  const raw = await context.secrets.get(SESSION_SECRET_KEY)
-  if (!raw) return undefined
+  const raw = await context.secrets.get(SESSION_SECRET_KEY);
+  if (!raw) { return undefined; }
   try {
-    const parsed = JSON.parse(raw) as OAuthSession
-    if (!parsed.accessToken || !parsed.refreshToken || !parsed.expiresAt) return undefined
-    return parsed
+    const parsed = JSON.parse(raw) as OAuthSession;
+    if (!parsed.accessToken || !parsed.refreshToken || !parsed.expiresAt) { return undefined; }
+    return parsed;
   } catch {
-    return undefined
+    return undefined;
   }
 }
 
 async function storeSession(context: vscode.ExtensionContext, session: OAuthSession) {
-  await context.secrets.store(SESSION_SECRET_KEY, JSON.stringify(session))
+  await context.secrets.store(SESSION_SECRET_KEY, JSON.stringify(session));
 }
 
 async function exchangeAuthorizationCode(
@@ -110,16 +110,16 @@ async function exchangeAuthorizationCode(
     client_id: CONFIG.OAUTH_CLIENT_ID,
     redirect_uri: pending.redirectUri,
     code_verifier: pending.codeVerifier,
-  })
+  });
 
   const response = await fetch(`${CONFIG.SUPABASE_URL}/auth/v1/oauth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
-  })
-  const data = await parseJson<TokenResponse>(response)
+  });
+  const data = await parseJson<TokenResponse>(response);
   if (!response.ok || !data.access_token || !data.refresh_token) {
-    throw new Error(data.error_description ?? data.error ?? 'OAuth code exchange failed')
+    throw new Error(data.error_description ?? data.error ?? 'OAuth code exchange failed');
   }
 
   await storeSession(context, {
@@ -128,29 +128,29 @@ async function exchangeAuthorizationCode(
     expiresAt: Date.now() + Math.max(60, Number(data.expires_in ?? 3600)) * 1000,
     tokenType: data.token_type ?? 'Bearer',
     scope: data.scope,
-  })
+  });
 }
 
 async function refreshOAuthSession(context: vscode.ExtensionContext, force = false): Promise<OAuthSession> {
-  const existing = await readSession(context)
-  if (!existing) throw new Error('FLUSEC account is not connected.')
+  const existing = await readSession(context);
+  if (!existing) { throw new Error('FLUSEC account is not connected.'); }
 
-  if (!force && existing.expiresAt > Date.now() + 90_000) return existing
+  if (!force && existing.expiresAt > Date.now() + 90_000) { return existing; }
 
   const body = new URLSearchParams({
     grant_type: 'refresh_token',
     refresh_token: existing.refreshToken,
     client_id: CONFIG.OAUTH_CLIENT_ID,
-  })
+  });
   const response = await fetch(`${CONFIG.SUPABASE_URL}/auth/v1/oauth/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: body.toString(),
-  })
-  const data = await parseJson<TokenResponse>(response)
+  });
+  const data = await parseJson<TokenResponse>(response);
   if (!response.ok || !data.access_token) {
-    await clearSession(context)
-    throw new Error(data.error_description ?? data.error ?? 'FLUSEC session expired. Connect your account again.')
+    await clearSession(context);
+    throw new Error(data.error_description ?? data.error ?? 'FLUSEC session expired. Connect your account again.');
   }
 
   const next: OAuthSession = {
@@ -159,37 +159,37 @@ async function refreshOAuthSession(context: vscode.ExtensionContext, force = fal
     expiresAt: Date.now() + Math.max(60, Number(data.expires_in ?? 3600)) * 1000,
     tokenType: data.token_type ?? existing.tokenType ?? 'Bearer',
     scope: data.scope ?? existing.scope,
-  }
-  await storeSession(context, next)
-  return next
+  };
+  await storeSession(context, next);
+  return next;
 }
 
 export async function getStoredToken(context: vscode.ExtensionContext): Promise<string | undefined> {
   try {
-    return (await refreshOAuthSession(context)).accessToken
+    return (await refreshOAuthSession(context)).accessToken;
   } catch {
-    return undefined
+    return undefined;
   }
 }
 
 export async function getSelectedTeam(context: vscode.ExtensionContext): Promise<SelectedTeam | undefined> {
-  return context.workspaceState.get<SelectedTeam>(SELECTED_TEAM_KEY)
+  return context.workspaceState.get<SelectedTeam>(SELECTED_TEAM_KEY);
 }
 
 export async function getStoredTeamId(context: vscode.ExtensionContext): Promise<string | undefined> {
-  return (await getSelectedTeam(context))?.id
+  return (await getSelectedTeam(context))?.id;
 }
 
 export async function getStoredTeamCode(context: vscode.ExtensionContext): Promise<string | undefined> {
-  return (await getSelectedTeam(context))?.teamCode ?? undefined
+  return (await getSelectedTeam(context))?.teamCode ?? undefined;
 }
 
 export async function getStoredTeamName(context: vscode.ExtensionContext): Promise<string | undefined> {
-  return (await getSelectedTeam(context))?.name
+  return (await getSelectedTeam(context))?.name;
 }
 
 export async function getStoredTeamRole(context: vscode.ExtensionContext): Promise<string | undefined> {
-  return (await getSelectedTeam(context))?.role
+  return (await getSelectedTeam(context))?.role;
 }
 
 export async function clearSession(context: vscode.ExtensionContext) {
@@ -203,7 +203,7 @@ export async function clearSession(context: vscode.ExtensionContext) {
     context.secrets.delete('flusec.teamName'),
     context.secrets.delete('flusec.teamRole'),
     context.workspaceState.update(SELECTED_TEAM_KEY, undefined),
-  ])
+  ]);
 }
 
 export async function authenticatedFetch(
@@ -212,33 +212,33 @@ export async function authenticatedFetch(
   options: RequestInit = {},
   retry = true
 ): Promise<Response> {
-  const session = await refreshOAuthSession(context)
-  const headers = new Headers(options.headers)
-  headers.set('Authorization', `Bearer ${session.accessToken}`)
-  const response = await fetch(url, { ...options, headers })
+  const session = await refreshOAuthSession(context);
+  const headers = new Headers(options.headers);
+  headers.set('Authorization', `Bearer ${session.accessToken}`);
+  const response = await fetch(url, { ...options, headers });
 
   if (response.status === 401 && retry) {
-    const refreshed = await refreshOAuthSession(context, true)
-    const retryHeaders = new Headers(options.headers)
-    retryHeaders.set('Authorization', `Bearer ${refreshed.accessToken}`)
-    return fetch(url, { ...options, headers: retryHeaders })
+    const refreshed = await refreshOAuthSession(context, true);
+    const retryHeaders = new Headers(options.headers);
+    retryHeaders.set('Authorization', `Bearer ${refreshed.accessToken}`);
+    return fetch(url, { ...options, headers: retryHeaders });
   }
-  return response
+  return response;
 }
 
 export async function selectTeam(context: vscode.ExtensionContext, showConfirmation = true): Promise<SelectedTeam | undefined> {
-  const response = await authenticatedFetch(context, `${CONFIG.WEB_API_ENDPOINT}/api/v1/teams/my-teams`)
-  const payload = await parseJson<MyTeamsResponse>(response)
-  if (!response.ok) throw new Error(payload.error ?? 'Could not load FLUSEC teams')
+  const response = await authenticatedFetch(context, `${CONFIG.WEB_API_ENDPOINT}/api/v1/teams/my-teams`);
+  const payload = await parseJson<MyTeamsResponse>(response);
+  if (!response.ok) { throw new Error(payload.error ?? 'Could not load FLUSEC teams'); }
 
-  const teams = payload.data ?? []
+  const teams = payload.data ?? [];
   if (teams.length === 0) {
     const choice = await vscode.window.showInformationMessage(
       'FLUSEC: Your account does not belong to a team yet. Create or join a team in the web app.',
       'Open FLUSEC Web App'
-    )
-    if (choice) await vscode.env.openExternal(vscode.Uri.parse(`${CONFIG.WEB_APP_URL}/team`))
-    return undefined
+    );
+    if (choice) { await vscode.env.openExternal(vscode.Uri.parse(`${CONFIG.WEB_APP_URL}/team`)); }
+    return undefined;
   }
 
   const selected = await vscode.window.showQuickPick(
@@ -248,142 +248,142 @@ export async function selectTeam(context: vscode.ExtensionContext, showConfirmat
       team,
     })),
     { title: 'FLUSEC: Select Team for This Workspace', placeHolder: 'Choose the team whose policies and findings apply to this workspace' }
-  )
-  if (!selected) return undefined
+  );
+  if (!selected) { return undefined; }
 
   const value: SelectedTeam = {
     id: selected.team.id,
     teamCode: selected.team.team_code ?? null,
     name: selected.team.name,
     role: selected.team.myRole ?? selected.team.role ?? 'member',
-  }
-  await context.workspaceState.update(SELECTED_TEAM_KEY, value)
+  };
+  await context.workspaceState.update(SELECTED_TEAM_KEY, value);
   if (showConfirmation) {
-    vscode.window.showInformationMessage(`FLUSEC: This workspace is connected to ${value.name} as ${value.role}.`)
+    vscode.window.showInformationMessage(`FLUSEC: This workspace is connected to ${value.name} as ${value.role}.`);
   }
-  return value
+  return value;
 }
 
 async function handleUri(context: vscode.ExtensionContext, uri: vscode.Uri) {
-  if (uri.path !== '/auth-complete' && uri.path !== 'auth-complete') return
+  if (uri.path !== '/auth-complete' && uri.path !== 'auth-complete') { return; }
 
-  const params = new URLSearchParams(uri.query)
-  const returnedState = params.get('state') ?? ''
-  const code = params.get('code') ?? ''
-  const oauthError = params.get('error_description') ?? params.get('error')
-  const rawPending = await context.secrets.get(PENDING_SECRET_KEY)
+  const params = new URLSearchParams(uri.query);
+  const returnedState = params.get('state') ?? '';
+  const code = params.get('code') ?? '';
+  const oauthError = params.get('error_description') ?? params.get('error');
+  const rawPending = await context.secrets.get(PENDING_SECRET_KEY);
 
   if (!rawPending) {
-    vscode.window.showErrorMessage('FLUSEC: No pending browser sign-in was found. Start Connect Account again.')
-    return
+    vscode.window.showErrorMessage('FLUSEC: No pending browser sign-in was found. Start Connect Account again.');
+    return;
   }
 
-  let pending: PendingAuthorization
-  try { pending = JSON.parse(rawPending) as PendingAuthorization } catch {
-    await context.secrets.delete(PENDING_SECRET_KEY)
-    vscode.window.showErrorMessage('FLUSEC: Stored OAuth request is invalid. Start Connect Account again.')
-    return
+  let pending: PendingAuthorization;
+  try { pending = JSON.parse(rawPending) as PendingAuthorization; } catch {;
+    await context.secrets.delete(PENDING_SECRET_KEY);
+    vscode.window.showErrorMessage('FLUSEC: Stored OAuth request is invalid. Start Connect Account again.');
+    return;
   }
 
   if (Date.now() - pending.createdAt > 10 * 60 * 1000) {
-    await context.secrets.delete(PENDING_SECRET_KEY)
-    vscode.window.showErrorMessage('FLUSEC: Browser sign-in expired. Start Connect Account again.')
-    return
+    await context.secrets.delete(PENDING_SECRET_KEY);
+    vscode.window.showErrorMessage('FLUSEC: Browser sign-in expired. Start Connect Account again.');
+    return;
   }
   if (!returnedState || returnedState !== pending.state) {
-    await context.secrets.delete(PENDING_SECRET_KEY)
-    vscode.window.showErrorMessage('FLUSEC: OAuth state validation failed. No session was stored.')
-    return
+    await context.secrets.delete(PENDING_SECRET_KEY);
+    vscode.window.showErrorMessage('FLUSEC: OAuth state validation failed. No session was stored.');
+    return;
   }
   if (oauthError) {
-    await context.secrets.delete(PENDING_SECRET_KEY)
-    vscode.window.showErrorMessage(`FLUSEC: Authorization was not completed — ${oauthError}`)
-    return
+    await context.secrets.delete(PENDING_SECRET_KEY);
+    vscode.window.showErrorMessage(`FLUSEC: Authorization was not completed — ${oauthError}`);
+    return;
   }
   if (!code) {
-    vscode.window.showErrorMessage('FLUSEC: OAuth callback did not contain an authorization code.')
-    return
+    vscode.window.showErrorMessage('FLUSEC: OAuth callback did not contain an authorization code.');
+    return;
   }
 
   try {
-    await exchangeAuthorizationCode(context, code, pending)
-    await context.secrets.delete(PENDING_SECRET_KEY)
-    const team = await selectTeam(context, false)
+    await exchangeAuthorizationCode(context, code, pending);
+    await context.secrets.delete(PENDING_SECRET_KEY);
+    const team = await selectTeam(context, false);
     if (team) {
-      vscode.window.showInformationMessage(`FLUSEC: Account connected. Active team: ${team.name}.`)
-      await vscode.commands.executeCommand('flusec.updateRulePacks')
+      vscode.window.showInformationMessage(`FLUSEC: Account connected. Active team: ${team.name}.`);
+      await vscode.commands.executeCommand('flusec.updateRulePacks');
     } else {
-      vscode.window.showInformationMessage('FLUSEC: Account connected. Select a team after creating or joining one in the web app.')
+      vscode.window.showInformationMessage('FLUSEC: Account connected. Select a team after creating or joining one in the web app.');
     }
   } catch (error) {
-    await context.secrets.delete(PENDING_SECRET_KEY)
-    vscode.window.showErrorMessage(`FLUSEC: Could not complete browser sign-in — ${String(error)}`)
+    await context.secrets.delete(PENDING_SECRET_KEY);
+    vscode.window.showErrorMessage(`FLUSEC: Could not complete browser sign-in — ${String(error)}`);
   }
 }
 
 export function registerAuthUriHandler(context: vscode.ExtensionContext) {
-  const disposable = vscode.window.registerUriHandler({ handleUri: (uri) => handleUri(context, uri) })
-  context.subscriptions.push(disposable)
-  console.log(`[FLUSEC] OAuth callback extension id: ${context.extension.id}`)
+  const disposable = vscode.window.registerUriHandler({ handleUri: (uri) => handleUri(context, uri) });
+  context.subscriptions.push(disposable);
+  console.log(`[FLUSEC] OAuth callback extension id: ${context.extension.id}`);
 }
 
 export async function connectAccount(context: vscode.ExtensionContext) {
   if (!CONFIG.OAUTH_CLIENT_ID) {
-    vscode.window.showErrorMessage('FLUSEC: Set flusec.oauthClientId before connecting your account.')
-    return
+    vscode.window.showErrorMessage('FLUSEC: Set flusec.oauthClientId before connecting your account.');
+    return;
   }
 
-  const existing = await readSession(context)
+  const existing = await readSession(context);
   if (existing) {
     const action = await vscode.window.showInformationMessage(
       'FLUSEC: An account is already connected.',
       'Switch Team',
       'Reconnect'
-    )
-    if (action === 'Switch Team') await selectTeam(context)
-    if (action !== 'Reconnect') return
-    await clearSession(context)
+    );
+    if (action === 'Switch Team') { await selectTeam(context); }
+    if (action !== 'Reconnect') { return; }
+    await clearSession(context);
   }
 
-  const { codeVerifier, codeChallenge } = createPkce()
-  const state = createState(context)
-  const redirectUri = `${CONFIG.WEB_APP_URL}/oauth/vscode/callback`
-  const pending: PendingAuthorization = { state, codeVerifier, redirectUri, createdAt: Date.now() }
-  await context.secrets.store(PENDING_SECRET_KEY, JSON.stringify(pending))
+  const { codeVerifier, codeChallenge } = createPkce();
+  const state = createState(context);
+  const redirectUri = `${CONFIG.WEB_APP_URL}/oauth/vscode/callback`;
+  const pending: PendingAuthorization = { state, codeVerifier, redirectUri, createdAt: Date.now() };
+  await context.secrets.store(PENDING_SECRET_KEY, JSON.stringify(pending));
 
-  const authorize = new URL(`${CONFIG.SUPABASE_URL}/auth/v1/oauth/authorize`)
-  authorize.searchParams.set('response_type', 'code')
-  authorize.searchParams.set('client_id', CONFIG.OAUTH_CLIENT_ID)
-  authorize.searchParams.set('redirect_uri', redirectUri)
-  authorize.searchParams.set('code_challenge', codeChallenge)
-  authorize.searchParams.set('code_challenge_method', 'S256')
-  authorize.searchParams.set('state', state)
-  authorize.searchParams.set('scope', 'email profile')
+  const authorize = new URL(`${CONFIG.SUPABASE_URL}/auth/v1/oauth/authorize`);
+  authorize.searchParams.set('response_type', 'code');
+  authorize.searchParams.set('client_id', CONFIG.OAUTH_CLIENT_ID);
+  authorize.searchParams.set('redirect_uri', redirectUri);
+  authorize.searchParams.set('code_challenge', codeChallenge);
+  authorize.searchParams.set('code_challenge_method', 'S256');
+  authorize.searchParams.set('state', state);
+  authorize.searchParams.set('scope', 'email profile');
 
-  const opened = await vscode.env.openExternal(vscode.Uri.parse(authorize.toString()))
+  const opened = await vscode.env.openExternal(vscode.Uri.parse(authorize.toString()));
   if (!opened) {
-    await context.secrets.delete(PENDING_SECRET_KEY)
-    vscode.window.showErrorMessage('FLUSEC: Could not open the system browser.')
-    return
+    await context.secrets.delete(PENDING_SECRET_KEY);
+    vscode.window.showErrorMessage('FLUSEC: Could not open the system browser.');
+    return;
   }
 
-  vscode.window.showInformationMessage('FLUSEC: Complete sign-in and authorization in your browser. VS Code will resume automatically.')
+  vscode.window.showInformationMessage('FLUSEC: Complete sign-in and authorization in your browser. VS Code will resume automatically.');
 }
 
 export async function disconnectAccount(context: vscode.ExtensionContext) {
-  await clearSession(context)
-  vscode.window.showInformationMessage('FLUSEC: Account disconnected from VS Code.')
+  await clearSession(context);
+  vscode.window.showInformationMessage('FLUSEC: Account disconnected from VS Code.');
 }
 
 export async function switchTeam(context: vscode.ExtensionContext) {
   try {
-    await selectTeam(context)
-    await vscode.commands.executeCommand('flusec.updateRulePacks')
+    await selectTeam(context);
+    await vscode.commands.executeCommand('flusec.updateRulePacks');
   } catch (error) {
-    vscode.window.showErrorMessage(`FLUSEC: Could not switch team — ${String(error)}`)
+    vscode.window.showErrorMessage(`FLUSEC: Could not switch team — ${String(error)}`);
   }
 }
 
 // Backward-compatible command exports. The behavior is browser OAuth, not password login.
-export const loginToTeam = connectAccount
-export const logoutFromTeam = disconnectAccount
+export const loginToTeam = connectAccount;
+export const logoutFromTeam = disconnectAccount;

@@ -51,6 +51,22 @@ const NAV_ITEMS: NavItem[] = [
     ],
   },
   {
+    label: "LLM Feedback",
+    icon: "sparkle",
+    children: [
+      {
+        label: "Select LLM Provider",
+        command: "flusec.selectLlmProvider",
+        icon: "settings-gear",
+      },
+      {
+        label: "Test LLM Provider",
+        command: "flusec.testLlmProvider",
+        icon: "beaker",
+      },
+    ],
+  },
+  {
     label: "Team Collaboration",
     icon: "organization",
     children: [

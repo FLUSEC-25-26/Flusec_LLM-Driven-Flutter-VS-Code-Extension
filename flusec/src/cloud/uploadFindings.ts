@@ -1,18 +1,18 @@
-import * as vscode from 'vscode'
-import * as fs from 'node:fs'
+import * as vscode from 'vscode';
+import * as fs from 'node:fs';
 import {
   hsdFindingsPathForFolder,
   netFindingsPathForFolder,
   idsFindingsPathForFolder,
   iivFindingsPathForFolder,
-} from '../analyzer/runAnalyzer.js'
-import { authenticatedFetch, getSelectedTeam } from './auth.js'
+} from '../analyzer/runAnalyzer.js';
+import { authenticatedFetch, getSelectedTeam } from './auth.js';
 import {
   getLastExplicitScan,
   workspaceIdentity,
   workspaceRelativePath,
-} from './scanContext.js'
-import { CONFIG } from '../config.js'
+} from './scanContext.js';
+import { CONFIG } from '../config.js';
 
 type Component = 'HSD' | 'NET' | 'IDS' | 'IIV'
 type SecuritySeverity = 'critical' | 'high' | 'medium' | 'low'
@@ -65,46 +65,46 @@ interface UploadResponse {
 }
 
 function readJsonArray(filePath: string): Record<string, any>[] {
-  if (!fs.existsSync(filePath)) return []
+  if (!fs.existsSync(filePath)) { return []; }
   try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'))
-    return Array.isArray(parsed) ? parsed : []
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return Array.isArray(parsed) ? parsed : [];
   } catch (error) {
-    console.warn(`[FLUSEC] Could not read findings file ${filePath}:`, error)
-    return []
+    console.warn(`[FLUSEC] Could not read findings file ${filePath}:`, error);
+    return [];
   }
 }
 
 function stringValue(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
 function numberValue(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
-    : {}
+    : {};
 }
 
 function arrayValue<T>(value: unknown): T[] | null {
-  return Array.isArray(value) ? (value as T[]) : null
+  return Array.isArray(value) ? (value as T[]) : null;
 }
 
 function severityValue(value: unknown): SecuritySeverity {
-  const normalized = stringValue(value)?.toLowerCase()
+  const normalized = stringValue(value)?.toLowerCase();
   if (normalized === 'critical' || normalized === 'high' || normalized === 'medium' || normalized === 'low') {
-    return normalized
+    return normalized;
   }
-  return 'low'
+  return 'low';
 }
 
 function confidenceValue(value: unknown): DetectionConfidence {
-  const normalized = stringValue(value)?.toLowerCase()
-  if (normalized === 'high' || normalized === 'medium' || normalized === 'low') return normalized
-  return 'medium'
+  const normalized = stringValue(value)?.toLowerCase();
+  if (normalized === 'high' || normalized === 'medium' || normalized === 'low') { return normalized; }
+  return 'medium';
 }
 
 function canonicalFinding(
@@ -115,7 +115,7 @@ function canonicalFinding(
   const filePath = workspaceRelativePath(
     folder,
     stringValue(raw.file_path) ?? stringValue(raw.filePath) ?? stringValue(raw.file),
-  )
+  );
 
   return {
     component,
@@ -155,7 +155,7 @@ function canonicalFinding(
     storage_context: component === 'IDS'
       ? stringValue(raw.storage_context) ?? stringValue(raw.storageContext) ?? null
       : null,
-  }
+  };
 }
 
 function findingsForFolder(folder: vscode.WorkspaceFolder): ApiFinding[] {
@@ -164,30 +164,30 @@ function findingsForFolder(folder: vscode.WorkspaceFolder): ApiFinding[] {
     ...readJsonArray(netFindingsPathForFolder(folder)).map((raw) => canonicalFinding(raw, 'NET', folder)),
     ...readJsonArray(idsFindingsPathForFolder(folder)).map((raw) => canonicalFinding(raw, 'IDS', folder)),
     ...readJsonArray(iivFindingsPathForFolder(folder)).map((raw) => canonicalFinding(raw, 'IIV', folder)),
-  ]
+  ];
 }
 
 export async function uploadFindings(context: vscode.ExtensionContext): Promise<void> {
-  const folders = vscode.workspace.workspaceFolders ?? []
+  const folders = vscode.workspace.workspaceFolders ?? [];
   if (folders.length === 0) {
-    vscode.window.showWarningMessage('FLUSEC: No workspace folder is open.')
-    return
+    vscode.window.showWarningMessage('FLUSEC: No workspace folder is open.');
+    return;
   }
 
-  const team = await getSelectedTeam(context)
+  const team = await getSelectedTeam(context);
   if (!team) {
     const action = await vscode.window.showErrorMessage(
       'FLUSEC: No team is selected for this workspace. Connect your account or select a team first.',
       'Connect Account',
-    )
-    if (action === 'Connect Account') await vscode.commands.executeCommand('flusec.loginToTeam')
-    return
+    );
+    if (action === 'Connect Account') { await vscode.commands.executeCommand('flusec.loginToTeam'); }
+    return;
   }
 
-  const endpoint = CONFIG.WEB_API_ENDPOINT.replace(/\/$/, '')
-  let totalObserved = 0
-  let totalResolved = 0
-  let failedWorkspaces = 0
+  const endpoint = CONFIG.WEB_API_ENDPOINT.replace(/\/$/, '');
+  let totalObserved = 0;
+  let totalResolved = 0;
+  let failedWorkspaces = 0;
 
   await vscode.window.withProgress(
     {
@@ -197,17 +197,17 @@ export async function uploadFindings(context: vscode.ExtensionContext): Promise<
     },
     async (progress) => {
       for (const folder of folders) {
-        const findings = findingsForFolder(folder)
-        const lastScan = getLastExplicitScan(context, folder)
+        const findings = findingsForFolder(folder);
+        const lastScan = getLastExplicitScan(context, folder);
 
         // If no explicit scan was recorded, use conservative file scope. This
         // prevents a background/autoscan result from resolving unrelated project findings.
-        const scanScope = lastScan?.scope ?? 'file'
-        const scannedTarget = lastScan?.target ?? '.'
+        const scanScope = lastScan?.scope ?? 'file';
+        const scannedTarget = lastScan?.target ?? '.';
 
         progress.report({
           message: `${folder.name}: syncing ${findings.length} finding${findings.length === 1 ? '' : 's'}…`,
-        })
+        });
 
         try {
           const response = await authenticatedFetch(
@@ -227,37 +227,37 @@ export async function uploadFindings(context: vscode.ExtensionContext): Promise<
                 findings,
               }),
             },
-          )
+          );
 
-          const text = await response.text()
-          let payload: UploadResponse = {}
-          try { payload = text ? JSON.parse(text) as UploadResponse : {} } catch { /* handled below */ }
+          const text = await response.text();
+          let payload: UploadResponse = {};
+          try { payload = text ? JSON.parse(text) as UploadResponse : {}; } catch { /* handled below */ };
 
           if (!response.ok) {
-            failedWorkspaces += 1
+            failedWorkspaces += 1;
             vscode.window.showWarningMessage(
               `FLUSEC: Could not sync ${folder.name}: ${payload.error ?? `HTTP ${response.status}`}`,
-            )
-            continue
+            );
+            continue;
           }
 
-          totalObserved += payload.data?.findings_count ?? findings.length
-          totalResolved += payload.data?.resolved_count ?? 0
+          totalObserved += payload.data?.findings_count ?? findings.length;
+          totalResolved += payload.data?.resolved_count ?? 0;
         } catch (error) {
-          failedWorkspaces += 1
-          vscode.window.showWarningMessage(`FLUSEC: Could not sync ${folder.name}: ${String(error)}`)
+          failedWorkspaces += 1;
+          vscode.window.showWarningMessage(`FLUSEC: Could not sync ${folder.name}: ${String(error)}`);
         }
       }
     },
-  )
+  );
 
   if (failedWorkspaces > 0) {
-    const message = `FLUSEC: Sync finished with ${failedWorkspaces} failed workspace${failedWorkspaces === 1 ? '' : 's'}. ${totalObserved} findings observed.`
-    vscode.window.showWarningMessage(message)
-    return
+    const message = `FLUSEC: Sync finished with ${failedWorkspaces} failed workspace${failedWorkspaces === 1 ? '' : 's'}. ${totalObserved} findings observed.`;
+    vscode.window.showWarningMessage(message);
+    return;
   }
 
   vscode.window.showInformationMessage(
     `FLUSEC: Sync complete. ${totalObserved} findings observed${totalResolved > 0 ? `, ${totalResolved} resolved` : ''}.`,
-  )
+  );
 }
