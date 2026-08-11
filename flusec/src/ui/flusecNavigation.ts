@@ -55,9 +55,14 @@ const NAV_ITEMS: NavItem[] = [
     icon: "organization",
     children: [
       {
-        label: "Login to Team",
+        label: "Connect Account",
         command: "flusec.loginToTeam",
-        icon: "sign-in",
+        icon: "account",
+      },
+      {
+        label: "Switch Team",
+        command: "flusec.switchTeam",
+        icon: "organization",
       },
       {
         label: "Sync Findings",
@@ -65,7 +70,7 @@ const NAV_ITEMS: NavItem[] = [
         icon: "cloud-upload",
       },
       {
-        label: "Logout",
+        label: "Disconnect Account",
         command: "flusec.logoutFromTeam",
         icon: "sign-out",
       },

@@ -1,7 +1,7 @@
 {
   "name": "flusec",
   "displayName": "FluSec",
-  "description": "Flutter security analysis VS Code extension with LLM-driven educational feedback.",
+  "description": "Flutter security analysis VS Code extension with educational feedback and team policy synchronization.",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.105.0"
@@ -10,7 +10,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onLanguage:dart"
+    "onLanguage:dart",
+    "onUri"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -22,6 +23,10 @@
       {
         "command": "flusec.scanProject",
         "title": "FluSec: Scan Entire Project"
+      },
+      {
+        "command": "flusec.manageRules",
+        "title": "FluSec: Open HSD Rule Manager"
       },
       {
         "command": "flusec.openFindings",
@@ -49,31 +54,55 @@
       },
       {
         "command": "flusec.loginToTeam",
-        "title": "FluSec: Login to Team"
+        "title": "FluSec: Connect Account"
+      },
+      {
+        "command": "flusec.switchTeam",
+        "title": "FluSec: Switch Team"
       },
       {
         "command": "flusec.logoutFromTeam",
-        "title": "FluSec: Logout from Team"
+        "title": "FluSec: Disconnect Account"
       }
     ],
     "configuration": {
       "title": "FLUSEC",
       "properties": {
+        "flusec.ruleRepoBaseUrl": {
+          "type": "string",
+          "default": "https://raw.githubusercontent.com/FLUSEC-25-26/flusec-rulepacks/main",
+          "description": "Base URL for legacy rule-pack synchronization.",
+          "scope": "application"
+        },
+        "flusec.cloudUploadEndpoint": {
+          "type": "string",
+          "default": "http://localhost:8082",
+          "description": "Legacy FLUSEC cloud API setting retained for compatibility.",
+          "scope": "application"
+        },
         "flusec.webApiEndpoint": {
           "type": "string",
           "default": "http://localhost:3001",
-          "description": "FluSec Web Platform API base URL.",
+          "description": "FLUSEC backend API base URL.",
+          "scope": "application"
+        },
+        "flusec.webAppUrl": {
+          "type": "string",
+          "default": "http://localhost:5173",
+          "description": "FLUSEC web application URL used for browser-based account connection.",
           "scope": "application"
         },
         "flusec.supabaseUrl": {
           "type": "string",
           "default": "https://rlqfktxtgptsyuacqtve.supabase.co",
-          "description": "Supabase project URL."
+          "description": "Supabase project URL used by the OAuth 2.1 authorization server.",
+          "scope": "application"
         },
-        "flusec.supabaseAnonKey": {
+        "flusec.oauthClientId": {
           "type": "string",
-          "default": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJscWZrdHh0Z3B0c3l1YWNxdHZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIxMDY1ODMsImV4cCI6MjA4NzY4MjU4M30.jPzakW2dM42VoCFbtmpWnPCqvxJCPAJnVZ5u8bLZNX0",
-          "description": "Supabase anon key used for extension-side login flow."
+          "default": "b338b6df-e0f9-4e03-b57f-4eb47e086782",
+          "description": "Public OAuth client ID registered for the FLUSEC VS Code extension. No client secret is stored in the extension.",
+          "scope": "application"
         }
       }
     },

@@ -1,217 +1,193 @@
-import * as vscode from 'vscode';
-import * as fs from 'fs';
-import fetch from 'node-fetch';
+import * as vscode from 'vscode'
+import * as fs from 'node:fs'
 import {
   hsdFindingsPathForFolder,
   netFindingsPathForFolder,
   idsFindingsPathForFolder,
   iivFindingsPathForFolder,
-} from '../analyzer/runAnalyzer.js';
-import { getStoredToken, getStoredTeamId } from './auth.js';
+} from '../analyzer/runAnalyzer.js'
+import { authenticatedFetch, getSelectedTeam } from './auth.js'
+import {
+  getLastExplicitScan,
+  workspaceIdentity,
+  workspaceRelativePath,
+} from './scanContext.js'
+import { CONFIG } from '../config.js'
 
-type Module = 'HSD' | 'SNC' | 'SDS' | 'IVS';
+type Component = 'HSD' | 'NET' | 'IDS' | 'IIV'
+type SecuritySeverity = 'critical' | 'high' | 'medium' | 'low'
+type DetectionConfidence = 'high' | 'medium' | 'low'
 
 interface TaintFlowStep {
-  type?: string;
-  line?: number | null;
-  column?: number | null;
-  description?: string | null;
+  type?: string
+  line?: number | null
+  column?: number | null
+  description?: string | null
 }
 
-interface UploadFinding {
-  module: Module;
-  rule_id?: string;
-  title: string;
-  description?: string;
-
-  // `severity` is security impact for the web/backend contract.
-  severity: string;
-  // `original_severity` keeps the editor diagnostic level (currently warning).
-  original_severity?: string | null;
-  confidence?: string | null;
-  category?: string | null;
-  cwe?: string | null;
-  evidence?: Record<string, unknown> | null;
-  fingerprint?: string | null;
-
-  file_path?: string;
-  line_number?: number;
-  column_number?: number;
-  code_snippet?: string;
-
-  // Shared function-level maintainability context.
-  function_name?: string | null;
-  complexity?: number | null;
-  nesting_depth?: number | null;
-  function_loc?: number | null;
-  maintainability_score?: number | null;
-  maintainability_level?: string | null;
-
-  // HSD-only.
-  secret_type?: string | null;
-  taint_flow?: TaintFlowStep[] | null;
-
-  // Existing web/backend field. It is derived from canonical securitySeverity
-  // until the web platform is normalized in the next phase.
-  risk_level?: string | null;
-  data_type?: string | null;
-  storage_context?: string | null;
+interface ApiFinding {
+  component: Component
+  fingerprint?: string
+  rule_id?: string
+  title: string
+  description?: string | null
+  diagnostic_severity: 'warning'
+  security_severity: SecuritySeverity
+  confidence: DetectionConfidence
+  category?: string | null
+  cwe?: string | null
+  remediation?: string | null
+  evidence: Record<string, unknown>
+  file_path?: string | null
+  line_number?: number | null
+  column_number?: number | null
+  code_snippet?: string | null
+  function_name?: string | null
+  complexity?: number | null
+  nesting_depth?: number | null
+  function_loc?: number | null
+  maintainability_score?: number | null
+  maintainability_level?: string | null
+  secret_type?: string | null
+  taint_flow?: TaintFlowStep[] | null
+  data_type?: string | null
+  storage_context?: string | null
 }
 
-function readJsonArray(filePath: string): any[] {
-  if (!fs.existsSync(filePath)) {
-    return [];
+interface UploadResponse {
+  data?: {
+    session_id?: string
+    findings_count?: number
+    canonical_findings_updated?: number
+    resolved_count?: number
   }
+  error?: string
+}
 
+function readJsonArray(filePath: string): Record<string, any>[] {
+  if (!fs.existsSync(filePath)) return []
   try {
-    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+    return Array.isArray(parsed) ? parsed : []
+  } catch (error) {
+    console.warn(`[FLUSEC] Could not read findings file ${filePath}:`, error)
+    return []
   }
 }
 
-function asString(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
-function asNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+function numberValue(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
 }
 
-function asArray<T = unknown>(value: unknown): T[] | null {
-  return Array.isArray(value) ? (value as T[]) : null;
+function objectValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
 }
 
-function getCodeSnippet(raw: any): string | undefined {
-  return (
-    asString(raw.codeSnippet) ??
-    asString(raw.code_snippet) ??
-    asString(raw.snippet)
-  );
+function arrayValue<T>(value: unknown): T[] | null {
+  return Array.isArray(value) ? (value as T[]) : null
 }
 
-function getSecuritySeverity(raw: any, fallback = 'low'): string {
-  // Analyzer `severity` is the VS Code diagnostic level. The web platform
-  // needs security impact, so prefer the normalized securitySeverity field.
-  return (
-    asString(raw.security_severity) ??
-    asString(raw.securitySeverity) ??
-    asString(raw.risk_level) ??
-    fallback
-  );
+function severityValue(value: unknown): SecuritySeverity {
+  const normalized = stringValue(value)?.toLowerCase()
+  if (normalized === 'critical' || normalized === 'high' || normalized === 'medium' || normalized === 'low') {
+    return normalized
+  }
+  return 'low'
 }
 
-function getDiagnosticSeverity(raw: any): string {
-  return (
-    asString(raw.original_severity) ??
-    asString(raw.originalSeverity) ??
-    asString(raw.severity) ??
-    'warning'
-  );
+function confidenceValue(value: unknown): DetectionConfidence {
+  const normalized = stringValue(value)?.toLowerCase()
+  if (normalized === 'high' || normalized === 'medium' || normalized === 'low') return normalized
+  return 'medium'
 }
 
-function baseFinding(
-  raw: any,
-  module: Module,
-  defaultTitle: string
-): UploadFinding {
+function canonicalFinding(
+  raw: Record<string, any>,
+  component: Component,
+  folder: vscode.WorkspaceFolder,
+): ApiFinding {
+  const filePath = workspaceRelativePath(
+    folder,
+    stringValue(raw.file_path) ?? stringValue(raw.filePath) ?? stringValue(raw.file),
+  )
+
   return {
-    module,
-    rule_id: asString(raw.rule_id) ?? asString(raw.ruleId) ?? asString(raw.code),
-    title: asString(raw.title) ?? asString(raw.message) ?? defaultTitle,
-    description: asString(raw.description),
-    severity: getSecuritySeverity(raw),
-    original_severity: getDiagnosticSeverity(raw),
-    confidence: asString(raw.confidence) ?? null,
-    category: asString(raw.category) ?? null,
-    cwe: asString(raw.cwe) ?? null,
-    evidence:
-      raw.evidence && typeof raw.evidence === 'object' && !Array.isArray(raw.evidence)
-        ? raw.evidence
-        : null,
-    fingerprint: asString(raw.fingerprint) ?? null,
-    file_path:
-      asString(raw.file_path) ??
-      asString(raw.filePath) ??
-      asString(raw.file),
-    line_number: asNumber(raw.line_number) ?? asNumber(raw.line),
-    column_number: asNumber(raw.column_number) ?? asNumber(raw.column),
-    code_snippet: getCodeSnippet(raw),
-    function_name: asString(raw.function_name) ?? asString(raw.functionName) ?? null,
-    complexity: asNumber(raw.complexity) ?? null,
-    nesting_depth: asNumber(raw.nesting_depth) ?? asNumber(raw.nestingDepth) ?? null,
-    function_loc: asNumber(raw.function_loc) ?? asNumber(raw.functionLoc) ?? null,
+    component,
+    fingerprint: stringValue(raw.fingerprint),
+    rule_id: stringValue(raw.rule_id) ?? stringValue(raw.ruleId),
+    title: stringValue(raw.title) ?? stringValue(raw.message) ?? `${component} security finding`,
+    description: stringValue(raw.description) ?? stringValue(raw.message) ?? null,
+    diagnostic_severity: 'warning',
+    security_severity: severityValue(raw.security_severity ?? raw.securitySeverity),
+    confidence: confidenceValue(raw.confidence),
+    category: stringValue(raw.category) ?? null,
+    cwe: stringValue(raw.cwe) ?? null,
+    remediation: stringValue(raw.remediation) ?? null,
+    evidence: objectValue(raw.evidence),
+    file_path: filePath,
+    line_number: numberValue(raw.line_number) ?? numberValue(raw.line) ?? null,
+    column_number: numberValue(raw.column_number) ?? numberValue(raw.column) ?? null,
+    code_snippet:
+      stringValue(raw.code_snippet) ?? stringValue(raw.codeSnippet) ?? stringValue(raw.snippet) ?? null,
+    function_name: stringValue(raw.function_name) ?? stringValue(raw.functionName) ?? null,
+    complexity: numberValue(raw.complexity) ?? null,
+    nesting_depth: numberValue(raw.nesting_depth) ?? numberValue(raw.nestingDepth) ?? null,
+    function_loc: numberValue(raw.function_loc) ?? numberValue(raw.functionLoc) ?? null,
     maintainability_score:
-      asNumber(raw.maintainability_score) ??
-      asNumber(raw.maintainabilityScore) ??
-      null,
+      numberValue(raw.maintainability_score) ?? numberValue(raw.maintainabilityScore) ?? null,
     maintainability_level:
-      asString(raw.maintainability_level) ??
-      asString(raw.maintainabilityLevel) ??
-      null,
-  };
+      stringValue(raw.maintainability_level) ?? stringValue(raw.maintainabilityLevel) ?? null,
+    secret_type: component === 'HSD'
+      ? stringValue(raw.secret_type) ?? stringValue(raw.secretType) ?? null
+      : null,
+    taint_flow: component === 'HSD'
+      ? arrayValue<TaintFlowStep>(raw.taint_flow ?? raw.taintFlow)
+      : null,
+    data_type: component === 'IDS'
+      ? stringValue(raw.data_type) ?? stringValue(raw.dataType) ?? null
+      : null,
+    storage_context: component === 'IDS'
+      ? stringValue(raw.storage_context) ?? stringValue(raw.storageContext) ?? null
+      : null,
+  }
 }
 
-function normaliseHsd(raw: any[]): UploadFinding[] {
-  return raw.map((r) => ({
-    ...baseFinding(r, 'HSD', 'Hardcoded Secret Detected'),
-    secret_type: asString(r.secret_type) ?? asString(r.secretType) ?? null,
-    taint_flow: asArray<TaintFlowStep>(r.taint_flow ?? r.taintFlow),
-  }));
+function findingsForFolder(folder: vscode.WorkspaceFolder): ApiFinding[] {
+  return [
+    ...readJsonArray(hsdFindingsPathForFolder(folder)).map((raw) => canonicalFinding(raw, 'HSD', folder)),
+    ...readJsonArray(netFindingsPathForFolder(folder)).map((raw) => canonicalFinding(raw, 'NET', folder)),
+    ...readJsonArray(idsFindingsPathForFolder(folder)).map((raw) => canonicalFinding(raw, 'IDS', folder)),
+    ...readJsonArray(iivFindingsPathForFolder(folder)).map((raw) => canonicalFinding(raw, 'IIV', folder)),
+  ]
 }
 
-function normaliseNet(raw: any[]): UploadFinding[] {
-  return raw.map((r) => ({
-    ...baseFinding(r, 'SNC', 'Insecure Network Configuration'),
-  }));
-}
-
-function normaliseIds(raw: any[]): UploadFinding[] {
-  return raw.map((r) => ({
-    ...baseFinding(r, 'SDS', 'Insecure Data Storage'),
-    risk_level:
-      asString(r.security_severity) ??
-      asString(r.securitySeverity) ??
-      null,
-    data_type: asString(r.data_type) ?? asString(r.dataType) ?? null,
-    storage_context:
-      asString(r.storage_context) ?? asString(r.storageContext) ?? null,
-  }));
-}
-
-function normaliseIiv(raw: any[]): UploadFinding[] {
-  return raw.map((r) => ({
-    ...baseFinding(r, 'IVS', 'Insufficient Input Validation'),
-  }));
-}
-
-export async function uploadFindings(context: vscode.ExtensionContext) {
-  const folders = vscode.workspace.workspaceFolders;
-  if (!folders || folders.length === 0) {
-    vscode.window.showWarningMessage('FLUSEC: No workspace folders open.');
-    return;
+export async function uploadFindings(context: vscode.ExtensionContext): Promise<void> {
+  const folders = vscode.workspace.workspaceFolders ?? []
+  if (folders.length === 0) {
+    vscode.window.showWarningMessage('FLUSEC: No workspace folder is open.')
+    return
   }
 
-  const token = await getStoredToken(context);
-  const teamId = await getStoredTeamId(context);
-
-  if (!token || !teamId) {
+  const team = await getSelectedTeam(context)
+  if (!team) {
     const action = await vscode.window.showErrorMessage(
-      'FLUSEC: You are not logged in. Please run "FluSec: Login to Team" first.',
-      'Login now'
-    );
-    if (action === 'Login now') {
-      await vscode.commands.executeCommand('flusec.loginToTeam');
-    }
-    return;
+      'FLUSEC: No team is selected for this workspace. Connect your account or select a team first.',
+      'Connect Account',
+    )
+    if (action === 'Connect Account') await vscode.commands.executeCommand('flusec.loginToTeam')
+    return
   }
 
-  const config = vscode.workspace.getConfiguration('flusec');
-  const endpoint = (config.get<string>('webApiEndpoint') ?? 'http://localhost:3001').replace(/\/$/, '');
-
-  let totalUploaded = 0;
-  let totalErrors = 0;
+  const endpoint = CONFIG.WEB_API_ENDPOINT.replace(/\/$/, '')
+  let totalObserved = 0
+  let totalResolved = 0
+  let failedWorkspaces = 0
 
   await vscode.window.withProgress(
     {
@@ -221,77 +197,67 @@ export async function uploadFindings(context: vscode.ExtensionContext) {
     },
     async (progress) => {
       for (const folder of folders) {
-        const hsdRaw = readJsonArray(hsdFindingsPathForFolder(folder));
-        const netRaw = readJsonArray(netFindingsPathForFolder(folder));
-        const idsRaw = readJsonArray(idsFindingsPathForFolder(folder));
-        const iivRaw = readJsonArray(iivFindingsPathForFolder(folder));
+        const findings = findingsForFolder(folder)
+        const lastScan = getLastExplicitScan(context, folder)
 
-        const findings: UploadFinding[] = [
-          ...normaliseHsd(hsdRaw),
-          ...normaliseNet(netRaw),
-          ...normaliseIds(idsRaw),
-          ...normaliseIiv(iivRaw),
-        ];
-
-        if (findings.length === 0) {
-          progress.report({ message: `${folder.name}: no findings to sync` });
-          continue;
-        }
+        // If no explicit scan was recorded, use conservative file scope. This
+        // prevents a background/autoscan result from resolving unrelated project findings.
+        const scanScope = lastScan?.scope ?? 'file'
+        const scannedTarget = lastScan?.target ?? '.'
 
         progress.report({
-          message: `Uploading ${findings.length} findings from ${folder.name}…`,
-        });
+          message: `${folder.name}: syncing ${findings.length} finding${findings.length === 1 ? '' : 's'}…`,
+        })
 
         try {
-          const res = await fetch(`${endpoint}/api/findings/upload`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
+          const response = await authenticatedFetch(
+            context,
+            `${endpoint}/api/v1/findings/upload`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+              },
+              body: JSON.stringify({
+                team_id: team.id,
+                workspace_id: workspaceIdentity(folder),
+                scan_scope: scanScope,
+                scanned_target: scannedTarget,
+                findings,
+              }),
             },
-            body: JSON.stringify({
-              team_id: teamId,
-              scanned_file: folder.name,
-              findings,
-            }),
-          });
+          )
 
-          const json = await res.json().catch(() => ({} as any));
+          const text = await response.text()
+          let payload: UploadResponse = {}
+          try { payload = text ? JSON.parse(text) as UploadResponse : {} } catch { /* handled below */ }
 
-          if (!res.ok) {
-            totalErrors += 1;
+          if (!response.ok) {
+            failedWorkspaces += 1
             vscode.window.showWarningMessage(
-              `FLUSEC: Failed to sync ${folder.name}: ${json?.error ?? `HTTP ${res.status}`}`
-            );
-            continue;
+              `FLUSEC: Could not sync ${folder.name}: ${payload.error ?? `HTTP ${response.status}`}`,
+            )
+            continue
           }
 
-          totalUploaded += json?.data?.findings_count ?? findings.length;
-        } catch (e) {
-          totalErrors += 1;
-          vscode.window.showWarningMessage(
-            `FLUSEC: Failed to sync ${folder.name}: ${String(e)}`
-          );
+          totalObserved += payload.data?.findings_count ?? findings.length
+          totalResolved += payload.data?.resolved_count ?? 0
+        } catch (error) {
+          failedWorkspaces += 1
+          vscode.window.showWarningMessage(`FLUSEC: Could not sync ${folder.name}: ${String(error)}`)
         }
       }
-    }
-  );
+    },
+  )
 
-  if (totalErrors > 0 && totalUploaded > 0) {
-    vscode.window.showWarningMessage(
-      `FLUSEC: Sync completed with warnings. Uploaded ${totalUploaded} findings, ${totalErrors} workspace(s) failed.`
-    );
-    return;
-  }
-
-  if (totalErrors > 0) {
-    vscode.window.showErrorMessage(
-      `FLUSEC: Sync failed. ${totalErrors} workspace(s) could not be uploaded.`
-    );
-    return;
+  if (failedWorkspaces > 0) {
+    const message = `FLUSEC: Sync finished with ${failedWorkspaces} failed workspace${failedWorkspaces === 1 ? '' : 's'}. ${totalObserved} findings observed.`
+    vscode.window.showWarningMessage(message)
+    return
   }
 
   vscode.window.showInformationMessage(
-    `FLUSEC: Sync completed successfully. Uploaded ${totalUploaded} findings.`
-  );
+    `FLUSEC: Sync complete. ${totalObserved} findings observed${totalResolved > 0 ? `, ${totalResolved} resolved` : ''}.`,
+  )
 }
