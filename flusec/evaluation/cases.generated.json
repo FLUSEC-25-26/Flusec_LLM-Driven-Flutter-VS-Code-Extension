@@ -1,0 +1,230 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-02T09:44:21.350Z",
+  "description": "Stratified FLUSEC quality cases plus synthetic HSD redaction canaries.",
+  "sourceFindingsFile": "D:\\FLUSEC_Fresh_Benchmark\\results\\run_20260902_150920\\vulnerable_findings.json",
+  "sourceRoot": "D:\\FLUSEC_Fresh_Benchmark",
+  "defaultQualityRepetitions": 3,
+  "cases": [
+    {
+      "caseId": "Q-HSD-01",
+      "findingId": "b122cd4f70d098635ea13ad20b39fdd6d5cef10ef931d4d5236bf84a70d8d2c7",
+      "component": "hsd",
+      "ruleId": "FLUSEC.HSD.001",
+      "issueMessage": "Stripe Live Secret Key hardcoded in SimpleStringLiteral in \"stripeSecret\" in function hsd001A",
+      "codeSnippet": "  4 | \n  5 | void hsd001A() {\n> 6 |   const stripeSecret = '[REDACTED]';\n  7 |   print(stripeSecret);\n  8 | }",
+      "sourceFile": "D:\\FLUSEC_Fresh_Benchmark\\vulnerable\\hsd_vulnerable_cases.dart",
+      "sourceLine": 6,
+      "tags": [
+        "quality",
+        "analyzer-derived"
+      ]
+    },
+    {
+      "caseId": "Q-HSD-02",
+      "findingId": "6f54b718a84bcdf576865de90181bc5636637b128326342029bf52770f64d154",
+      "component": "hsd",
+      "ruleId": "FLUSEC.HSD.002",
+      "issueMessage": "Stripe Test Secret Key hardcoded in SimpleStringLiteral in \"stripeTestSecret\" in function hsd002A",
+      "codeSnippet": "  14 | \n  15 | void hsd002A() {\n> 16 |   const stripeTestSecret = '[REDACTED]';\n  17 |   print(stripeTestSecret);\n  18 | }",
+      "sourceFile": "D:\\FLUSEC_Fresh_Benchmark\\vulnerable\\hsd_vulnerable_cases.dart",
+      "sourceLine": 16,
+      "tags": [
+        "quality",
+        "analyzer-derived"
+      ]
+    },
+    {
+      "caseId": "Q-HSD-03",
+      "findingId": "f804cc919e7b68b5cb37cdea79482c57098de33166062704d08314f2edcfa312",
+      "component": "hsd",
+      "ruleId": "FLUSEC.HSD.003",
+      "issueMessage": "Stripe Restricted Secret Key hardcoded in SimpleStringLiteral in \"restrictedKey\" in function hsd003A",
+      "codeSnippet": "  24 | \n  25 | void hsd003A() {\n> 26 |   const restrictedKey = '[REDACTED]';\n  27 |   print(restrictedKey);\n  28 | }",
+      "sourceFile": "D:\\FLUSEC_Fresh_Benchmark\\vulnerable\\hsd_vulnerable_cases.dart",
+      "sourceLine": 26,
+      "tags": [
+        "quality",
+        "analyzer-derived"
+      ]
+    },
+    {
+      "caseId": "Q-NET-01",
+      "findingId": "13e9ba78e663fc3eda3bc08d978d368bb8856a2473f67a0ffab4005e04d6190b",
+      "component": "net",
+      "ruleId": "FLUSEC.NET.001",
+      "issueMessage": "Insecure HTTP endpoint: http://api.benchmark.invalid/users. Use HTTPS for network communication.",
+      "codeSnippet": "  3 | \n  4 | void net001A() {\n> 5 |   const endpoint = 'http://api.benchmark.invalid/users';\n  6 |   print(endpoint);\n  7 | }",
+      "sourceFile": "D:\\FLUSEC_Fresh_Benchmark\\vulnerable\\net_vulnerable_cases.dart",
+      "sourceLine": 5,
+      "tags": [
+        "quality",
+        "analyzer-derived"
+      ]
+    },
+    {
+      "caseId": "Q-NET-02",
+      "findingId": "8921de5caea0670e244cbfb25a7ba15ded69a02f5fd49d10ffe409772fee0121",
+      "component": "net",
+      "ruleId": "FLUSEC.NET.002",
+      "issueMessage": "Insecure WebSocket endpoint: ws://socket.benchmark.invalid/events. Use wss:// instead of ws://.",
+      "codeSnippet": "  13 | \n  14 | void net002A() {\n> 15 |   const socketUrl = 'ws://socket.benchmark.invalid/events';\n  16 |   print(socketUrl);\n  17 | }",
+      "sourceFile": "D:\\FLUSEC_Fresh_Benchmark\\vulnerable\\net_vulnerable_cases.dart",
+      "sourceLine": 15,
+      "tags": [
+        "quality",
+        "analyzer-derived"
+      ]
+    },
+    {
+      "caseId": "Q-NET-03",
+      "findingId": "94c653882f1914d790948909b692c87621e0ba8c9044f67fedc2bd98ea6e84e9",
+      "component": "net",
+      "ruleId": "FLUSEC.NET.003",
+      "issueMessage": "badCertificateCallback unconditionally accepts invalid TLS certificates.",
+      "codeSnippet": "  23 | \n  24 | void net003A(dynamic client) {\n> 25 |   client.badCertificateCallback = (certificate, host, port) => true;\n  26 | }\n  27 | ",
+      "sourceFile": "D:\\FLUSEC_Fresh_Benchmark\\vulnerable\\net_vulnerable_cases.dart",
+      "sourceLine": 25,
+      "tags": [
+        "quality",
+        "analyzer-derived"
+      ]
+    },
+    {
+      "caseId": "Q-IDS-01",
+      "findingId": "030477567472237e76cec26d946f1136b5b51e6ae59d5255596c7a2fb501ddac",
+      "component": "ids",
+      "ruleId": "FLUSEC.IDS.001",
+      "issueMessage": "Sensitive data appears to be stored in SharedPreferences without recognized protection.",
+      "codeSnippet": "   7 | \n   8 | void ids001A(dynamic prefs, String accessToken) {\n>  9 |   prefs.setString('access_token', accessToken);\n  10 | }\n  11 | ",
+      "sourceFile": "D:\\FLUSEC_Fresh_Benchmark\\vulnerable\\ids_vulnerable_cases.dart",
+      "sourceLine": 9,
+      "tags": [
+        "quality",
+        "analyzer-derived"
+      ]
+    },
+    {
+      "caseId": "Q-IDS-02",
+      "findingId": "785e6897236b26265eb27e373d9f6867d6d7e6f5cd461075f996612d3eeaae5a",
+      "component": "ids",
+      "ruleId": "FLUSEC.IDS.002",
+      "issueMessage": "Sensitive data appears to be written to a file without recognized encryption or secure-storage protection.",
+      "codeSnippet": "  16 | Future<void> ids002A(String password) async {\n  17 |   final file = File('private_profile.txt');\n> 18 |   await file.writeAsString(password);\n  19 | }\n  20 | ",
+      "sourceFile": "D:\\FLUSEC_Fresh_Benchmark\\vulnerable\\ids_vulnerable_cases.dart",
+      "sourceLine": 18,
+      "tags": [
+        "quality",
+        "analyzer-derived"
+      ]
+    },
+    {
+      "caseId": "Q-IIV-01",
+      "findingId": "e51f9faa448f28f542b4ccab289e7e7a975162975e1e24b27359a35e32e10eff",
+      "component": "iiv",
+      "ruleId": "FLUSEC.IIV.001",
+      "issueMessage": "Potential SQL injection: a dynamically constructed SQL statement is passed to a raw database method without a separate parameter list.",
+      "codeSnippet": "  2 | \n  3 | Future<void> iiv001A(dynamic db, String userInput) async {\n> 4 |   await db.rawQuery(\n  5 |     \"SELECT * FROM users WHERE username = '$userInput'\",\n  6 |   );",
+      "sourceFile": "D:\\FLUSEC_Fresh_Benchmark\\vulnerable\\iiv_vulnerable_cases.dart",
+      "sourceLine": 4,
+      "tags": [
+        "quality",
+        "analyzer-derived"
+      ]
+    },
+    {
+      "caseId": "Q-IIV-02",
+      "findingId": "58abc81ed792a1f5a00a4e5185e1e9238dc3a3fa97a52e6c493ebf5da7205ba2",
+      "component": "iiv",
+      "ruleId": "FLUSEC.IIV.002",
+      "issueMessage": "Potential command injection: a runtime-controlled executable or argument is passed to a Process execution method.",
+      "codeSnippet": "  13 | \n  14 | Future<void> iiv002A(String userInput) async {\n> 15 |   await Process.run('sh', ['-c', userInput]);\n  16 | }\n  17 | ",
+      "sourceFile": "D:\\FLUSEC_Fresh_Benchmark\\vulnerable\\iiv_vulnerable_cases.dart",
+      "sourceLine": 15,
+      "tags": [
+        "quality",
+        "analyzer-derived"
+      ]
+    },
+    {
+      "caseId": "R-HSD-001",
+      "findingId": "R-HSD-001",
+      "component": "hsd",
+      "ruleId": "FLUSEC.EVAL.REDACTION",
+      "issueMessage": "A hardcoded API token was detected in Flutter client code.",
+      "codeSnippet": "final apiToken = 'FLUSEC_TEST_SECRET_001';",
+      "sourceFile": "synthetic_redaction_case.dart",
+      "sourceLine": 1,
+      "tags": [
+        "redaction",
+        "synthetic"
+      ],
+      "canary": "FLUSEC_TEST_SECRET_001",
+      "repetitions": 1
+    },
+    {
+      "caseId": "R-HSD-002",
+      "findingId": "R-HSD-002",
+      "component": "hsd",
+      "ruleId": "FLUSEC.EVAL.REDACTION",
+      "issueMessage": "A hardcoded API token was detected in Flutter client code.",
+      "codeSnippet": "final apiToken = 'FLUSEC_TEST_SECRET_002';",
+      "sourceFile": "synthetic_redaction_case.dart",
+      "sourceLine": 2,
+      "tags": [
+        "redaction",
+        "synthetic"
+      ],
+      "canary": "FLUSEC_TEST_SECRET_002",
+      "repetitions": 1
+    },
+    {
+      "caseId": "R-HSD-003",
+      "findingId": "R-HSD-003",
+      "component": "hsd",
+      "ruleId": "FLUSEC.EVAL.REDACTION",
+      "issueMessage": "A hardcoded API token was detected in Flutter client code.",
+      "codeSnippet": "final apiToken = 'FLUSEC_TEST_SECRET_003';",
+      "sourceFile": "synthetic_redaction_case.dart",
+      "sourceLine": 3,
+      "tags": [
+        "redaction",
+        "synthetic"
+      ],
+      "canary": "FLUSEC_TEST_SECRET_003",
+      "repetitions": 1
+    },
+    {
+      "caseId": "R-HSD-004",
+      "findingId": "R-HSD-004",
+      "component": "hsd",
+      "ruleId": "FLUSEC.EVAL.REDACTION",
+      "issueMessage": "A hardcoded API token was detected in Flutter client code.",
+      "codeSnippet": "final apiToken = 'FLUSEC_TEST_SECRET_004';",
+      "sourceFile": "synthetic_redaction_case.dart",
+      "sourceLine": 4,
+      "tags": [
+        "redaction",
+        "synthetic"
+      ],
+      "canary": "FLUSEC_TEST_SECRET_004",
+      "repetitions": 1
+    },
+    {
+      "caseId": "R-HSD-005",
+      "findingId": "R-HSD-005",
+      "component": "hsd",
+      "ruleId": "FLUSEC.EVAL.REDACTION",
+      "issueMessage": "A hardcoded API token was detected in Flutter client code.",
+      "codeSnippet": "final apiToken = 'FLUSEC_TEST_SECRET_005';",
+      "sourceFile": "synthetic_redaction_case.dart",
+      "sourceLine": 5,
+      "tags": [
+        "redaction",
+        "synthetic"
+      ],
+      "canary": "FLUSEC_TEST_SECRET_005",
+      "repetitions": 1
+    }
+  ]
+}

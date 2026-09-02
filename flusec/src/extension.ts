@@ -25,6 +25,7 @@ import {
   testConfiguredLlmProvider,
 } from './llm/feedbackService.js';
 import type { LlmProviderId } from './llm/types.js';
+import { registerLlmEvaluationCommand } from './evaluation/llmEvaluationRunner.js';
 import { openDashboard } from './web/hsd/dashboard.js';
 import { openNetDashboard, refreshNetDashboard } from './web/net/dasboard.js';
 import { openIDSDashboard } from './web/ids/dashboard.js';
@@ -349,6 +350,7 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   registerHoverProvider(context);
+  registerLlmEvaluationCommand(context);
   registerFlusecNavigationView(context);
 
   // Offline-first startup: team-specific cache when available, otherwise the

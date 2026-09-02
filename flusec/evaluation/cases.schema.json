@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flusec.local/schemas/llm-evaluation-cases-v1.json",
+  "title": "FLUSEC LLM evaluation cases",
+  "type": "object",
+  "required": ["schemaVersion", "cases"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "description": { "type": "string" },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "caseId",
+          "findingId",
+          "component",
+          "ruleId",
+          "issueMessage",
+          "codeSnippet"
+        ],
+        "properties": {
+          "caseId": { "type": "string", "minLength": 1 },
+          "findingId": { "type": "string" },
+          "component": { "enum": ["hsd", "net", "ids", "iiv"] },
+          "ruleId": { "type": "string" },
+          "issueMessage": { "type": "string", "minLength": 1 },
+          "codeSnippet": { "type": "string" },
+          "sourceFile": { "type": "string" },
+          "sourceLine": { "type": "integer", "minimum": 1 },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "canary": { "type": "string" },
+          "repetitions": { "type": "integer", "minimum": 1, "maximum": 20 }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

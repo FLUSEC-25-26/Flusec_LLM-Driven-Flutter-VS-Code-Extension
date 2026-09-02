@@ -71,6 +71,10 @@
       {
         "command": "flusec.testLlmProvider",
         "title": "FluSec: Test LLM Feedback Provider"
+      },
+      {
+        "command": "flusec.runLlmEvaluation",
+        "title": "FLUSEC: Run Automated LLM Evaluation"
       }
     ],
     "configuration": {
@@ -184,6 +188,7 @@
     "dist",
     "web",
     "dart-analyzer",
+    "evaluation",
     "resources"
   ],
   "scripts": {
